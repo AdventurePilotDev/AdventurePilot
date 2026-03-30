@@ -29,7 +29,7 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
   RELAY_MALFUNCTION_ADDRS = {0: (0x120,), 2: ()}
   FWD_BLACKLISTED_ADDRS = {0: [], 2: [0x120]}
 
-  MAX_TORQUE_LOOKUP = [9, 17], [350, 250]
+  MAX_TORQUE_LOOKUP = [9, 17], [450, 350]
   DYNAMIC_MAX_TORQUE = True
   MAX_RATE_UP = 4
   MAX_RATE_DOWN = 5
