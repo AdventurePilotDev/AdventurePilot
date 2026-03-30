@@ -4,13 +4,8 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
-from collections.abc import Callable
-import pyray as rl
-
-from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.sunnypilot.widgets.list_view import option_item_sp
-from openpilot.system.ui.widgets.network import NavButton
 from openpilot.system.ui.widgets.scroller_tici import Scroller
 from openpilot.system.ui.widgets import Widget
 
@@ -18,10 +13,8 @@ from openpilot.system.ui.widgets import Widget
 class TuningLayout(Widget):
   """Tuning panel: Kp Low Speed / Kp High Speed (matches 2a00dafc0 Qt tuning panel)."""
 
-  def __init__(self, back_btn_callback: Callable):
+  def __init__(self):
     super().__init__()
-    self._back_button = NavButton(tr("Back"))
-    self._back_button.set_click_callback(back_btn_callback)
     items = self._initialize_items()
     self._scroller = Scroller(items, line_separator=True, spacing=0)
 
@@ -50,17 +43,12 @@ class TuningLayout(Widget):
 
   def _update_state(self):
     super()._update_state()
-    self._kp_low_speed.action_item.set_enabled(ui_state.is_offroad())
-    self._kp_high_speed.action_item.set_enabled(ui_state.is_offroad())
+    # Allow tuning Kp while on road so adjustments can be made during drive
+    self._kp_low_speed.action_item.set_enabled(True)
+    self._kp_high_speed.action_item.set_enabled(True)
 
   def _render(self, rect):
-    self._back_button.set_position(self._rect.x, self._rect.y + 20)
-    self._back_button.render()
-    content_rect = rl.Rectangle(
-      rect.x, rect.y + self._back_button.rect.height + 40,
-      rect.width, rect.height - self._back_button.rect.height - 40,
-    )
-    self._scroller.render(content_rect)
+    self._scroller.render(rect)
 
   def show_event(self):
     self._scroller.show_event()
