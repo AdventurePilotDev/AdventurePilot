@@ -6,6 +6,7 @@ from cereal import log
 from opendbc.car.lateral import FRICTION_THRESHOLD, get_friction
 from openpilot.common.constants import ACCELERATION_DUE_TO_GRAVITY
 from openpilot.common.filter_simple import FirstOrderFilter
+from openpilot.common.params import Params
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
 from openpilot.common.pid import PIDController
 
@@ -48,6 +49,14 @@ class LatControlTorque(LatControl):
     self.lookahead_frames = int(JERK_LOOKAHEAD_SECONDS / self.dt)
     self.jerk_filter = FirstOrderFilter(0.0, 1 / (2 * np.pi * LP_FILTER_CUTOFF_HZ), self.dt)
 
+    # UI-configurable Kp tuning (Tuning menu: KpLowSpeed / KpHighSpeed)
+    self._params = Params()
+    self.kp_low_speed = float(self._params.get("KpLowSpeed") or "1.0")
+    self.kp_high_speed = float(self._params.get("KpHighSpeed") or "1.0")
+    self._param_update_frame = 0
+    self.kp_low_speed_lim = 6.7   # m/s
+    self.kp_high_speed_lim = 33.5  # m/s
+
     self.extension = LatControlTorqueExt(self, CP, CP_SP, CI)
 
   def update_live_torque_params(self, latAccelFactor, latAccelOffset, friction):
@@ -64,6 +73,15 @@ class LatControlTorque(LatControl):
     # Override torque params from extension
     if self.extension.update_override_torque_params(self.torque_params):
       self.update_limits()
+
+    # Re-read Tuning menu params periodically (~6 s at 50 Hz)
+    self._param_update_frame += 1
+    if self._param_update_frame % 300 == 0:
+      try:
+        self.kp_low_speed = float(self._params.get("KpLowSpeed") or "1.0")
+        self.kp_high_speed = float(self._params.get("KpHighSpeed") or "1.0")
+      except (TypeError, ValueError):
+        pass
 
     pid_log = log.ControlsState.LateralTorqueState.new_message()
     pid_log.version = VERSION
@@ -94,8 +112,10 @@ class LatControlTorque(LatControl):
       output_torque = 0.0
       pid_log.active = False
     else:
+      # Kp scaling from Tuning menu (interpolate by speed)
+      kp_working = np.interp(CS.vEgo, [self.kp_low_speed_lim, self.kp_high_speed_lim], [self.kp_low_speed, self.kp_high_speed])
       # do error correction in lateral acceleration space, convert at end to handle non-linear torque responses correctly
-      pid_log.error = float(error)
+      pid_log.error = float(error * kp_working)
 
       freeze_integrator = steer_limited_by_safety or CS.steeringPressed or CS.vEgo < 2
       output_lataccel = self.pid.update(pid_log.error, speed=CS.vEgo, feedforward=ff, freeze_integrator=freeze_integrator)
