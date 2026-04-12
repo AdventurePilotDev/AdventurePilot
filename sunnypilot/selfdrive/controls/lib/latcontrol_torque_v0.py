@@ -4,8 +4,9 @@ from collections import deque
 
 from cereal import log
 from opendbc.car.lateral import get_friction
-from openpilot.common.constants import ACCELERATION_DUE_TO_GRAVITY
+from openpilot.common.constants import ACCELERATION_DUE_TO_GRAVITY, CV
 from openpilot.common.filter_simple import FirstOrderFilter
+from openpilot.common.params import Params
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
 from openpilot.common.pid import PIDController
 
@@ -36,6 +37,8 @@ VERSION = 0
 # Match selfdrive/controls/lib/latcontrol_torque.py — boost PID error on right turns (negative desired lat accel).
 RIGHT_TURN_PID_GAIN_BOOST = 1.10
 
+LAT_ACCEL_FACTOR_SPLIT_MPH = 25.0
+
 
 class LatControlTorque(LatControl):
   def __init__(self, CP, CP_SP, CI, dt):
@@ -51,7 +54,23 @@ class LatControlTorque(LatControl):
     self.previous_measurement = 0.0
     self.measurement_rate_filter = FirstOrderFilter(0.0, 1 / (2 * np.pi * LP_FILTER_CUTOFF_HZ), self.dt)
 
+    self._params = Params()
     self.extension = LatControlTorqueExt(self, CP, CP_SP, CI)
+
+  def _apply_lat_accel_factor_speed_split(self, CS) -> bool:
+    if not (
+        self._params.get_bool("TorqueLatAccelFactorSpeedSplit")
+        and self._params.get_bool("CustomTorqueParams")
+        and self._params.get_bool("TorqueParamsOverrideEnabled")
+    ):
+      return False
+    v_break = LAT_ACCEL_FACTOR_SPLIT_MPH * CV.MPH_TO_MS
+    lo = float(self._params.get("TorqueParamsOverrideLatAccelFactor", return_default=True))
+    hi = float(self._params.get("TorqueParamsOverrideLatAccelFactorHighSpeed", return_default=True))
+    new_fac = lo if CS.vEgo < v_break else hi
+    old = self.torque_params.latAccelFactor
+    self.torque_params.latAccelFactor = float(new_fac)
+    return abs(old - new_fac) > 1e-9
 
   def update_live_torque_params(self, latAccelFactor, latAccelOffset, friction):
     self.torque_params.latAccelFactor = latAccelFactor
@@ -66,6 +85,9 @@ class LatControlTorque(LatControl):
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, calibrated_pose, curvature_limited, lat_delay):
     # Override torque params from extension
     if self.extension.update_override_torque_params(self.torque_params):
+      self.update_limits()
+
+    if self._apply_lat_accel_factor_speed_split(CS):
       self.update_limits()
 
     pid_log = log.ControlsState.LateralTorqueState.new_message()
