@@ -33,6 +33,9 @@ LAT_ACCEL_REQUEST_BUFFER_SECONDS = 1.0
 FRICTION_THRESHOLD = 0.3
 VERSION = 0
 
+# Match selfdrive/controls/lib/latcontrol_torque.py — boost PID error on right turns (negative desired lat accel).
+RIGHT_TURN_PID_GAIN_BOOST = 1.10
+
 
 class LatControlTorque(LatControl):
   def __init__(self, CP, CP_SP, CI, dt):
@@ -92,7 +95,8 @@ class LatControlTorque(LatControl):
       error = setpoint - measurement
 
       # do error correction in lateral acceleration space, convert at end to handle non-linear torque responses correctly
-      pid_log.error = float(error)
+      right_turn_boost = RIGHT_TURN_PID_GAIN_BOOST if future_desired_lateral_accel < 0 else 1.0
+      pid_log.error = float(error * right_turn_boost)
       ff = gravity_adjusted_future_lateral_accel
       # latAccelOffset corrects roll compensation bias from device roll misalignment relative to car roll
       ff -= self.torque_params.latAccelOffset
