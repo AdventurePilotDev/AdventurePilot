@@ -21,6 +21,7 @@ from openpilot.selfdrive.modeld.modeld import LAT_SMOOTH_SECONDS
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
 
 from openpilot.sunnypilot.selfdrive.controls.controlsd_ext import ControlsExt
+from openpilot.sunnypilot.livedelay.helpers import get_lat_delay
 
 State = log.SelfdriveState.OpenpilotState
 LaneChangeState = log.LaneChangeState
@@ -137,7 +138,7 @@ class Controls(ControlsExt):
     # Reset desired curvature to current to avoid violating the limits on engage
     new_desired_curvature = model_v2.action.desiredCurvature if CC.latActive else self.curvature
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll)
-    lat_delay = self.sm["liveDelay"].lateralDelay + LAT_SMOOTH_SECONDS
+    lat_delay = get_lat_delay(self.params, self.sm["liveDelay"].lateralDelay) + LAT_SMOOTH_SECONDS
 
     actuators.curvature = self.desired_curvature
     steer, steeringAngleDeg, lac_log = self.LaC.update(CC.latActive, CS, self.VM, lp,
