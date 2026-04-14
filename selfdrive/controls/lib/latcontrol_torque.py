@@ -37,7 +37,7 @@ VERSION = 1
 
 # Left turn is positive lateral accel; right turns use negative desired_lat_accel. Scale PID error
 # on the right-turn side only to offset asymmetric rack assist (e.g. Rivian PT00001953).
-RIGHT_TURN_PID_GAIN_BOOST = 1.10
+RIGHT_TURN_PID_GAIN_BOOST = 1.30
 
 # Speed split for menu lat accel factor: below this speed uses TorqueParamsOverrideLatAccelFactor, at/above uses HighSpeed.
 LAT_ACCEL_FACTOR_SPLIT_MPH = 25.0

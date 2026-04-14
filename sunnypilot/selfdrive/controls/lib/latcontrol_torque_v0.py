@@ -35,7 +35,7 @@ FRICTION_THRESHOLD = 0.3
 VERSION = 0
 
 # Match selfdrive/controls/lib/latcontrol_torque.py — boost PID error on right turns (negative desired lat accel).
-RIGHT_TURN_PID_GAIN_BOOST = 1.10
+RIGHT_TURN_PID_GAIN_BOOST = 1.30
 
 LAT_ACCEL_FACTOR_SPLIT_MPH = 25.0
 
