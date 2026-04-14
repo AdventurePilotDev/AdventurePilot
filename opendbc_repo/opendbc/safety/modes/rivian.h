@@ -109,9 +109,9 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
     .driver_torque_multiplier = 2,
     .driver_torque_allowance = 100,
     .type = TorqueDriverLimited,
-    // One-frame blip: openpilot sends torque=0 and steer_req=0; panda holds last torque for rate limit
+    // 3-frame blip: openpilot sends torque=0 and steer_req=0; panda holds last torque for rate limit
     .min_valid_request_frames = 43,
-    .max_invalid_request_frames = 1,
+    .max_invalid_request_frames = 3,
     .min_valid_request_rt_interval = 400000,  // 400ms min between blips
     .has_steer_req_tolerance = true,
   };

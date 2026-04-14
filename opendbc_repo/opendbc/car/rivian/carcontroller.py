@@ -8,10 +8,10 @@ from opendbc.car.rivian.values import CarControllerParams
 
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
 
-# Fault avoidance: one frame with torque=0 and request=0. Panda allows (0,0) through by skipping rate checks when steer_req=0.
+# Fault avoidance: torque=0 and request=0 for BLIP_FRAMES. Panda allows (0,0) through by skipping rate checks when steer_req=0.
 MAX_ANGLE_DEG = 90
 MAX_ANGLE_FRAMES = 43
-BLIP_FRAMES = 1
+BLIP_FRAMES = 3
 
 
 class CarController(CarControllerBase, MadsCarController):
@@ -35,7 +35,7 @@ class CarController(CarControllerBase, MadsCarController):
       apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last,
                                                       CS.out.steeringTorque, CarControllerParams, steer_max)
 
-    # Fault avoidance: one frame send torque=0 and request=0 (car requires both to not fault)
+    # Fault avoidance: send torque=0 and request=0 for BLIP_FRAMES (car requires both to not fault)
     self.angle_limit_counter, lka_act_toi = common_fault_avoidance(
       abs(CS.out.steeringAngleDeg) >= MAX_ANGLE_DEG,
       self.mads.lat_active,
