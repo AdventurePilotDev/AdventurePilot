@@ -8,10 +8,10 @@ from opendbc.car.rivian.values import CarControllerParams
 
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
 
-# Fault avoidance: one frame send torque=0 and request=0; car needs both to not see LKAS active. Panda allows (0,0) through by skipping rate checks when steer_req=0.
+# Fault avoidance: one frame with torque=0 and request=0. Panda allows (0,0) through by skipping rate checks when steer_req=0.
 MAX_ANGLE_DEG = 90
-MAX_ANGLE_FRAMES = 89
-BLIP_FRAMES = 2
+MAX_ANGLE_FRAMES = 43
+BLIP_FRAMES = 1
 
 
 class CarController(CarControllerBase, MadsCarController):
