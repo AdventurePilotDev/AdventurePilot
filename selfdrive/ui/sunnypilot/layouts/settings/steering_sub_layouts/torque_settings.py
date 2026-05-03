@@ -124,11 +124,7 @@ class TorqueSettingsLayout(Widget):
     self._torque_friction.action_item.set_enabled(sliders_enabled)
 
     title_text = tr("Real-Time & Offline") if ui_state.params.get("TorqueParamsOverrideEnabled") else tr("Offline Only")
-    self._torque_lat_accel_factor.set_title(
-      lambda: (tr("Lateral Acceleration Factor (<25 mph)") + " (" + title_text + ")")
-      if ui_state.params.get_bool("TorqueLatAccelFactorSpeedSplit")
-      else (tr("Lateral Acceleration Factor") + " (" + title_text + ")")
-    )
+    self._torque_lat_accel_factor.set_title(lambda: tr("Lateral Acceleration Factor") + " (" + title_text + ")")
     self._torque_friction.set_title(lambda: tr("Friction") + " (" + title_text + ")")
     self._torque_control_versions.action_item.set_value(self._get_current_torque_version_label())
 
