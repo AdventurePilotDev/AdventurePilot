@@ -45,12 +45,7 @@ class TorqueEstimatorExt:
         self.friction_sanity = 0.8 if decimated else 1.0
 
       if self._params.get_bool("CustomTorqueParams"):
-        if self._params.get_bool("TorqueLatAccelFactorSpeedSplit"):
-          lo = float(self._params.get("TorqueParamsOverrideLatAccelFactor", return_default=True))
-          hi = float(self._params.get("TorqueParamsOverrideLatAccelFactorHighSpeed", return_default=True))
-          self.offline_latAccelFactor = (lo + hi) / 2.0
-        else:
-          self.offline_latAccelFactor = float(self._params.get("TorqueParamsOverrideLatAccelFactor", return_default=True))
+        self.offline_latAccelFactor = float(self._params.get("TorqueParamsOverrideLatAccelFactor", return_default=True))
         self.offline_friction = float(self._params.get("TorqueParamsOverrideFriction", return_default=True))
 
   def _update_params(self):

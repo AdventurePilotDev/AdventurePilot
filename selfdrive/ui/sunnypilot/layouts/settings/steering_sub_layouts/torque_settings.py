@@ -72,12 +72,6 @@ class TorqueSettingsLayout(Widget):
       description=lambda: tr("Enforces the torque lateral controller to use the fixed values instead of the learned " +
                              "values from Self-Tune. Enabling this toggle overrides Self-Tune values."),
     )
-    self._torque_lat_accel_speed_split = toggle_item_sp(
-      param="TorqueLatAccelFactorSpeedSplit",
-      title=lambda: tr("Lat Accel Factor by Speed (25 mph)"),
-      description=lambda: tr("Use one Lateral Acceleration Factor below 25 mph and a second at/above 25 mph. " +
-                             "Requires Enable Custom Tuning and Manual Real-Time Tuning."),
-    )
     self._torque_lat_accel_factor = option_item_sp(
       title=lambda: tr("Lateral Acceleration Factor"),
       param="TorqueParamsOverrideLatAccelFactor",
@@ -89,16 +83,6 @@ class TorqueSettingsLayout(Widget):
       use_float_scaling=True
     )
 
-    self._torque_lat_accel_factor_high = option_item_sp(
-      title=lambda: tr("Lateral Acceleration Factor (≥25 mph)"),
-      param="TorqueParamsOverrideLatAccelFactorHighSpeed",
-      description="",
-      min_value=1,
-      max_value=500,
-      value_change_step=1,
-      label_callback=(lambda x: f"{x/100} m/s^2"),
-      use_float_scaling=True
-    )
     self._torque_friction = option_item_sp(
       title=lambda: tr("Friction"),
       param="TorqueParamsOverrideFriction",
@@ -116,9 +100,7 @@ class TorqueSettingsLayout(Widget):
       self._relaxed_tune_toggle,
       self._custom_tune_toggle,
       self._torque_prams_override_toggle,
-      self._torque_lat_accel_speed_split,
       self._torque_lat_accel_factor,
-      self._torque_lat_accel_factor_high,
       self._torque_friction,
     ]
     return items
@@ -132,18 +114,13 @@ class TorqueSettingsLayout(Widget):
     self._relaxed_tune_toggle.action_item.set_enabled(ui_state.is_offroad() and self._self_tune_toggle.action_item.get_state())
     self._custom_tune_toggle.action_item.set_enabled(ui_state.is_offroad())
     custom_tune_enabled = self._custom_tune_toggle.action_item.get_state()
-    speed_split = ui_state.params.get_bool("TorqueLatAccelFactorSpeedSplit")
     self._torque_prams_override_toggle.set_visible(custom_tune_enabled)
-    self._torque_lat_accel_speed_split.set_visible(custom_tune_enabled)
     self._torque_lat_accel_factor.set_visible(custom_tune_enabled)
-    self._torque_lat_accel_factor_high.set_visible(custom_tune_enabled and speed_split)
     self._torque_friction.set_visible(custom_tune_enabled)
 
     self._torque_prams_override_toggle.action_item.set_enabled(ui_state.is_offroad())
-    self._torque_lat_accel_speed_split.action_item.set_enabled(ui_state.is_offroad())
     sliders_enabled = self._torque_prams_override_toggle.action_item.get_state() or ui_state.is_offroad()
     self._torque_lat_accel_factor.action_item.set_enabled(sliders_enabled)
-    self._torque_lat_accel_factor_high.action_item.set_enabled(sliders_enabled)
     self._torque_friction.action_item.set_enabled(sliders_enabled)
 
     title_text = tr("Real-Time & Offline") if ui_state.params.get("TorqueParamsOverrideEnabled") else tr("Offline Only")
