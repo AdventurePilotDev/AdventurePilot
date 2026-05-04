@@ -113,7 +113,10 @@ class TorqueEstimator(ParameterEstimator, TorqueEstimatorExt):
         with car.CarParams.from_bytes(params_cache) as msg:
           cache_CP = msg
         if self.get_restore_key(cache_CP, cache_ltp.version) == self.get_restore_key(CP, VERSION):
-          if cache_ltp.liveValid:
+          # Restore learned values if fully valid OR if calibration is ≥75% complete.
+          # This ensures city-only drives use the learned LAF from a prior highway calibration
+          # even though liveValid requires 100% bucket fill (which city speeds never reach).
+          if cache_ltp.liveValid or cache_ltp.calPerc >= 0.75:
             initial_params = {
               'latAccelFactor': cache_ltp.latAccelFactorFiltered,
               'latAccelOffset': cache_ltp.latAccelOffsetFiltered,
