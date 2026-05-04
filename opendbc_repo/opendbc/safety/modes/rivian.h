@@ -95,13 +95,12 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
 }
 
 static bool rivian_tx_hook(const CANPacket_t *msg) {
-  // 500 low speed (< 9 m/s), 350 high speed (>= 17 m/s)
   const TorqueSteeringLimits RIVIAN_STEERING_LIMITS = {
-    .max_torque = 500,
+    .max_torque = 350,
     .dynamic_max_torque = true,
     .max_torque_lookup = {
       {9., 17., 17.},
-      {500, 350, 350},
+      {350, 350, 350},
     },
     .max_rate_up = 3,
     .max_rate_down = 5,

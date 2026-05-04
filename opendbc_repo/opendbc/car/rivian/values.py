@@ -108,9 +108,8 @@ GEAR_MAP = {
 
 
 class CarControllerParams:
-  # 500 low speed (< 9 m/s), 350 high speed (>= 17 m/s)
-  STEER_MAX = 500
-  STEER_MAX_LOOKUP = [9, 17], [500, 350]
+  STEER_MAX = 350
+  STEER_MAX_LOOKUP = [9, 17], [350, 350]
   STEER_STEP = 1
   STEER_DELTA_UP = 3  # torque increase per refresh
   STEER_DELTA_DOWN = 5  # torque decrease per refresh

@@ -116,7 +116,7 @@ class TorqueEstimator(ParameterEstimator, TorqueEstimatorExt):
           # Restore learned values if fully valid OR if calibration is ≥75% complete.
           # This ensures city-only drives use the learned LAF from a prior highway calibration
           # even though liveValid requires 100% bucket fill (which city speeds never reach).
-          if cache_ltp.liveValid or cache_ltp.calPerc >= 0.75:
+          if cache_ltp.liveValid or cache_ltp.calPerc >= 75.0:
             initial_params = {
               'latAccelFactor': cache_ltp.latAccelFactorFiltered,
               'latAccelOffset': cache_ltp.latAccelOffsetFiltered,
