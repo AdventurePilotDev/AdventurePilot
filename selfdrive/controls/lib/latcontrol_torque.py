@@ -39,6 +39,11 @@ VERSION = 1
 # on the right-turn side only to offset asymmetric rack assist (e.g. Rivian PT00001953).
 RIGHT_TURN_PID_GAIN_BOOST = 1.15
 
+# Below LOW_SPEED_DELAY_TRANSITION the EPS response is physically slower (~220ms measured).
+# Above it, lat_delay from lagd/CP is accurate. Interpolate to avoid a step change.
+LOW_SPEED_ACTUATOR_DELAY = 0.22
+LOW_SPEED_DELAY_TRANSITION = 7.0  # m/s (~15 mph)
+
 class LatControlTorque(LatControl):
   def __init__(self, CP, CP_SP, CI, dt):
     super().__init__(CP, CP_SP, CI, dt)
@@ -98,7 +103,8 @@ class LatControlTorque(LatControl):
     curvature_deadzone = abs(VM.calc_curvature(math.radians(self.steering_angle_deadzone_deg), CS.vEgo, 0.0))
     lateral_accel_deadzone = curvature_deadzone * CS.vEgo ** 2
 
-    delay_frames = int(np.clip(lat_delay / self.dt + 1, 1, self.lat_accel_request_buffer_len))
+    effective_delay = float(np.interp(CS.vEgo, [0.0, LOW_SPEED_DELAY_TRANSITION], [LOW_SPEED_ACTUATOR_DELAY, lat_delay]))
+    delay_frames = int(np.clip(effective_delay / self.dt + 1, 1, self.lat_accel_request_buffer_len))
     expected_lateral_accel = self.lat_accel_request_buffer[-delay_frames]
     setpoint = expected_lateral_accel
     error = setpoint - measurement
