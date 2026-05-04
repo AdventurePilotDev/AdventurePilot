@@ -11,7 +11,7 @@ from opendbc.sunnypilot.car.rivian.mads import MadsCarController
 # Fault avoidance: torque=0 and request=0 for BLIP_FRAMES. Panda allows (0,0) through by skipping rate checks when steer_req=0.
 MAX_ANGLE_DEG = 90
 MAX_ANGLE_FRAMES = 43
-BLIP_FRAMES = 3
+BLIP_FRAMES = 1
 
 
 class CarController(CarControllerBase, MadsCarController):
