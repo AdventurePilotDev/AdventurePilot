@@ -28,7 +28,8 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.LongitudinalAccelSafetyT
   # intercepted by the second (FCM) panda — see TestRivianFcmIntercept.
   TX_MSGS = [[0x321, 2], [0x162, 2]]
   RELAY_MALFUNCTION_ADDRS = {2: (0x321, 0x162)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: []}
+  # 0x120 also blocked by rivian_fwd_hook (intercepted by ext panda)
+  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162, 0x120], 2: [0x120]}
 
   cnt_speed = 0
   cnt_speed_2 = 0
@@ -124,7 +125,7 @@ class TestRivianLongitudinalSafety(TestRivianSafetyBase):
 
   TX_MSGS = [[0x321, 2], [0x160, 0]]
   RELAY_MALFUNCTION_ADDRS = {0: (0x160,), 2: (0x321,)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x321], 2: [0x160]}
+  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x120], 2: [0x160, 0x120]}
 
   def setUp(self):
     self.packer = CANPackerSafety("rivian_primary_actuator")
@@ -138,8 +139,9 @@ class TestRivianFcmIntercept(common.CarSafetyTest, common.DriverTorqueSteeringSa
   # ACM_Status arrives on bus 1; vehicle speed / brakes / driver torque are on the int panda only,
   # so they're not in this panda's rx_checks (no VehicleSpeedSafetyTest here).
   TX_MSGS = [[0x120, 2]]
-  RELAY_MALFUNCTION_ADDRS = {2: (0x120,)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x120], 2: []}
+  # check_relay disabled on FCM 0x120 (no relay-malfunction trigger), but rivian_fwd_hook still blocks 0x120 forwarding both directions
+  RELAY_MALFUNCTION_ADDRS = {}
+  FWD_BLACKLISTED_ADDRS = {0: [0x120], 2: [0x120]}
 
   MAX_TORQUE_LOOKUP = [9, 17], [350, 250]
   DYNAMIC_MAX_TORQUE = True

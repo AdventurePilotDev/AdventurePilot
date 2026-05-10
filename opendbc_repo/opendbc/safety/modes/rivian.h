@@ -148,8 +148,10 @@ static safety_config rivian_init(uint16_t param) {
   static const CanMsg RIVIAN_TX_MSGS[] = {{0x321, 2, 7, .check_relay = true}, {0x162, 2, 8, .check_relay = true}};
   // 0x160 = ACM_longitudinalRequest
   static const CanMsg RIVIAN_LONG_TX_MSGS[] = {{0x321, 2, 7, .check_relay = true}, {0x160, 0, 5, .check_relay = true}};
-  // FCM-intercept (second panda): only the LKA command, on its bus 2 going toward the ACM
-  static const CanMsg RIVIAN_FCM_TX_MSGS[] = {{0x120, 2, 8, .check_relay = true}};
+  // FCM-intercept (second panda): only the LKA command, on its bus 2 going toward the ACM.
+  // check_relay disabled because in dual-intercept the ACM also broadcasts 0x120, so the
+  // relay-malfunction detector can't distinguish "FCM still alive" from normal ACM traffic.
+  static const CanMsg RIVIAN_FCM_TX_MSGS[] = {{0x120, 2, 8, .check_relay = false}};
 
   static RxCheck rivian_rx_checks[] = {
     {.msg = {{0x208, 0, 8, 50U, .max_counter = 14U}, { 0 }, { 0 }}},                                                             // ESP_Status (speed)
@@ -184,10 +186,19 @@ static safety_config rivian_init(uint16_t param) {
                                BUILD_SAFETY_CFG(rivian_rx_checks, RIVIAN_TX_MSGS);
 }
 
+// Block 0x120 (LKA command) from auto-forwarding across the relay on either panda.
+// In dual-intercept, only the FCM panda's openpilot-injected 0x120 should reach the ACM —
+// the FCM's native 0x120 must not pass through.
+static bool rivian_fwd_hook(int bus_num, int addr) {
+  SAFETY_UNUSED(bus_num);
+  return addr == 0x120;
+}
+
 const safety_hooks rivian_hooks = {
   .init = rivian_init,
   .rx = rivian_rx_hook,
   .tx = rivian_tx_hook,
+  .fwd = rivian_fwd_hook,
   .get_counter = rivian_get_counter,
   .get_checksum = rivian_get_checksum,
   .compute_checksum = rivian_compute_checksum,
