@@ -16,11 +16,13 @@ class CarInterface(CarInterfaceBase):
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
     ret.brand = "rivian"
 
-    # dual-intercept: second panda (external USB-C) runs allOutput so the bus
-    # stays healthy / ACKs traffic; openpilot doesn't send anything to bus 4-7
+    # dual-intercept: second panda (external USB-C) runs allOutput in passthrough
+    # mode (param=1) so it bridges bus 0 <-> bus 2 itself; openpilot doesn't send
+    # anything to bus 4-7 and the bus stays healthy / ACKs traffic
+    ALLOUTPUT_PARAM_PASSTHROUGH = 1
     ret.safetyConfigs = [
       get_safety_config(structs.CarParams.SafetyModel.rivian),
-      get_safety_config(structs.CarParams.SafetyModel.allOutput),
+      get_safety_config(structs.CarParams.SafetyModel.allOutput, ALLOUTPUT_PARAM_PASSTHROUGH),
     ]
 
     # GEN2 (2025+) doesn't have SCCM_WheelTouch on the bus
