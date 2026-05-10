@@ -12,6 +12,8 @@ from opendbc.sunnypilot.car.rivian.mads import MadsCarController
 MAX_ANGLE_DEG = 90
 MAX_ANGLE_FRAMES = 43
 BLIP_FRAMES = 1
+# Right turns require ~20% more torque to achieve equivalent lateral acceleration (measured asymmetry on R1T/R1S 2023)
+RIGHT_TURN_GAIN = 1.2
 
 
 class CarController(CarControllerBase, MadsCarController):
@@ -32,6 +34,8 @@ class CarController(CarControllerBase, MadsCarController):
                                       CarControllerParams.STEER_MAX_LOOKUP[1])))
     if self.mads.lat_active:
       new_torque = int(round(CC.actuators.torque * steer_max))
+      if new_torque < 0:
+        new_torque = int(new_torque * RIGHT_TURN_GAIN)
       apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last,
                                                       CS.out.steeringTorque, CarControllerParams, steer_max)
 
