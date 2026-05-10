@@ -45,6 +45,7 @@ class RivianFlags(IntFlag):
 
 class RivianSafetyFlags(IntFlag):
   LONG_CONTROL = 1
+  FCM_INTERCEPT = 2  # second panda intercepts 0x120 going from FCM to ACM
 
 
 class CAR(Platforms):

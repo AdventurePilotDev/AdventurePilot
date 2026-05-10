@@ -117,23 +117,22 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
 
   bool tx = true;
 
-  if (msg->bus == 0U) {
-    // Steering control
-    if (msg->addr == 0x120U) {
-      int desired_torque = ((msg->data[2] << 3U) | (msg->data[3] >> 5U)) - 1024U;
-      bool steer_req = (msg->data[3] >> 4) & 1U;
+  // bus is enforced by TX_MSGS whitelist (bus 0 for ACM-side, bus 2 for FCM intercept)
+  // Steering control
+  if (msg->addr == 0x120U) {
+    int desired_torque = ((msg->data[2] << 3U) | (msg->data[3] >> 5U)) - 1024U;
+    bool steer_req = (msg->data[3] >> 4) & 1U;
 
-      if (steer_torque_cmd_checks(desired_torque, steer_req, RIVIAN_STEERING_LIMITS)) {
-        tx = false;
-      }
+    if (steer_torque_cmd_checks(desired_torque, steer_req, RIVIAN_STEERING_LIMITS)) {
+      tx = false;
     }
+  }
 
-    // Longitudinal control
-    if (msg->addr == 0x160U) {
-      int raw_accel = ((msg->data[2] << 3) | (msg->data[3] >> 5)) - 1024U;
-      if (longitudinal_accel_checks(raw_accel, RIVIAN_LONG_LIMITS)) {
-        tx = false;
-      }
+  // Longitudinal control
+  if (msg->addr == 0x160U) {
+    int raw_accel = ((msg->data[2] << 3) | (msg->data[3] >> 5)) - 1024U;
+    if (longitudinal_accel_checks(raw_accel, RIVIAN_LONG_LIMITS)) {
+      tx = false;
     }
   }
 
@@ -143,10 +142,13 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
 static safety_config rivian_init(uint16_t param) {
   // SCCM_WheelTouch: for hiding hold wheel alert
   // VDM_AdasSts: for canceling stock ACC
-  // 0x120 = ACM_lkaHbaCmd, 0x321 = SCCM_WheelTouch, 0x162 = VDM_AdasSts
-  static const CanMsg RIVIAN_TX_MSGS[] = {{0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x162, 2, 8, .check_relay = true}};
+  // 0x321 = SCCM_WheelTouch, 0x162 = VDM_AdasSts
+  // 0x120 (ACM_lkaHbaCmd) is intercepted by the second (FCM) panda; see FLAG_RIVIAN_FCM_INTERCEPT below
+  static const CanMsg RIVIAN_TX_MSGS[] = {{0x321, 2, 7, .check_relay = true}, {0x162, 2, 8, .check_relay = true}};
   // 0x160 = ACM_longitudinalRequest
-  static const CanMsg RIVIAN_LONG_TX_MSGS[] = {{0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x160, 0, 5, .check_relay = true}};
+  static const CanMsg RIVIAN_LONG_TX_MSGS[] = {{0x321, 2, 7, .check_relay = true}, {0x160, 0, 5, .check_relay = true}};
+  // FCM-intercept (second panda): only the LKA command, on its bus 2 going toward the ACM
+  static const CanMsg RIVIAN_FCM_TX_MSGS[] = {{0x120, 2, 8, .check_relay = true}};
 
   static RxCheck rivian_rx_checks[] = {
     {.msg = {{0x208, 0, 8, 50U, .max_counter = 14U}, { 0 }, { 0 }}},                                                             // ESP_Status (speed)
@@ -157,12 +159,17 @@ static safety_config rivian_init(uint16_t param) {
   };
 
   bool rivian_longitudinal = false;
+  const int FLAG_RIVIAN_FCM_INTERCEPT = 2;
+  bool rivian_fcm_intercept = GET_FLAG(param, FLAG_RIVIAN_FCM_INTERCEPT);
 
-  SAFETY_UNUSED(param);
   #ifdef ALLOW_DEBUG
     const int FLAG_RIVIAN_LONG_CONTROL = 1;
     rivian_longitudinal = GET_FLAG(param, FLAG_RIVIAN_LONG_CONTROL);
   #endif
+
+  if (rivian_fcm_intercept) {
+    return BUILD_SAFETY_CFG(rivian_rx_checks, RIVIAN_FCM_TX_MSGS);
+  }
 
   // FIXME: cppcheck thinks that rivian_longitudinal is always false. This is not true
   // if ALLOW_DEBUG is defined but cppcheck is run without ALLOW_DEBUG
