@@ -14,6 +14,18 @@ from openpilot.common.swaglog import cloudlog
 
 from openpilot.sunnypilot.selfdrive.pandad.rivian_long_flasher import flash_rivian_long
 
+# User-facing USB-C controller on comma four. Defaults to peripheral; flip to host
+# so externally-attached pandas (e.g. dual-intercept second panda) enumerate.
+USB_HOST_MODE_PATH = "/sys/devices/platform/soc/a600000.ssusb/mode"
+
+
+def enable_usb_host_mode() -> None:
+  try:
+    with open(USB_HOST_MODE_PATH, "w") as f:
+      f.write("host")
+  except OSError as e:
+    cloudlog.warning(f"Could not set USB host mode at {USB_HOST_MODE_PATH}: {e}")
+
 
 def get_expected_signature() -> bytes:
   try:
@@ -80,6 +92,8 @@ def main() -> None:
   process = None
   do_exit = False
   signal.signal(signal.SIGINT, signal_handler)
+
+  enable_usb_host_mode()
 
   count = 0
   first_run = True
