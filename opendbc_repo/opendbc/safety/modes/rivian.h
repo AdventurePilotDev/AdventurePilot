@@ -77,9 +77,14 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
       update_sample(&torque_driver, torque_driver_new);
     }
 
-    // Brake pressed
+    // Brake pressed (int panda: iBESP2 = 0x38f)
     if (msg->addr == 0x38fU) {
       brake_pressed = (msg->data[2] >> 7) & 1U;
+    }
+
+    // Brake pressed (ext panda FCM intercept: ESP_AebFb = 0x102, used on cam-tap topology)
+    if (msg->addr == 0x102U) {
+      brake_pressed = (msg->data[1] >> 7) & 1U;
     }
   }
 
@@ -148,10 +153,8 @@ static safety_config rivian_init(uint16_t param) {
   static const CanMsg RIVIAN_TX_MSGS[] = {{0x321, 2, 7, .check_relay = true}, {0x162, 2, 8, .check_relay = true}};
   // 0x160 = ACM_longitudinalRequest
   static const CanMsg RIVIAN_LONG_TX_MSGS[] = {{0x321, 2, 7, .check_relay = true}, {0x160, 0, 5, .check_relay = true}};
-  // FCM-intercept (second panda): only the LKA command, on its bus 2 going toward the ACM.
-  // check_relay disabled because in dual-intercept the ACM also broadcasts 0x120, so the
-  // relay-malfunction detector can't distinguish "FCM still alive" from normal ACM traffic.
-  static const CanMsg RIVIAN_FCM_TX_MSGS[] = {{0x120, 2, 8, .check_relay = false}};
+  // FCM-intercept (second panda) — mirrors ap-cam-dev: only the LKA command, on the panda's bus 0
+  static const CanMsg RIVIAN_FCM_TX_MSGS[] = {{0x120, 0, 8, .check_relay = true}};
 
   static RxCheck rivian_rx_checks[] = {
     {.msg = {{0x208, 0, 8, 50U, .max_counter = 14U}, { 0 }, { 0 }}},                                                             // ESP_Status (speed)
@@ -161,9 +164,13 @@ static safety_config rivian_init(uint16_t param) {
     {.msg = {{0x100, 2, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // ACM_Status (cruise state)
   };
 
-  // FCM intercept (ext panda) only sees ACM_Status on its bus 1; other car-side messages live on the int panda's buses
+  // FCM intercept (ext panda) — mirrors ap-cam-dev: ESP/VDM/EPAS on bus 0, ESP_AebFb (brake) on bus 0, ACM_Status on bus 1
   static RxCheck rivian_fcm_rx_checks[] = {
-    {.msg = {{0x100, 1, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // ACM_Status (cruise state)
+    {.msg = {{0x208, 0, 8, 50U, .max_counter = 14U}, { 0 }, { 0 }}},                                                             // ESP_Status
+    {.msg = {{0x150, 0, 7, 50U, .max_counter = 14U}, { 0 }, { 0 }}},                                                             // VDM_PropStatus
+    {.msg = {{0x380, 0, 5, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // EPAS_SystemStatus
+    {.msg = {{0x102, 0, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // ESP_AebFb (brakes)
+    {.msg = {{0x100, 1, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // ACM_Status
   };
 
   bool rivian_longitudinal = false;
@@ -186,19 +193,10 @@ static safety_config rivian_init(uint16_t param) {
                                BUILD_SAFETY_CFG(rivian_rx_checks, RIVIAN_TX_MSGS);
 }
 
-// Block 0x120 (LKA command) from auto-forwarding across the relay on either panda.
-// In dual-intercept, only the FCM panda's openpilot-injected 0x120 should reach the ACM —
-// the FCM's native 0x120 must not pass through.
-static bool rivian_fwd_hook(int bus_num, int addr) {
-  SAFETY_UNUSED(bus_num);
-  return addr == 0x120;
-}
-
 const safety_hooks rivian_hooks = {
   .init = rivian_init,
   .rx = rivian_rx_hook,
   .tx = rivian_tx_hook,
-  .fwd = rivian_fwd_hook,
   .get_counter = rivian_get_counter,
   .get_checksum = rivian_get_checksum,
   .compute_checksum = rivian_compute_checksum,

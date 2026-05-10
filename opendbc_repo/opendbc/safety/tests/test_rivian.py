@@ -28,8 +28,7 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.LongitudinalAccelSafetyT
   # intercepted by the second (FCM) panda — see TestRivianFcmIntercept.
   TX_MSGS = [[0x321, 2], [0x162, 2]]
   RELAY_MALFUNCTION_ADDRS = {2: (0x321, 0x162)}
-  # 0x120 also blocked by rivian_fwd_hook (intercepted by ext panda)
-  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162, 0x120], 2: [0x120]}
+  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: []}
 
   cnt_speed = 0
   cnt_speed_2 = 0
@@ -125,7 +124,7 @@ class TestRivianLongitudinalSafety(TestRivianSafetyBase):
 
   TX_MSGS = [[0x321, 2], [0x160, 0]]
   RELAY_MALFUNCTION_ADDRS = {0: (0x160,), 2: (0x321,)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x120], 2: [0x160, 0x120]}
+  FWD_BLACKLISTED_ADDRS = {0: [0x321], 2: [0x160]}
 
   def setUp(self):
     self.packer = CANPackerSafety("rivian_primary_actuator")
@@ -134,14 +133,12 @@ class TestRivianLongitudinalSafety(TestRivianSafetyBase):
     self.safety.init_tests()
 
 
-class TestRivianFcmIntercept(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest):
-  # ext panda (at the FCM): intercepts ACM_lkaHbaCmd (0x120) on bus 2 going toward the ACM.
-  # ACM_Status arrives on bus 1; vehicle speed / brakes / driver torque are on the int panda only,
-  # so they're not in this panda's rx_checks (no VehicleSpeedSafetyTest here).
-  TX_MSGS = [[0x120, 2]]
-  # check_relay disabled on FCM 0x120 (no relay-malfunction trigger), but rivian_fwd_hook still blocks 0x120 forwarding both directions
-  RELAY_MALFUNCTION_ADDRS = {}
-  FWD_BLACKLISTED_ADDRS = {0: [0x120], 2: [0x120]}
+class TestRivianFcmIntercept(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest, common.VehicleSpeedSafetyTest):
+  # ext panda (at the FCM) — mirrors ap-cam-dev: intercepts ACM_lkaHbaCmd (0x120) on bus 0,
+  # reads ESP/VDM/EPAS on bus 0, ESP_AebFb (brake) on bus 0, ACM_Status on bus 1.
+  TX_MSGS = [[0x120, 0]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x120,)}
+  FWD_BLACKLISTED_ADDRS = {0: [], 2: [0x120]}
 
   MAX_TORQUE_LOOKUP = [9, 17], [350, 250]
   DYNAMIC_MAX_TORQUE = True
@@ -168,7 +165,7 @@ class TestRivianFcmIntercept(common.CarSafetyTest, common.DriverTorqueSteeringSa
 
   def _torque_cmd_msg(self, torque, steer_req=1):
     values = {"ACM_lkaStrToqReq": torque, "ACM_lkaActToi": steer_req}
-    return self.packer.make_can_msg_safety("ACM_lkaHbaCmd", 2, values)
+    return self.packer.make_can_msg_safety("ACM_lkaHbaCmd", 0, values)
 
   def _speed_msg(self, speed, quality_flag=True):
     values = {"ESP_Vehicle_Speed": speed * 3.6, "ESP_Status_Counter": self.cnt_speed % 15,
@@ -180,8 +177,9 @@ class TestRivianFcmIntercept(common.CarSafetyTest, common.DriverTorqueSteeringSa
     return self._user_gas_msg(0, speed, quality_flag)
 
   def _user_brake_msg(self, brake):
-    values = {"iBESP2_BrakePedalApplied": brake}
-    return self.packer.make_can_msg_safety("iBESP2", 0, values)
+    # ext panda uses ESP_AebFb (0x102) for brakes
+    values = {"iB_BrakePedalApplied": brake}
+    return self.packer.make_can_msg_safety("ESP_AebFb", 0, values)
 
   def _user_gas_msg(self, gas, speed=0, quality_flag=True):
     values = {"VDM_AcceleratorPedalPosition": gas, "VDM_VehicleSpeed": speed * 3.6,
