@@ -38,9 +38,9 @@ def create_lka_steering(packer, frame, acm_lka_hba_cmd, apply_torque, enabled, a
     #"ACM_lkaHandsoffDisplayWarning": 1,  # TODO: we can send this when openpilot wants you to pay attention
   }
 
-  data = packer.make_can_msg("ACM_lkaHbaCmd", 0, values)[1]
+  data = packer.make_can_msg("ACM_lkaHbaCmd", 6, values)[1]
   values["ACM_lkaHbaCmd_Checksum"] = checksum(data[1:], 0x1D, 0x63)
-  return packer.make_can_msg("ACM_lkaHbaCmd", 0, values)
+  return packer.make_can_msg("ACM_lkaHbaCmd", 6, values)
 
 
 def create_wheel_touch(packer, sccm_wheel_touch, enabled):
