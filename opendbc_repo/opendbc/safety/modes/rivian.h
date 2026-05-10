@@ -83,8 +83,9 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
     }
   }
 
-  if (msg->bus == 2U) {
-    // Cruise state
+  // ACM_Status (cruise state) - int panda sees it on its bus 2 (ACM-camera bus);
+  // ext panda doing FCM intercept sees it on its bus 1
+  if ((msg->bus == 1U) || (msg->bus == 2U)) {
     if (msg->addr == 0x100U) {
       const int feature_status = msg->data[2] >> 5U;
       pcm_cruise_check(feature_status == 1);
@@ -158,6 +159,11 @@ static safety_config rivian_init(uint16_t param) {
     {.msg = {{0x100, 2, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // ACM_Status (cruise state)
   };
 
+  // FCM intercept (ext panda) only sees ACM_Status on its bus 1; other car-side messages live on the int panda's buses
+  static RxCheck rivian_fcm_rx_checks[] = {
+    {.msg = {{0x100, 1, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // ACM_Status (cruise state)
+  };
+
   bool rivian_longitudinal = false;
   const int FLAG_RIVIAN_FCM_INTERCEPT = 2;
   bool rivian_fcm_intercept = GET_FLAG(param, FLAG_RIVIAN_FCM_INTERCEPT);
@@ -168,7 +174,7 @@ static safety_config rivian_init(uint16_t param) {
   #endif
 
   if (rivian_fcm_intercept) {
-    return BUILD_SAFETY_CFG(rivian_rx_checks, RIVIAN_FCM_TX_MSGS);
+    return BUILD_SAFETY_CFG(rivian_fcm_rx_checks, RIVIAN_FCM_TX_MSGS);
   }
 
   // FIXME: cppcheck thinks that rivian_longitudinal is always false. This is not true

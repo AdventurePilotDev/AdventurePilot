@@ -133,8 +133,10 @@ class TestRivianLongitudinalSafety(TestRivianSafetyBase):
     self.safety.init_tests()
 
 
-class TestRivianFcmIntercept(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest, common.VehicleSpeedSafetyTest):
+class TestRivianFcmIntercept(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest):
   # ext panda (at the FCM): intercepts ACM_lkaHbaCmd (0x120) on bus 2 going toward the ACM.
+  # ACM_Status arrives on bus 1; vehicle speed / brakes / driver torque are on the int panda only,
+  # so they're not in this panda's rx_checks (no VehicleSpeedSafetyTest here).
   TX_MSGS = [[0x120, 2]]
   RELAY_MALFUNCTION_ADDRS = {2: (0x120,)}
   FWD_BLACKLISTED_ADDRS = {0: [0x120], 2: []}
@@ -187,7 +189,7 @@ class TestRivianFcmIntercept(common.CarSafetyTest, common.DriverTorqueSteeringSa
 
   def _pcm_status_msg(self, enable):
     values = {"ACM_FeatureStatus": enable, "ACM_Unkown1": 1}
-    return self.packer.make_can_msg_safety("ACM_Status", 2, values)
+    return self.packer.make_can_msg_safety("ACM_Status", 1, values)
 
 
 if __name__ == "__main__":
