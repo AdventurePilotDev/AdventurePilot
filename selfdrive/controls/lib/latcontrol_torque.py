@@ -35,10 +35,6 @@ JERK_GAIN = 0.3
 LAT_ACCEL_REQUEST_BUFFER_SECONDS = 1.0
 VERSION = 1
 
-# Left turn is positive lateral accel; right turns use negative desired_lat_accel. Scale PID error
-# on the right-turn side only to offset asymmetric rack assist (e.g. Rivian PT00001953).
-RIGHT_TURN_PID_GAIN_BOOST = 1.15
-
 class LatControlTorque(LatControl):
   def __init__(self, CP, CP_SP, CI, dt):
     super().__init__(CP, CP_SP, CI, dt)
@@ -119,8 +115,7 @@ class LatControlTorque(LatControl):
       # Kp scaling from Tuning menu (interpolate by speed)
       kp_working = np.interp(CS.vEgo, [self.kp_low_speed_lim, self.kp_high_speed_lim], [self.kp_low_speed, self.kp_high_speed])
       # do error correction in lateral acceleration space, convert at end to handle non-linear torque responses correctly
-      right_turn_boost = RIGHT_TURN_PID_GAIN_BOOST if future_desired_lateral_accel < 0 else 1.0
-      pid_log.error = float(error * kp_working * right_turn_boost)
+      pid_log.error = float(error * kp_working)
 
       freeze_integrator = steer_limited_by_safety or CS.steeringPressed or CS.vEgo < 5
       output_lataccel = self.pid.update(pid_log.error, speed=CS.vEgo, feedforward=ff, freeze_integrator=freeze_integrator)
