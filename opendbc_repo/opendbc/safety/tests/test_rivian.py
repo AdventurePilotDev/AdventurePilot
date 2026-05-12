@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import unittest
 
+import numpy as np
 from opendbc.car.structs import CarParams
 from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
@@ -110,6 +111,26 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
         msg[0].data[0] = 0xff
         self.assertFalse(self._rx(msg))
         self.assertFalse(self.safety.get_controls_allowed())
+
+  def test_angle_cmd_when_disabled(self):
+    # Override the AngleSteeringSafetyTest version: Rivian deviates from the
+    # standard ±1 inactive tracking. Our rivian_tx_hook only enforces a
+    # max_angle sanity bound when EacEnabled=0, to absorb the dual-panda
+    # cross-bus skew between ext panda's angle_meas (rebroadcast on the
+    # front-object FD bus) and carstate's source (primary actuator). Any
+    # inactive angle inside ±max_angle is accepted regardless of measured.
+    max_angle_can = int(self.STEER_ANGLE_MAX * self.DEG_TO_CAN)
+    for controls_allowed in (True, False):
+      self.safety.set_controls_allowed(controls_allowed)
+      for angle_meas in np.arange(-90, 91, 30):
+        self._reset_angle_measurement(angle_meas)
+        for angle_cmd in np.arange(-90, 91, 30):
+          self._set_prev_desired_angle(angle_cmd)
+          # Inactive: anything in ±STEER_ANGLE_MAX passes; outside is rejected
+          # by the sanity bound.
+          should_tx = abs(angle_cmd) <= self.STEER_ANGLE_MAX
+          self.assertEqual(should_tx, self._tx(self._angle_cmd_msg(angle_cmd, False)),
+                           f"inactive angle_cmd={angle_cmd} meas={angle_meas}")
 
 
 class TestRivianStockSafety(TestRivianSafetyBase):

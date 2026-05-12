@@ -135,12 +135,31 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
   // Steering control (ACM_SteeringControl 0x110)
   // ACM_SteeringAngleRequest: 23|15@0+ (0.1, -1638.4) → bits 23:9 big-endian
   // ACM_EacEnabled: 13|2@0+ (1=Enabled)
+  //
+  // EacEnabled=1 (active): full standard check (rate limits, angle-error).
+  // EacEnabled=0 (inactive): only enforce a max_angle sanity bound. The default
+  // ±1 inactive-tolerance check in steer_angle_cmd_checks compares desired
+  // against angle_meas — but our dual-panda topology has the ext panda's
+  // angle_meas built from a rebroadcast of EPAS_InternalSas on the front-object
+  // FD bus, which lags the primary-actuator broadcast (carstate's source) by
+  // more than ±1 unit. That rejects ~42% of inactive frames on the ext panda.
+  // EPAS ignores the angle field when EacEnabled=0, so the strict tracking
+  // doesn't gain us anything on this car. The sanity bound keeps the rejection
+  // of obvious garbage commands (e.g. all-zero 8-byte frames from other car
+  // safety modes, which extract to desired_angle = -16384).
   if (msg->addr == 0x110U) {
     int raw_angle = (msg->data[2] << 7) | (msg->data[3] >> 1);
     int desired_angle = raw_angle - 16384;
     bool steer_control_enabled = ((msg->data[1] >> 4) & 0x3U) == 1U;
-    if (steer_angle_cmd_checks(desired_angle, steer_control_enabled, RIVIAN_STEERING_LIMITS)) {
-      tx = false;
+    if (steer_control_enabled) {
+      if (steer_angle_cmd_checks(desired_angle, true, RIVIAN_STEERING_LIMITS)) {
+        tx = false;
+      }
+    } else {
+      if ((desired_angle > RIVIAN_STEERING_LIMITS.max_angle) ||
+          (desired_angle < -RIVIAN_STEERING_LIMITS.max_angle)) {
+        tx = false;
+      }
     }
     if (rt_angle_rate_limit_check(RIVIAN_STEERING_LIMITS)) {
       tx = false;
