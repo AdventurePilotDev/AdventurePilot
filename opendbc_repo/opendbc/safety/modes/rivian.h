@@ -91,12 +91,12 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
     }
   }
 
-  // Cruise state — accept ACC (1) and HWP (2): openpilot's HWP injection on bus 2
-  // keeps controls_allowed asserted once stock ACC engagement has been seen.
+  // Cruise state from stock ACM on bus 2 (our HWP injection goes to bus 0, so bus 2
+  // only ever carries stock FeatureStatus values).
   if (msg->bus == 2U) {
     if (msg->addr == 0x100U) {
       const int feature_status = msg->data[2] >> 5U;
-      pcm_cruise_check((feature_status == 1) || (feature_status == 2));
+      pcm_cruise_check(feature_status == 1);
     }
   }
 }
@@ -165,19 +165,19 @@ static safety_config rivian_init(uint16_t param) {
   //   0x321 = SCCM_WheelTouch (bus 2 → ACM side, hides hold-wheel alert)
   //   0x162 = VDM_AdasSts     (bus 2 → ACM side, cancels stock ACC)
   //   0x110 = ACM_SteeringControl (bus 0 → car side, external angle to EPAS)
-  //   0x100 = ACM_Status      (bus 2 → ACM side, FeatureStatus=HWP enable)
+  //   0x100 = ACM_Status      (bus 0 → car side, FeatureStatus=HWP enable for EPAS)
   static const CanMsg RIVIAN_TX_MSGS[] = {
     {0x321, 2, 7, .check_relay = true},
     {0x162, 2, 8, .check_relay = true},
     {0x110, 0, 8, .check_relay = true},
-    {0x100, 2, 8, .check_relay = true},
+    {0x100, 0, 8, .check_relay = true},
   };
   // 0x160 = ACM_longitudinalRequest (bus 0 → VDM)
   static const CanMsg RIVIAN_LONG_TX_MSGS[] = {
     {0x321, 2, 7, .check_relay = true},
     {0x160, 0, 5, .check_relay = true},
     {0x110, 0, 8, .check_relay = true},
-    {0x100, 2, 8, .check_relay = true},
+    {0x100, 0, 8, .check_relay = true},
   };
 
   // Ext panda (front-object FD bus relay-cut): mirrors only 0x110 + 0x100 so the
@@ -185,7 +185,7 @@ static safety_config rivian_init(uint16_t param) {
   // toward the EPAS.
   static const CanMsg RIVIAN_EXT_TX_MSGS[] = {
     {0x110, 0, 8, .check_relay = true},
-    {0x100, 2, 8, .check_relay = true},
+    {0x100, 0, 8, .check_relay = true},
   };
 
   static RxCheck rivian_rx_checks[] = {

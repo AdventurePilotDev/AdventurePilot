@@ -14,8 +14,8 @@ from opendbc.car.rivian.values import CarControllerParams, RivianFlags
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
 
 # openpilot bus indices: int panda CAN0/2 = 0/2, ext panda CAN0/2 = 4/6
-ANGLE_TX_BUSES = (0, 4)      # car-side: int + ext panda → EPAS / front-object FD car side
-ACM_STATUS_TX_BUSES = (2, 6)  # ACM-side: int + ext panda → HWP injection
+ANGLE_TX_BUSES = (0, 4)       # car-side: int + ext panda → EPAS / front-object FD car side
+ACM_STATUS_TX_BUSES = (0, 4)  # car-side: HWP injection must reach EPAS, not be echoed to the ACM
 
 
 class CarController(CarControllerBase, MadsCarController):
@@ -31,10 +31,10 @@ class CarController(CarControllerBase, MadsCarController):
     actuators = CC.actuators
     can_sends = []
 
-    # EPAS external angle control: send 0x110 ACM_SteeringControl on the car-side
-    # bus of both pandas, and 0x100 ACM_Status (FeatureStatus=Hwp) on the ACM-side
-    # bus of both pandas. Only send while lat_active so the (closed) relay path
-    # is left to stock ACM when openpilot isn't steering.
+    # EPAS external angle control: send 0x110 ACM_SteeringControl and 0x100 ACM_Status
+    # (FeatureStatus=Hwp) on the car-side bus of both pandas so the EPAS sees the HWP
+    # enable + angle stream. Only send while lat_active so the (closed) relay path is
+    # left to stock ACM when openpilot isn't steering.
     angle_deg = float(actuators.steeringAngleDeg) if self.mads.lat_active else 0.0
     if self.mads.lat_active:
       for bus in ANGLE_TX_BUSES:

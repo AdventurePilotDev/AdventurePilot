@@ -25,9 +25,9 @@ def checksum(msg):
 class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
                            common.LongitudinalAccelSafetyTest, common.VehicleSpeedSafetyTest):
 
-  TX_MSGS = [[0x321, 2], [0x162, 2], [0x110, 0], [0x100, 2]]
-  RELAY_MALFUNCTION_ADDRS = {0: (0x110,), 2: (0x321, 0x162, 0x100)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162, 0x100], 2: [0x110]}
+  TX_MSGS = [[0x321, 2], [0x162, 2], [0x110, 0], [0x100, 0]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x110, 0x100), 2: (0x321, 0x162)}
+  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: [0x110, 0x100]}
 
   STEER_ANGLE_MAX = 360.0
   STEER_ANGLE_TEST_MAX = 200.0  # don't test beyond max_angle
@@ -133,9 +133,9 @@ class TestRivianStockSafety(TestRivianSafetyBase):
 
 class TestRivianLongitudinalSafety(TestRivianSafetyBase):
 
-  TX_MSGS = [[0x321, 2], [0x160, 0], [0x110, 0], [0x100, 2]]
-  RELAY_MALFUNCTION_ADDRS = {0: (0x110, 0x160), 2: (0x321, 0x100)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x100], 2: [0x110, 0x160]}
+  TX_MSGS = [[0x321, 2], [0x160, 0], [0x110, 0], [0x100, 0]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x110, 0x160, 0x100), 2: (0x321,)}
+  FWD_BLACKLISTED_ADDRS = {0: [0x321], 2: [0x110, 0x160, 0x100]}
 
   def setUp(self):
     self.packer = CANPackerSafety("rivian_primary_actuator")
@@ -149,9 +149,9 @@ class TestRivianSecondarySafety(common.SafetyTest):
   # the int panda's 0x110 angle + 0x100 ACM_Status injections. Brake/gas/cruise state
   # aren't visible on the ext panda's buses, so the full CarSafetyTest mixins don't
   # apply — we only verify the TX whitelist + relay-malfunction set here.
-  TX_MSGS = [[0x110, 0], [0x100, 2]]
-  RELAY_MALFUNCTION_ADDRS = {0: (0x110,), 2: (0x100,)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x100], 2: [0x110]}
+  TX_MSGS = [[0x110, 0], [0x100, 0]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x110, 0x100), 2: ()}
+  FWD_BLACKLISTED_ADDRS = {0: [], 2: [0x110, 0x100]}
 
   def setUp(self):
     self.packer = CANPackerSafety("rivian_primary_actuator")
