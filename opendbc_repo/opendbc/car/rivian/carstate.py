@@ -50,11 +50,10 @@ class CarState(CarStateBase, CarStateExt):
     # Cruise state
     speed = min(int(cp_adas.vl["ACM_tsrCmd"]["ACM_tsrSpdDisClsMain"]), 85)
     self.last_speed = speed if speed != 0 else self.last_speed
-    # Stock cruise enabled: read from VDM on car-side bus 0 — our 0x100 injection on
-    # bus 2 (ACM side) would otherwise mask ACM_Status.ACM_FeatureStatus when the
-    # relay is open. VDM_AdasInterfaceStatus values: 0=Unavailable, 1=Available,
-    # 2=Enabled, 3=Faulted.
-    ret.cruiseState.enabled = cp.vl["VDM_AdasSts"]["VDM_AdasInterfaceStatus"] == 2
+    # Stock cruise enabled iff ACM_FeatureStatus == 1 (Acc). Read on bus 2 (cam) so
+    # we see the stock ACM's value — our 0x100 injection goes to bus 0/4 (car side
+    # toward EPAS), leaving bus 2 untouched. Matches the safety's pcm_cruise_check.
+    ret.cruiseState.enabled = cp_cam.vl["ACM_Status"]["ACM_FeatureStatus"] == 1
     # TODO: find cruise set speed on CAN
     ret.cruiseState.speed = self.last_speed * CV.MPH_TO_MS  # detected speed limit
     if not self.CP.openpilotLongitudinalControl:
