@@ -174,11 +174,49 @@ class TestRivianSecondarySafety(common.SafetyTest):
   RELAY_MALFUNCTION_ADDRS = {0: (0x110, 0x100), 2: ()}
   FWD_BLACKLISTED_ADDRS = {0: [], 2: [0x110, 0x100]}
 
+  STEER_ANGLE_MAX = 360.0
+  DEG_TO_CAN = 10
+  LATERAL_FREQUENCY = 100
+
+  cnt_angle_cmd = 0
+
   def setUp(self):
     self.packer = CANPackerSafety("rivian_primary_actuator")
     self.safety = libsafety_py.libsafety
     self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, RivianSafetyFlags.SECONDARY_TX)
     self.safety.init_tests()
+
+  def _angle_cmd_msg(self, angle: float, enabled: bool, increment_timer: bool = True):
+    values = {"ACM_SteeringAngleRequest": angle, "ACM_EacEnabled": 1 if enabled else 0}
+    if increment_timer:
+      self.safety.set_timer(self.cnt_angle_cmd * int(1e6 / self.LATERAL_FREQUENCY))
+      self.__class__.cnt_angle_cmd += 1
+    return self.packer.make_can_msg_safety("ACM_SteeringControl", 0, values)
+
+  def _angle_meas_msg(self, angle: float):
+    values = {"EPAS_InternalSas": angle}
+    return self.packer.make_can_msg_safety("EPAS_AdasStatus", 0, values)
+
+  def test_angle_cmd_mirrors_int_panda(self):
+    # The ext panda must accept whatever 0x110 the int panda accepts so the
+    # two streams converging at the EPAS stay frame-identical. Confirm:
+    #   1. Active angle commands pass regardless of measured-angle skew
+    #      (the int panda alone enforces the angle-error bound).
+    #   2. The same sanity bound applies: anything inside ±max_angle passes,
+    #      outside is rejected.
+    for enabled in (True, False):
+      for angle_meas in (-90, -30, 0, 30, 90):
+        # Prime the measured-angle history with values that would fail the
+        # default ±10° angle-error check on the int panda.
+        for _ in range(6):
+          self._rx(self._angle_meas_msg(angle_meas))
+        for angle_cmd in np.arange(-self.STEER_ANGLE_MAX, self.STEER_ANGLE_MAX + 1, 60):
+          self.assertTrue(self._tx(self._angle_cmd_msg(angle_cmd, enabled)),
+                          f"in-range cmd={angle_cmd} enabled={enabled} meas={angle_meas}")
+        # Out-of-range commands must still be rejected by the max_angle sanity bound.
+        for angle_cmd in (-self.STEER_ANGLE_MAX - 1, self.STEER_ANGLE_MAX + 1):
+          self.assertFalse(self._tx(self._angle_cmd_msg(angle_cmd, enabled)),
+                           f"out-of-range cmd={angle_cmd} enabled={enabled}")
 
 
 if __name__ == "__main__":

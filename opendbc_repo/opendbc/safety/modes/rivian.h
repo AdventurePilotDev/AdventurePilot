@@ -2,6 +2,24 @@
 
 #include "opendbc/safety/declarations.h"
 
+// Set by rivian_init from the SECONDARY_TX param flag. Visible to rivian_tx_hook
+// so the ext (FCM-intercept) panda can run a minimal TX filter on 0x110, allowing
+// its stream to stay frame-identical to the int panda's.
+//
+// Why this is safe: the EPAS does 2-of-2 voting — it only acts on 0x110 when both
+// pandas' streams match. The int panda runs the full safety gauntlet (rate-up/down,
+// angle-error vs angle_meas, max_angle, frequency). The ext panda's job is to be
+// a faithful mirror; any per-frame check on the ext panda whose result depends on
+// per-panda state (desired_angle_last, angle_meas from the lagged FD-bus rebroadcast)
+// can desynchronize and never recover, which would make the EPAS stop acting on
+// valid commands. Limiting the ext panda to a max_angle sanity bound + the content-
+// agnostic frequency limit removes those drift sources without weakening the safety
+// story — a bad command rejected by the int panda still gets ignored by the EPAS
+// because the two streams won't match.
+//
+// See test_rivian.py::TestRivianSecondarySafety::test_angle_cmd_mirrors_int_panda.
+static bool rivian_secondary_tx = false;
+
 static uint8_t rivian_get_counter(const CANPacket_t *msg) {
   // Signal: ESP_Status_Counter, VDM_PropStatus_Counter
   return msg->data[1] & 0xFU;
@@ -151,13 +169,22 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
     int raw_angle = (msg->data[2] << 7) | (msg->data[3] >> 1);
     int desired_angle = raw_angle - 16384;
     bool steer_control_enabled = ((msg->data[1] >> 4) & 0x3U) == 1U;
-    if (steer_control_enabled) {
+    bool out_of_range = (desired_angle > RIVIAN_STEERING_LIMITS.max_angle) ||
+                        (desired_angle < -RIVIAN_STEERING_LIMITS.max_angle);
+    if (rivian_secondary_tx) {
+      // EPAS does 2-of-2 voting; int panda is the safety gatekeeper. Keep ext
+      // panda's stream byte-identical to the int panda's by avoiding any check
+      // whose result depends on per-panda state (desired_angle_last, angle_meas).
+      // See the rivian_secondary_tx declaration comment for full reasoning.
+      if (out_of_range) {
+        tx = false;
+      }
+    } else if (steer_control_enabled) {
       if (steer_angle_cmd_checks(desired_angle, true, RIVIAN_STEERING_LIMITS)) {
         tx = false;
       }
     } else {
-      if ((desired_angle > RIVIAN_STEERING_LIMITS.max_angle) ||
-          (desired_angle < -RIVIAN_STEERING_LIMITS.max_angle)) {
+      if (out_of_range) {
         tx = false;
       }
     }
@@ -225,14 +252,14 @@ static safety_config rivian_init(uint16_t param) {
 
   bool rivian_longitudinal = false;
   const int FLAG_RIVIAN_SECONDARY_TX = 2;
-  bool rivian_secondary = GET_FLAG(param, FLAG_RIVIAN_SECONDARY_TX);
+  rivian_secondary_tx = GET_FLAG(param, FLAG_RIVIAN_SECONDARY_TX);
 
   #ifdef ALLOW_DEBUG
     const int FLAG_RIVIAN_LONG_CONTROL = 1;
     rivian_longitudinal = GET_FLAG(param, FLAG_RIVIAN_LONG_CONTROL);
   #endif
 
-  if (rivian_secondary) {
+  if (rivian_secondary_tx) {
     return BUILD_SAFETY_CFG(rivian_ext_rx_checks, RIVIAN_EXT_TX_MSGS);
   }
 
