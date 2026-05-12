@@ -11,30 +11,6 @@ def checksum(data, poly, xor_output):
   return crc ^ xor_output
 
 
-def create_lka_steering(packer, frame, apply_torque, enabled, active, mads):
-  # dual-intercept: ext panda doesn't read FCM's 0x120, so the 4 stock pass-through
-  # fields (ACM_hbaSysState/Lamp/OnOffState, ACM_slifOnOffState) default to 0 here.
-  values = {
-    "ACM_lkaHbaCmd_Counter": frame % 15,
-    "ACM_lkaStrToqReq": apply_torque,
-    "ACM_lkaActToi": mads.lat_active,
-
-    "ACM_lkaLaneRecogState": 3 if mads.lka_icon_states else 0,
-    "ACM_lkaSymbolState": 3 if mads.lka_icon_states else 0,
-
-    # static values
-    "ACM_lkaElkRequest": 0,
-    "ACM_ldwlkaOnOffState": 2,  # 2=LKAS+LDW on
-    "ACM_elkOnOffState": 1,  # 1=LKAS on
-    "ACM_ldwWarnTypeState": 2,  # always 2
-    "ACM_ldwWarnTimingState": 1,  # always 1
-  }
-
-  data = packer.make_can_msg("ACM_lkaHbaCmd", 4, values)[1]
-  values["ACM_lkaHbaCmd_Checksum"] = checksum(data[1:], 0x1D, 0x63)
-  return packer.make_can_msg("ACM_lkaHbaCmd", 4, values)
-
-
 def create_wheel_touch(packer, sccm_wheel_touch, enabled):
   values = {s: sccm_wheel_touch[s] for s in (
     "SCCM_WheelTouch_Counter",

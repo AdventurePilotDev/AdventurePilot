@@ -92,8 +92,6 @@ class CarState(CarStateBase, CarStateExt):
     ret.stockAeb = cp_cam.vl["ACM_AebRequest"]["ACM_EnableRequest"] != 0
 
     # Messages needed by carcontroller
-    # NOTE: ACM_lkaHbaCmd (0x120) is intercepted by the ext panda in dual-intercept mode,
-    # so it doesn't reach the int panda's bus 2. We don't read it here.
     if not (self.CP.flags & RivianFlags.GEN2):
       self.sccm_wheel_touch = copy.copy(cp.vl["SCCM_WheelTouch"])
     # This message can lag and send two messages at once, make sure we forward all of them

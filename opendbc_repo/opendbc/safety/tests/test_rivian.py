@@ -24,22 +24,13 @@ def checksum(msg):
 
 class TestRivianSafetyBase(common.CarSafetyTest, common.LongitudinalAccelSafetyTest,
                            common.VehicleSpeedSafetyTest):
-  # int panda (at the ACM): only emits SCCM_WheelTouch and VDM_AdasSts. Steering (0x120) is
-  # intercepted by the second (FCM) panda — see TestRivianFcmIntercept.
+
   TX_MSGS = [[0x321, 2], [0x162, 2]]
   RELAY_MALFUNCTION_ADDRS = {2: (0x321, 0x162)}
   FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: []}
 
   cnt_speed = 0
   cnt_speed_2 = 0
-
-  def _torque_driver_msg(self, torque):
-    values = {"EPAS_TorsionBarTorque": torque / 100.0}
-    return self.packer.make_can_msg_safety("EPAS_SystemStatus", 0, values)
-
-  def _torque_cmd_msg(self, torque, steer_req=1):
-    values = {"ACM_lkaStrToqReq": torque, "ACM_lkaActToi": steer_req}
-    return self.packer.make_can_msg_safety("ACM_lkaHbaCmd", 0, values)
 
   def _speed_msg(self, speed, quality_flag=True):
     values = {"ESP_Vehicle_Speed": speed * 3.6, "ESP_Status_Counter": self.cnt_speed % 15,
@@ -48,7 +39,7 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.LongitudinalAccelSafetyT
     return self.packer.make_can_msg_safety("ESP_Status", 0, values, fix_checksum=checksum)
 
   def _speed_msg_2(self, speed, quality_flag=True):
-    # Rivian has a dynamic max torque limit based on speed, so it checks two sources
+    # Cross-checked against ESP_Status to disable controls if the two speed sources diverge
     return self._user_gas_msg(0, speed, quality_flag)
 
   def _user_brake_msg(self, brake):
@@ -131,65 +122,6 @@ class TestRivianLongitudinalSafety(TestRivianSafetyBase):
     self.safety = libsafety_py.libsafety
     self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, RivianSafetyFlags.LONG_CONTROL)
     self.safety.init_tests()
-
-
-class TestRivianFcmIntercept(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest, common.VehicleSpeedSafetyTest):
-  # ext panda (at the FCM) — mirrors ap-cam-dev: intercepts ACM_lkaHbaCmd (0x120) on bus 0,
-  # reads ESP/VDM/EPAS on bus 0, ESP_AebFb (brake) on bus 0, ACM_Status on bus 1.
-  TX_MSGS = [[0x120, 0]]
-  RELAY_MALFUNCTION_ADDRS = {0: (0x120,)}
-  FWD_BLACKLISTED_ADDRS = {0: [], 2: [0x120]}
-
-  MAX_TORQUE_LOOKUP = [9, 17], [350, 250]
-  DYNAMIC_MAX_TORQUE = True
-  MAX_RATE_UP = 3
-  MAX_RATE_DOWN = 5
-
-  MAX_RT_DELTA = 125
-
-  DRIVER_TORQUE_ALLOWANCE = 100
-  DRIVER_TORQUE_FACTOR = 2
-
-  cnt_speed = 0
-  cnt_speed_2 = 0
-
-  def setUp(self):
-    self.packer = CANPackerSafety("rivian_primary_actuator")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, RivianSafetyFlags.FCM_INTERCEPT)
-    self.safety.init_tests()
-
-  def _torque_driver_msg(self, torque):
-    values = {"EPAS_TorsionBarTorque": torque / 100.0}
-    return self.packer.make_can_msg_safety("EPAS_SystemStatus", 0, values)
-
-  def _torque_cmd_msg(self, torque, steer_req=1):
-    values = {"ACM_lkaStrToqReq": torque, "ACM_lkaActToi": steer_req}
-    return self.packer.make_can_msg_safety("ACM_lkaHbaCmd", 0, values)
-
-  def _speed_msg(self, speed, quality_flag=True):
-    values = {"ESP_Vehicle_Speed": speed * 3.6, "ESP_Status_Counter": self.cnt_speed % 15,
-              "ESP_Vehicle_Speed_Q": 1 if quality_flag else 0}
-    self.__class__.cnt_speed += 1
-    return self.packer.make_can_msg_safety("ESP_Status", 0, values, fix_checksum=checksum)
-
-  def _speed_msg_2(self, speed, quality_flag=True):
-    return self._user_gas_msg(0, speed, quality_flag)
-
-  def _user_brake_msg(self, brake):
-    # ext panda uses ESP_AebFb (0x102) for brakes
-    values = {"iB_BrakePedalApplied": brake}
-    return self.packer.make_can_msg_safety("ESP_AebFb", 0, values)
-
-  def _user_gas_msg(self, gas, speed=0, quality_flag=True):
-    values = {"VDM_AcceleratorPedalPosition": gas, "VDM_VehicleSpeed": speed * 3.6,
-              "VDM_PropStatus_Counter": self.cnt_speed_2 % 15, "VDM_VehicleSpeedQ": 1 if quality_flag else 0}
-    self.__class__.cnt_speed_2 += 1
-    return self.packer.make_can_msg_safety("VDM_PropStatus", 0, values, fix_checksum=checksum)
-
-  def _pcm_status_msg(self, enable):
-    values = {"ACM_FeatureStatus": enable, "ACM_Unkown1": 1}
-    return self.packer.make_can_msg_safety("ACM_Status", 1, values)
 
 
 if __name__ == "__main__":
