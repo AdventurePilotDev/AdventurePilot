@@ -3,7 +3,7 @@ from opendbc.can import CANPacker
 from opendbc.car import Bus
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.rivian.riviancan import (
-  create_acm_status_hwp,
+  create_acm_status,
   create_adas_status,
   create_angle_steering,
   create_longitudinal,
@@ -32,15 +32,22 @@ class CarController(CarControllerBase, MadsCarController):
     can_sends = []
 
     # EPAS external angle control: send 0x110 ACM_SteeringControl and 0x100 ACM_Status
-    # (FeatureStatus=Hwp) on the car-side bus of both pandas so the EPAS sees the HWP
-    # enable + angle stream. Only send while lat_active so the (closed) relay path is
-    # left to stock ACM when openpilot isn't steering.
-    angle_deg = float(actuators.steeringAngleDeg) if self.mads.lat_active else 0.0
+    # on the car-side bus of both pandas so the EPAS sees both the HWP enable and the
+    # angle stream. Always stream while onroad — when the relay is open, stock 0x110
+    # / 0x100 are cut off, so we replace them at all times and only flip EacEnabled +
+    # Hwp FeatureStatus when actively steering. The disengaged stream tracks measured
+    # angle and mirrors stock cruise FeatureStatus.
     if self.mads.lat_active:
-      for bus in ANGLE_TX_BUSES:
-        can_sends.append(create_angle_steering(self.packer, self.frame, angle_deg, True, bus))
-      for bus in ACM_STATUS_TX_BUSES:
-        can_sends.append(create_acm_status_hwp(self.packer, self.frame, bus))
+      angle_deg = float(actuators.steeringAngleDeg)
+      feature_status = 2  # Hwp
+    else:
+      angle_deg = float(CS.out.steeringAngleDeg)  # track measured to keep safety happy
+      feature_status = 1 if CS.out.cruiseState.enabled else 0  # mirror stock cruise state
+
+    for bus in ANGLE_TX_BUSES:
+      can_sends.append(create_angle_steering(self.packer, self.frame, angle_deg, self.mads.lat_active, bus))
+    for bus in ACM_STATUS_TX_BUSES:
+      can_sends.append(create_acm_status(self.packer, self.frame, feature_status, bus))
 
     if self.frame % 5 == 0 and not (self.CP.flags & RivianFlags.GEN2):
       can_sends.append(create_wheel_touch(self.packer, CS.sccm_wheel_touch, CC.enabled))

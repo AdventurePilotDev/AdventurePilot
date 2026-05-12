@@ -23,12 +23,13 @@ def create_angle_steering(packer, frame, angle_deg, enabled, bus):
   return packer.make_can_msg("ACM_SteeringControl", bus, values)
 
 
-def create_acm_status_hwp(packer, frame, bus):
-  # Inject ACM_Status with FeatureStatus=Hwp (2) to convince EPAS to accept the
-  # external angle command in 0x110. Other fields are synthesized to a safe baseline.
+def create_acm_status(packer, frame, feature_status, bus):
+  # Always streamed on the ACM-side bus so stock ACM's broadcasts don't pass
+  # through the open relay. FeatureStatus mirrors stock cruise state (0=Standby,
+  # 1=Acc, 2=Hwp) — Hwp is what convinces the EPAS to accept the external 0x110.
   values = {
     "ACM_Status_Counter": frame % 16,
-    "ACM_FeatureStatus": 2,  # Hwp
+    "ACM_FeatureStatus": feature_status,
     "ACM_Unkown1": 1,
     "ACM_FaultStatus": 0,
     "ACM_FaultSupervisorState": 1,
