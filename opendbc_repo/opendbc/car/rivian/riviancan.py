@@ -11,6 +11,33 @@ def checksum(data, poly, xor_output):
   return crc ^ xor_output
 
 
+def create_angle_steering(packer, frame, angle_deg, enabled, bus):
+  values = {
+    "ACM_SteeringControl_Counter": frame % 16,
+    "ACM_EacEnabled": 1 if enabled else 0,
+    "ACM_HapticRequired": 0,
+    "ACM_SteeringAngleRequest": angle_deg,
+  }
+  data = packer.make_can_msg("ACM_SteeringControl", bus, values)[1]
+  values["ACM_SteeringControl_Checksum"] = checksum(data[1:], 0x1D, 0x41)
+  return packer.make_can_msg("ACM_SteeringControl", bus, values)
+
+
+def create_acm_status_hwp(packer, frame, bus):
+  # Inject ACM_Status with FeatureStatus=Hwp (2) to convince EPAS to accept the
+  # external angle command in 0x110. Other fields are synthesized to a safe baseline.
+  values = {
+    "ACM_Status_Counter": frame % 16,
+    "ACM_FeatureStatus": 2,  # Hwp
+    "ACM_Unkown1": 1,
+    "ACM_FaultStatus": 0,
+    "ACM_FaultSupervisorState": 1,
+  }
+  data = packer.make_can_msg("ACM_Status", bus, values)[1]
+  values["ACM_Status_Checksum"] = checksum(data[1:], 0x1D, 0x5F)
+  return packer.make_can_msg("ACM_Status", bus, values)
+
+
 def create_wheel_touch(packer, sccm_wheel_touch, enabled):
   values = {s: sccm_wheel_touch[s] for s in (
     "SCCM_WheelTouch_Counter",

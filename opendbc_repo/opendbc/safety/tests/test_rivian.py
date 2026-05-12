@@ -22,15 +22,35 @@ def checksum(msg):
   return addr, ret, bus
 
 
-class TestRivianSafetyBase(common.CarSafetyTest, common.LongitudinalAccelSafetyTest,
-                           common.VehicleSpeedSafetyTest):
+class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
+                           common.LongitudinalAccelSafetyTest, common.VehicleSpeedSafetyTest):
 
-  TX_MSGS = [[0x321, 2], [0x162, 2]]
-  RELAY_MALFUNCTION_ADDRS = {2: (0x321, 0x162)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: []}
+  TX_MSGS = [[0x321, 2], [0x162, 2], [0x110, 0], [0x100, 2]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x110,), 2: (0x321, 0x162, 0x100)}
+  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162, 0x100], 2: [0x110]}
+
+  STEER_ANGLE_MAX = 360.0
+  STEER_ANGLE_TEST_MAX = 200.0  # don't test beyond max_angle
+  DEG_TO_CAN = 10
+  ANGLE_RATE_BP = [0., 5., 25.]
+  ANGLE_RATE_UP = [3.0, 1.5, 0.3]
+  ANGLE_RATE_DOWN = [3.0, 1.5, 0.5]
+  LATERAL_FREQUENCY = 100
 
   cnt_speed = 0
   cnt_speed_2 = 0
+  cnt_angle_cmd = 0
+
+  def _angle_cmd_msg(self, angle: float, enabled: bool, increment_timer: bool = True):
+    values = {"ACM_SteeringAngleRequest": angle, "ACM_EacEnabled": 1 if enabled else 0}
+    if increment_timer:
+      self.safety.set_timer(self.cnt_angle_cmd * int(1e6 / self.LATERAL_FREQUENCY))
+      self.__class__.cnt_angle_cmd += 1
+    return self.packer.make_can_msg_safety("ACM_SteeringControl", 0, values)
+
+  def _angle_meas_msg(self, angle: float):
+    values = {"EPAS_InternalSas": angle}
+    return self.packer.make_can_msg_safety("EPAS_AdasStatus", 0, values)
 
   def _speed_msg(self, speed, quality_flag=True):
     values = {"ESP_Vehicle_Speed": speed * 3.6, "ESP_Status_Counter": self.cnt_speed % 15,
@@ -113,14 +133,30 @@ class TestRivianStockSafety(TestRivianSafetyBase):
 
 class TestRivianLongitudinalSafety(TestRivianSafetyBase):
 
-  TX_MSGS = [[0x321, 2], [0x160, 0]]
-  RELAY_MALFUNCTION_ADDRS = {0: (0x160,), 2: (0x321,)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x321], 2: [0x160]}
+  TX_MSGS = [[0x321, 2], [0x160, 0], [0x110, 0], [0x100, 2]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x110, 0x160), 2: (0x321, 0x100)}
+  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x100], 2: [0x110, 0x160]}
 
   def setUp(self):
     self.packer = CANPackerSafety("rivian_primary_actuator")
     self.safety = libsafety_py.libsafety
     self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, RivianSafetyFlags.LONG_CONTROL)
+    self.safety.init_tests()
+
+
+class TestRivianSecondarySafety(common.SafetyTest):
+  # Ext panda (front-object FD bus relay-cut): minimal safety config mirroring only
+  # the int panda's 0x110 angle + 0x100 ACM_Status injections. Brake/gas/cruise state
+  # aren't visible on the ext panda's buses, so the full CarSafetyTest mixins don't
+  # apply — we only verify the TX whitelist + relay-malfunction set here.
+  TX_MSGS = [[0x110, 0], [0x100, 2]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x110,), 2: (0x100,)}
+  FWD_BLACKLISTED_ADDRS = {0: [0x100], 2: [0x110]}
+
+  def setUp(self):
+    self.packer = CANPackerSafety("rivian_primary_actuator")
+    self.safety = libsafety_py.libsafety
+    self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, RivianSafetyFlags.SECONDARY_TX)
     self.safety.init_tests()
 
 

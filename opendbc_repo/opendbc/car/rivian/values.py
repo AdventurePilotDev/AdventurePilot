@@ -45,6 +45,7 @@ class RivianFlags(IntFlag):
 
 class RivianSafetyFlags(IntFlag):
   LONG_CONTROL = 1
+  SECONDARY_TX = 2  # ext panda: only allow 0x110 angle + 0x100 ACM_Status TX
 
 
 class CAR(Platforms):

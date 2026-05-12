@@ -15,13 +15,14 @@ class CarInterface(CarInterfaceBase):
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
     ret.brand = "rivian"
 
-    # dual-intercept: second panda (external USB-C) runs allOutput in passthrough
-    # mode (param=1) so it bridges bus 0 <-> bus 2 itself; openpilot doesn't send
-    # anything to bus 4-7 and the bus stays healthy / ACKs traffic
-    ALLOUTPUT_PARAM_PASSTHROUGH = 1
+    # Dual-panda setup: int panda relay-cuts the primary actuator bus, ext panda
+    # relay-cuts the front-object FD bus. Both inject the same 0x110 angle command
+    # (car side) and 0x100 ACM_Status HWP override (ACM side) so the EPAS accepts
+    # external angle control. The SECONDARY_TX safety flag selects the ext-only
+    # TX whitelist on the second panda.
     ret.safetyConfigs = [
       get_safety_config(structs.CarParams.SafetyModel.rivian),
-      get_safety_config(structs.CarParams.SafetyModel.allOutput, ALLOUTPUT_PARAM_PASSTHROUGH),
+      get_safety_config(structs.CarParams.SafetyModel.rivian, RivianSafetyFlags.SECONDARY_TX.value),
     ]
 
     # GEN2 (2025+) doesn't have SCCM_WheelTouch on the bus
@@ -32,7 +33,7 @@ class CarInterface(CarInterfaceBase):
     ret.steerLimitTimer = 0.4
     CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 
-    ret.steerControlType = structs.CarParams.SteerControlType.torque
+    ret.steerControlType = structs.CarParams.SteerControlType.angle
     ret.radarUnavailable = False
     ret.enableBsm = True
 
