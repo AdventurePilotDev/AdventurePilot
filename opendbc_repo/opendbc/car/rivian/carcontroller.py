@@ -2,7 +2,7 @@ import numpy as np
 from opendbc.can import CANPacker
 from opendbc.car import Bus
 from opendbc.car.interfaces import CarControllerBase
-from opendbc.car.lateral import apply_std_steer_angle_limits
+from opendbc.car.lateral import apply_steer_angle_limits_vm
 from opendbc.car.rivian.riviancan import (
   create_acm_status,
   create_adas_status,
@@ -11,6 +11,7 @@ from opendbc.car.rivian.riviancan import (
   create_wheel_touch,
 )
 from opendbc.car.rivian.values import CarControllerParams, RivianFlags
+from opendbc.car.vehicle_model import VehicleModel
 
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
 
@@ -25,6 +26,10 @@ class CarController(CarControllerBase, MadsCarController):
     MadsCarController.__init__(self)
     self.packer = CANPacker(dbc_names[Bus.pt])
 
+    # Fixed VehicleModel for carcontroller-side lateral limiting. Kept independent
+    # of liveParameters so the safety envelope doesn't shift mid-drive.
+    self.VM = VehicleModel(CP)
+
     self.apply_angle_last = 0.0
     self.cancel_frames = 0
 
@@ -37,13 +42,14 @@ class CarController(CarControllerBase, MadsCarController):
     # on the car-side bus of both pandas so the EPAS sees both the HWP enable and the
     # angle stream. Always stream while onroad — when the relay is open, stock 0x110
     # / 0x100 are cut off, so we replace them at all times and only flip EacEnabled +
-    # Hwp FeatureStatus when actively steering. Rate-limit using the same lookup the
-    # safety enforces (RIVIAN_STEERING_LIMITS in rivian.h) so the int panda always
-    # accepts our TX — otherwise rejected frames create counter gaps and EPAS faults
-    # with AngleControlCntr. When inactive, the helper resets to measured angle.
-    self.apply_angle_last = apply_std_steer_angle_limits(actuators.steeringAngleDeg, self.apply_angle_last,
-                                                         CS.out.vEgoRaw, CS.out.steeringAngleDeg,
-                                                         self.mads.lat_active, CarControllerParams.ANGLE_LIMITS)
+    # Hwp FeatureStatus when actively steering. VM-based limit clamps the commanded
+    # angle to an ISO 11270 lateral-accel + jerk envelope (Tesla pattern), so the
+    # planner can't ask for sharper turns than the car should physically take at the
+    # current speed — and so per-frame slew is bounded by jerk, not a hand-tuned
+    # lookup. When inactive, the helper resets to measured angle.
+    self.apply_angle_last = apply_steer_angle_limits_vm(actuators.steeringAngleDeg, self.apply_angle_last,
+                                                        CS.out.vEgoRaw, CS.out.steeringAngleDeg,
+                                                        self.mads.lat_active, CarControllerParams, self.VM)
     angle_deg = self.apply_angle_last
     if self.mads.lat_active:
       feature_status = 2  # Hwp

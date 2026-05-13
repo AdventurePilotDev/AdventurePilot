@@ -1,11 +1,15 @@
 from dataclasses import dataclass, field
 from enum import StrEnum, IntFlag
 
-from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs, uds
+from opendbc.car import ACCELERATION_DUE_TO_GRAVITY, Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs, uds
 from opendbc.car.docs_definitions import CarHarness, CarDocs, CarParts
 from opendbc.car.fw_query_definitions import FwQueryConfig, Request, StdQueries, p16
-from opendbc.car.lateral import AngleSteeringLimits
+from opendbc.car.lateral import AngleSteeringLimits, ISO_LATERAL_ACCEL
 from opendbc.car.vin import Vin
+
+
+# Add tolerance for average banked road since the limit doesn't account for roll
+AVERAGE_ROAD_ROLL = 0.06  # ~3.4 degrees, 6% superelevation
 
 
 class WMI(StrEnum):
@@ -121,12 +125,25 @@ class CarControllerParams:
   ACCEL_MIN = -3.5  # m/s^2
   ACCEL_MAX = 2.0  # m/s^2
 
-  # Mirror RIVIAN_STEERING_LIMITS in safety/modes/rivian.h. Values are deg per 10ms
-  # at 100 Hz TX (~300°/s parking, ~30°/s up / 50°/s down at highway).
+  STEER_STEP = 1  # 100 Hz TX
+
+  # ANGLE_RATE_LIMIT_UP/DOWN remain to mirror RIVIAN_STEERING_LIMITS in
+  # safety/modes/rivian.h (the panda still uses the lookup-based check).
+  # MAX_LATERAL_ACCEL / MAX_LATERAL_JERK / MAX_ANGLE_RATE are used by
+  # apply_steer_angle_limits_vm in the carcontroller — they clamp the
+  # commanded angle to a physical lateral-accel envelope at each speed,
+  # so the wheel can't be commanded into a turn that would exceed the
+  # ISO 11270 comfort/safety envelope.
   ANGLE_LIMITS: AngleSteeringLimits = AngleSteeringLimits(
     STEER_ANGLE_MAX=360,
     ANGLE_RATE_LIMIT_UP=([0., 5., 25.], [3.0, 1.5, 0.3]),
     ANGLE_RATE_LIMIT_DOWN=([0., 5., 25.], [3.0, 1.5, 0.5]),
+    # Match Tesla's pattern: ISO 11270 with road-roll headroom (~3.6 m/s² and m/s³).
+    # Tighter than this under-commits on sharp city-speed turns where the wheel
+    # legitimately needs to go past ~85° at 10 m/s.
+    MAX_LATERAL_ACCEL=ISO_LATERAL_ACCEL + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL),  # ~3.6 m/s^2
+    MAX_LATERAL_JERK=3.0 + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL),                 # ~3.6 m/s^3
+    MAX_ANGLE_RATE=2.5,      # deg per 10ms frame, caps parking-speed slew at ~250°/s
   )
 
   def __init__(self, CP):
