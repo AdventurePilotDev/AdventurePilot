@@ -43,12 +43,14 @@ class CarState(CarStateBase, CarStateExt):
     ret.steeringAngleDeg = cp.vl["EPAS_AdasStatus"]["EPAS_InternalSas"]
     ret.steeringRateDeg = cp.vl["EPAS_AdasStatus"]["EPAS_SteeringAngleSpeed"]
     ret.steeringTorque = cp.vl["EPAS_SystemStatus"]["EPAS_TorsionBarTorque"]
-    # Disengage as soon as EPAS reports anything other than Level 1 hands-on.
-    # Levels 0/2/3 all kick the EPAS toward dropping EAC (HandsOnDetn error
-    # and an AngleControl Cntr/Crc storm afterward) so openpilot needs to
-    # release lateral immediately, not wait on the torque-based debounce.
+    # EPAS_HandsOnLevel: 1 = nominal, 2 = LKAS driver intervention, 3 = EAC driver
+    # intervention. Anything other than 1 means EPAS does not consider us in clean
+    # control — disengage so we drop EacEnabled / FeatureStatus before EPAS trips
+    # HandsOnDetn and faults the wheel. Level 0 has not been observed; treat it as
+    # not-nominal until we know otherwise.
     hands_on_level = cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"]
-    ret.steeringPressed = (hands_on_level != 1) or self.update_steering_pressed(abs(ret.steeringTorque) > 1.0, 5)
+    ret.steeringDisengage = hands_on_level != 1
+    ret.steeringPressed = self.update_steering_pressed(abs(ret.steeringTorque) > 1.0, 5)
 
     ret.steerFaultTemporary = cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"] != 0
 
