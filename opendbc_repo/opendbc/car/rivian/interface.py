@@ -29,7 +29,7 @@ class CarInterface(CarInterfaceBase):
     if 0x321 not in fingerprint[0]:
       ret.flags |= RivianFlags.GEN2.value
 
-    ret.steerActuatorDelay = 0.15
+    ret.steerActuatorDelay = 0.1
     ret.steerLimitTimer = 0.4
 
     ret.steerControlType = structs.CarParams.SteerControlType.angle
