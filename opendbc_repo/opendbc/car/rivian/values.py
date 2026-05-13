@@ -4,6 +4,7 @@ from enum import StrEnum, IntFlag
 from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs, uds
 from opendbc.car.docs_definitions import CarHarness, CarDocs, CarParts
 from opendbc.car.fw_query_definitions import FwQueryConfig, Request, StdQueries, p16
+from opendbc.car.lateral import AngleSteeringLimits
 from opendbc.car.vin import Vin
 
 
@@ -119,6 +120,14 @@ GEAR_MAP = {
 class CarControllerParams:
   ACCEL_MIN = -3.5  # m/s^2
   ACCEL_MAX = 2.0  # m/s^2
+
+  # Mirror RIVIAN_STEERING_LIMITS in safety/modes/rivian.h. Values are deg per 10ms
+  # at 100 Hz TX (~300°/s parking, ~30°/s up / 50°/s down at highway).
+  ANGLE_LIMITS: AngleSteeringLimits = AngleSteeringLimits(
+    STEER_ANGLE_MAX=360,
+    ANGLE_RATE_LIMIT_UP=([0., 5., 25.], [3.0, 1.5, 0.3]),
+    ANGLE_RATE_LIMIT_DOWN=([0., 5., 25.], [3.0, 1.5, 0.5]),
+  )
 
   def __init__(self, CP):
     pass

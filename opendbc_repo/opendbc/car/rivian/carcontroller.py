@@ -2,6 +2,7 @@ import numpy as np
 from opendbc.can import CANPacker
 from opendbc.car import Bus
 from opendbc.car.interfaces import CarControllerBase
+from opendbc.car.lateral import apply_std_steer_angle_limits
 from opendbc.car.rivian.riviancan import (
   create_acm_status,
   create_adas_status,
@@ -24,6 +25,7 @@ class CarController(CarControllerBase, MadsCarController):
     MadsCarController.__init__(self)
     self.packer = CANPacker(dbc_names[Bus.pt])
 
+    self.apply_angle_last = 0.0
     self.cancel_frames = 0
 
   def update(self, CC, CC_SP, CS, now_nanos):
@@ -35,13 +37,17 @@ class CarController(CarControllerBase, MadsCarController):
     # on the car-side bus of both pandas so the EPAS sees both the HWP enable and the
     # angle stream. Always stream while onroad — when the relay is open, stock 0x110
     # / 0x100 are cut off, so we replace them at all times and only flip EacEnabled +
-    # Hwp FeatureStatus when actively steering. The disengaged stream tracks measured
-    # angle and mirrors stock cruise FeatureStatus.
+    # Hwp FeatureStatus when actively steering. Rate-limit using the same lookup the
+    # safety enforces (RIVIAN_STEERING_LIMITS in rivian.h) so the int panda always
+    # accepts our TX — otherwise rejected frames create counter gaps and EPAS faults
+    # with AngleControlCntr. When inactive, the helper resets to measured angle.
+    self.apply_angle_last = apply_std_steer_angle_limits(actuators.steeringAngleDeg, self.apply_angle_last,
+                                                         CS.out.vEgoRaw, CS.out.steeringAngleDeg,
+                                                         self.mads.lat_active, CarControllerParams.ANGLE_LIMITS)
+    angle_deg = self.apply_angle_last
     if self.mads.lat_active:
-      angle_deg = float(actuators.steeringAngleDeg)
       feature_status = 2  # Hwp
     else:
-      angle_deg = float(CS.out.steeringAngleDeg)  # track measured to keep safety happy
       feature_status = 1 if CS.out.cruiseState.enabled else 0  # mirror stock cruise state
 
     for bus in ANGLE_TX_BUSES:
