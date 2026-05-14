@@ -121,25 +121,31 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
 
 static bool rivian_tx_hook(const CANPacket_t *msg) {
   // External steering-angle limits applied to ACM_SteeringControl (0x110).
-  // Rate-up/down lookups are deg per call (100Hz TX = 10ms intervals): conservative
-  // ISO-11270-ish bounds at speed, looser at parking. TODO: tune on the bench.
+  // VM-based path (Tesla pattern): rate derives from MAX_LATERAL_JERK / v² in
+  // steer_angle_cmd_checks_vm; absolute angle from MAX_LATERAL_ACCEL / v². The
+  // controller-side comfort cap (MAX_ANGLE_RATE) is tighter than the safety's
+  // low-speed VM bound, so the controller never produces a frame the safety would
+  // reject. Empty rate-up/down lookups disable the v1 (apply_std) path.
   const AngleSteeringLimits RIVIAN_STEERING_LIMITS = {
     .max_angle = 3600,           // 360° absolute (EPAS will fault well below this)
     .angle_deg_to_can = 10.,     // 0.1° resolution
-    .angle_rate_up_lookup = {
-      {0., 5., 25.},
-      {3.0, 1.5, 0.3},           // deg/10ms: ~300°/s parking → 30°/s highway
-    },
-    .angle_rate_down_lookup = {
-      {0., 5., 25.},
-      {3.0, 1.5, 0.5},
-    },
     .max_angle_error = 100,      // 10° tolerance vs measured
     .angle_error_min_speed = 5.0,
     .frequency = 100U,
     .angle_is_curvature = false,
     .enforce_angle_error = true,
     .inactive_angle_is_zero = false,  // when disabled, cmd must track measured angle
+  };
+
+  // Vehicle model params for steer_angle_cmd_checks_vm. Mirrors values.py CarSpecs
+  // for RIVIAN_R1 — slip_factor = calc_slip_factor(VehicleModel(CP)) over the
+  // static CP from CarInterface.get_non_essential_params('RIVIAN_R1'). Matches
+  // exactly what the controller's VehicleModel(CP) computes at runtime, so the
+  // VM math is bit-identical on both sides.
+  const AngleSteeringParams RIVIAN_STEERING_PARAMS = {
+    .slip_factor = -0.0005446f,
+    .steer_ratio = 16.47f,
+    .wheelbase = 3.08f,
   };
 
   const LongitudinalLimits RIVIAN_LONG_LIMITS = {
@@ -180,7 +186,7 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
         tx = false;
       }
     } else {
-      // Int panda: always route through steer_angle_cmd_checks so desired_angle_last
+      // Int panda: always route through steer_angle_cmd_checks_vm so desired_angle_last
       // tracks our TX every frame, including the EacEnabled=0 stretch. Without this,
       // desired_angle_last freezes at its last value while EacEnabled=0, and the
       // first EacEnabled=1 frame after a long inactive period is rate-capped against
@@ -188,7 +194,7 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
       // when steer_control_enabled is false and runs the inactive_angle_is_zero=false
       // bound (TX must track angle_meas), which the int panda satisfies because it
       // reads EPAS_AdasStatus directly from the primary actuator bus.
-      if (steer_angle_cmd_checks(desired_angle, steer_control_enabled, RIVIAN_STEERING_LIMITS)) {
+      if (steer_angle_cmd_checks_vm(desired_angle, steer_control_enabled, RIVIAN_STEERING_LIMITS, RIVIAN_STEERING_PARAMS)) {
         tx = false;
       }
     }

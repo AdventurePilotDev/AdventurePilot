@@ -1,11 +1,13 @@
 from dataclasses import dataclass, field
 from enum import StrEnum, IntFlag
 
-from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs, uds
+from opendbc.car import ACCELERATION_DUE_TO_GRAVITY, Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs, uds
 from opendbc.car.docs_definitions import CarHarness, CarDocs, CarParts
 from opendbc.car.fw_query_definitions import FwQueryConfig, Request, StdQueries, p16
-from opendbc.car.lateral import AngleSteeringLimits
+from opendbc.car.lateral import AngleSteeringLimits, ISO_LATERAL_ACCEL
 from opendbc.car.vin import Vin
+
+AVERAGE_ROAD_ROLL = 0.06  # ~3.4 degrees, 6% superelevation. higher actual roll lowers lateral acceleration
 
 
 class WMI(StrEnum):
@@ -57,7 +59,7 @@ class CAR(Platforms):
       RivianCarDocs("Rivian R1T 2022-24", setup_video="https://youtu.be/uaISd1j7Z4U", car_parts=CarParts.common([CarHarness.rivian_a])),
       RivianCarDocs("Rivian R1T 2025", car_parts=CarParts.common([CarHarness.rivian_b])),
     ],
-    CarSpecs(mass=3206., wheelbase=3.08, steerRatio=15.2),
+    CarSpecs(mass=3206., wheelbase=3.08, steerRatio=16.47),
     wmis={WMI.RIVIAN_TRUCK, WMI.RIVIAN_MPV},
     lines={ModelLine.R1T, ModelLine.R1S},
     years={ModelYear.N_2022, ModelYear.P_2023, ModelYear.R_2024, ModelYear.S_2025},
@@ -121,13 +123,19 @@ class CarControllerParams:
   ACCEL_MIN = -3.5  # m/s^2
   ACCEL_MAX = 2.0  # m/s^2
 
-  # Mirror RIVIAN_STEERING_LIMITS in safety/modes/rivian.h. Values are deg per 10ms
-  # at 100 Hz TX (~300°/s parking, ~30°/s up / 50°/s down at highway).
+  # Mirror RIVIAN_STEERING_PARAMS/LIMITS in safety/modes/rivian.h. Tesla pattern:
+  # VM-derived rate from MAX_LATERAL_JERK, comfort cap via MAX_ANGLE_RATE for
+  # low-speed feel (~150°/s at 100 Hz TX). Lookups empty — VM math handles it.
   ANGLE_LIMITS: AngleSteeringLimits = AngleSteeringLimits(
-    STEER_ANGLE_MAX=360,
-    ANGLE_RATE_LIMIT_UP=([0., 5., 25.], [3.0, 1.5, 0.3]),
-    ANGLE_RATE_LIMIT_DOWN=([0., 5., 25.], [3.0, 1.5, 0.5]),
+    360,        # STEER_ANGLE_MAX (deg)
+    ([], []),   # ANGLE_RATE_LIMIT_UP unused under VM path
+    ([], []),   # ANGLE_RATE_LIMIT_DOWN unused under VM path
+    MAX_LATERAL_ACCEL=ISO_LATERAL_ACCEL + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL),  # ~3.6 m/s^2
+    MAX_LATERAL_JERK=3.0 + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL),                 # ~3.6 m/s^3
+    MAX_ANGLE_RATE=1.5,  # deg/10ms frame = 150°/s comfort cap (Tesla picked 250°/s for a 4,500-lb Y; Rivian is heavier)
   )
+
+  STEER_STEP = 1  # 100 Hz TX
 
   def __init__(self, CP):
     pass

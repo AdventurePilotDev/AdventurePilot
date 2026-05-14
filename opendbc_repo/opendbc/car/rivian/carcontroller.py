@@ -3,7 +3,7 @@ from opendbc.can import CANPacker
 from opendbc.car import Bus, DT_CTRL
 from opendbc.car.common.filter_simple import FirstOrderFilter
 from opendbc.car.interfaces import CarControllerBase
-from opendbc.car.lateral import apply_std_steer_angle_limits
+from opendbc.car.lateral import apply_steer_angle_limits_vm
 from opendbc.car.rivian.riviancan import (
   create_acm_status,
   create_adas_status,
@@ -12,6 +12,7 @@ from opendbc.car.rivian.riviancan import (
   create_wheel_touch,
 )
 from opendbc.car.rivian.values import CarControllerParams, RivianFlags
+from opendbc.car.vehicle_model import VehicleModel
 
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
 
@@ -28,6 +29,11 @@ class CarController(CarControllerBase, MadsCarController):
 
     self.apply_angle_last = 0.0
     self.cancel_frames = 0
+
+    # VehicleModel for VM-based angle/rate limiting (mirrors RIVIAN_STEERING_PARAMS
+    # in safety/modes/rivian.h). Static CP — paramsd's live steerRatio/stiffness
+    # corrections aren't applied here so controller and safety compute matching bounds.
+    self.VM = VehicleModel(CP)
 
     # Low-pass the planner's desired angle before the rate limiter. The model output
     # chatters at ~5-15 Hz in hard turns (analyze_chatter.py: 17 reversals/s on
@@ -61,9 +67,9 @@ class CarController(CarControllerBase, MadsCarController):
       self.angle_filter.x = CS.out.steeringAngleDeg
       self.angle_filter.initialized = True
       desired_angle = actuators.steeringAngleDeg
-    self.apply_angle_last = apply_std_steer_angle_limits(desired_angle, self.apply_angle_last,
-                                                         CS.out.vEgoRaw, CS.out.steeringAngleDeg,
-                                                         self.mads.lat_active, CarControllerParams.ANGLE_LIMITS)
+    self.apply_angle_last = apply_steer_angle_limits_vm(desired_angle, self.apply_angle_last,
+                                                        CS.out.vEgoRaw, CS.out.steeringAngleDeg,
+                                                        self.mads.lat_active, CarControllerParams, self.VM)
     angle_deg = self.apply_angle_last
     if self.mads.lat_active:
       feature_status = 2  # Hwp
