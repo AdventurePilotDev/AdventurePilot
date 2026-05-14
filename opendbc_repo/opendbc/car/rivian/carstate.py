@@ -43,13 +43,12 @@ class CarState(CarStateBase, CarStateExt):
     ret.steeringAngleDeg = cp.vl["EPAS_AdasStatus"]["EPAS_InternalSas"]
     ret.steeringRateDeg = cp.vl["EPAS_AdasStatus"]["EPAS_SteeringAngleSpeed"]
     ret.steeringTorque = cp.vl["EPAS_SystemStatus"]["EPAS_TorsionBarTorque"]
-    # EPAS_HandsOnLevel: 1 = nominal, 2 = LKAS driver intervention, 3 = EAC driver
-    # intervention. Anything other than 1 means EPAS does not consider us in clean
-    # control — disengage so we drop EacEnabled / FeatureStatus before EPAS trips
-    # HandsOnDetn and faults the wheel. Level 0 has not been observed; treat it as
-    # not-nominal until we know otherwise.
-    hands_on_level = cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"]
-    ret.steeringDisengage = hands_on_level != 1
+    # Driver override: stock ACM disengages HWP on EPAS_TorsionBarTorque magnitude,
+    # not on HandsOnLevel. On stock HWP route 4bb3f2cc2bb2aa21/0000000b--d33288332c
+    # both disengages fired at |torque| ≈ 3.3–3.9 Nm while HandsOnLevel stayed at 1
+    # the whole time. 3.0 Nm trips just under stock and gives us the ~20 ms TX
+    # latency margin to drop EacEnabled before the EPAS-side override race.
+    ret.steeringDisengage = abs(ret.steeringTorque) > 3.0
     ret.steeringPressed = self.update_steering_pressed(abs(ret.steeringTorque) > 1.0, 5)
 
     ret.steerFaultTemporary = cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"] != 0
