@@ -185,7 +185,13 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
       if (out_of_range) {
         tx = false;
       }
-      if (rt_angle_rate_limit_check(RIVIAN_STEERING_LIMITS)) {
+      // Gate rt-rate-cap on steer_control_enabled to mirror the int panda's
+      // behavior (its rate cap lives inside steer_angle_cmd_checks_vm's active
+      // branch). If we rate-cap inactive frames here but int panda doesn't,
+      // a controller-side flood at EacEnabled=0 would diverge the two streams
+      // and EPAS's 2-of-2 voter would fault on counter mismatch — same failure
+      // mode as the double-count bug, just triggered differently.
+      if (steer_control_enabled && rt_angle_rate_limit_check(RIVIAN_STEERING_LIMITS)) {
         tx = false;
       }
     } else {
