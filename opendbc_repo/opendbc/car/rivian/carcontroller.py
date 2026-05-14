@@ -1,6 +1,7 @@
 import numpy as np
 from opendbc.can import CANPacker
-from opendbc.car import Bus
+from opendbc.car import Bus, DT_CTRL
+from opendbc.car.common.filter_simple import FirstOrderFilter
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.lateral import apply_steer_angle_limits_vm
 from opendbc.car.rivian.riviancan import (
@@ -34,6 +35,14 @@ class CarController(CarControllerBase, MadsCarController):
     # corrections aren't applied here so controller and safety compute matching bounds.
     self.VM = VehicleModel(CP)
 
+    # Low-pass the planner's desired angle before the rate limiter. The model output
+    # chatters at ~5-15 Hz in hard turns (analyze_chatter.py: 17 reversals/s on
+    # commanded angle at 5-15 m/s on route 00000034); the rate limiter alone can't
+    # damp it without also slowing legitimate inputs. Time constant is scheduled on
+    # speed: heavy filter at parking/intersection where lat dynamics are gentle and
+    # twitch is most visible, transparent at highway where bandwidth matters.
+    self.angle_filter = FirstOrderFilter(0.0, 0.2, DT_CTRL, initialized=False)
+
   def update(self, CC, CC_SP, CS, now_nanos):
     MadsCarController.update(self, CC, CC_SP, CS)
     actuators = CC.actuators
@@ -47,7 +56,18 @@ class CarController(CarControllerBase, MadsCarController):
     # safety enforces (RIVIAN_STEERING_LIMITS in rivian.h) so the int panda always
     # accepts our TX — otherwise rejected frames create counter gaps and EPAS faults
     # with AngleControlCntr. When inactive, the helper resets to measured angle.
-    self.apply_angle_last = apply_steer_angle_limits_vm(actuators.steeringAngleDeg, self.apply_angle_last,
+    if self.mads.lat_active:
+      # Hyundai schedule: rc=0.2s at v<=5 m/s, 0.1s at 10, 0 at v>=20. Heavier filter
+      # at the speeds where chatter is most visible and lat-jerk headroom is high.
+      self.angle_filter.update_alpha(float(np.interp(CS.out.vEgoRaw, [5., 10., 20.], [0.2, 0.1, 0.0])))
+      desired_angle = self.angle_filter.update(actuators.steeringAngleDeg)
+    else:
+      # When inactive, keep the filter pinned to measured angle so re-engagement
+      # starts from current wheel position with no transient.
+      self.angle_filter.x = CS.out.steeringAngleDeg
+      self.angle_filter.initialized = True
+      desired_angle = actuators.steeringAngleDeg
+    self.apply_angle_last = apply_steer_angle_limits_vm(desired_angle, self.apply_angle_last,
                                                         CS.out.vEgoRaw, CS.out.steeringAngleDeg,
                                                         self.mads.lat_active, CarControllerParams, self.VM)
     angle_deg = self.apply_angle_last
