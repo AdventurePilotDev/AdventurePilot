@@ -132,7 +132,7 @@ class CarControllerParams:
     ([], []),   # ANGLE_RATE_LIMIT_DOWN unused under VM path
     MAX_LATERAL_ACCEL=ISO_LATERAL_ACCEL + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL),  # ~3.6 m/s^2
     MAX_LATERAL_JERK=3.0 + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL),                 # ~3.6 m/s^3
-    MAX_ANGLE_RATE=1.5,  # deg/10ms frame = 150°/s comfort cap (Tesla picked 250°/s for a 4,500-lb Y; Rivian is heavier)
+    MAX_ANGLE_RATE=2.5,  # deg/10ms frame = 250°/s comfort cap. min(VM jerk rate, this) keeps it under safety's jerk limit, so no rivian.h mirror needed
   )
 
   STEER_STEP = 1  # 100 Hz TX
