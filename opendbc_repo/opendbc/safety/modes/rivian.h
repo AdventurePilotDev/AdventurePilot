@@ -185,21 +185,18 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
       if (out_of_range) {
         tx = false;
       }
+      if (rt_angle_rate_limit_check(RIVIAN_STEERING_LIMITS)) {
+        tx = false;
+      }
     } else {
-      // Int panda: always route through steer_angle_cmd_checks_vm so desired_angle_last
-      // tracks our TX every frame, including the EacEnabled=0 stretch. Without this,
-      // desired_angle_last freezes at its last value while EacEnabled=0, and the
-      // first EacEnabled=1 frame after a long inactive period is rate-capped against
-      // a stale baseline — typically rejected. The function skips the rate check
-      // when steer_control_enabled is false and runs the inactive_angle_is_zero=false
-      // bound (TX must track angle_meas), which the int panda satisfies because it
-      // reads EPAS_AdasStatus directly from the primary actuator bus.
+      // Int panda: steer_angle_cmd_checks_vm handles the rate-limit check
+      // internally (and only when active) — do NOT call rt_angle_rate_limit_check
+      // again here or rt_angle_msgs increments twice per active TX, trips the
+      // 120%-of-frequency cap, and rejects ~50% of frames during engagement
+      // (EPAS then sees a counter gap and reports AngCtrlCntr).
       if (steer_angle_cmd_checks_vm(desired_angle, steer_control_enabled, RIVIAN_STEERING_LIMITS, RIVIAN_STEERING_PARAMS)) {
         tx = false;
       }
-    }
-    if (rt_angle_rate_limit_check(RIVIAN_STEERING_LIMITS)) {
-      tx = false;
     }
   }
 
