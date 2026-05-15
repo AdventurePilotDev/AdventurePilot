@@ -57,8 +57,9 @@ class CarController(CarControllerBase, MadsCarController):
     # accepts our TX — otherwise rejected frames create counter gaps and EPAS faults
     # with AngleControlCntr. When inactive, the helper resets to measured angle.
     if self.mads.lat_active:
-      # Hyundai schedule: rc=0.2s at v<=5 m/s, 0.1s at 10, 0 at v>=20. Heavier filter
-      # at the speeds where chatter is most visible and lat-jerk headroom is high.
+      # Speed-scheduled time constant: rc=0.2s at v<=5 m/s, 0.1s at 10, 0 at v>=20.
+      # Heavier filter at the speeds where chatter is most visible and lat-jerk
+      # headroom is high.
       self.angle_filter.update_alpha(float(np.interp(CS.out.vEgoRaw, [5., 10., 20.], [0.2, 0.1, 0.0])))
       desired_angle = self.angle_filter.update(actuators.steeringAngleDeg)
     else:
