@@ -121,7 +121,7 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
 
 static bool rivian_tx_hook(const CANPacket_t *msg) {
   // External steering-angle limits applied to ACM_SteeringControl (0x110).
-  // VM-based path (Tesla pattern): rate derives from MAX_LATERAL_JERK / v² in
+  // VM-based path: rate derives from MAX_LATERAL_JERK / v² in
   // steer_angle_cmd_checks_vm; absolute angle from MAX_LATERAL_ACCEL / v². The
   // controller-side comfort cap (MAX_ANGLE_RATE) is tighter than the safety's
   // low-speed VM bound, so the controller never produces a frame the safety would

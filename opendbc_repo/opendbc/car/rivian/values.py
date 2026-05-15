@@ -123,9 +123,9 @@ class CarControllerParams:
   ACCEL_MIN = -3.5  # m/s^2
   ACCEL_MAX = 2.0  # m/s^2
 
-  # Mirror RIVIAN_STEERING_PARAMS/LIMITS in safety/modes/rivian.h. Tesla pattern:
-  # VM-derived rate from MAX_LATERAL_JERK, comfort cap via MAX_ANGLE_RATE for
-  # low-speed feel (~150°/s at 100 Hz TX). Lookups empty — VM math handles it.
+  # Mirror RIVIAN_STEERING_PARAMS/LIMITS in safety/modes/rivian.h. VM-derived
+  # rate from MAX_LATERAL_JERK, comfort cap via MAX_ANGLE_RATE for low-speed
+  # feel (~250°/s at 100 Hz TX). Lookups empty — VM math handles it.
   ANGLE_LIMITS: AngleSteeringLimits = AngleSteeringLimits(
     360,        # STEER_ANGLE_MAX (deg)
     ([], []),   # ANGLE_RATE_LIMIT_UP unused under VM path
