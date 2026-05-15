@@ -144,7 +144,7 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
   // VM math is bit-identical on both sides.
   const AngleSteeringParams RIVIAN_STEERING_PARAMS = {
     .slip_factor = -0.0005446f,
-    .steer_ratio = 16.47f,
+    .steer_ratio = 15.2f,
     .wheelbase = 3.08f,
   };
 
