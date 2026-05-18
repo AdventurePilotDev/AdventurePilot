@@ -25,9 +25,9 @@ def checksum(msg):
 class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest, common.SteerRequestCutSafetyTest,
                            common.LongitudinalAccelSafetyTest, common.VehicleSpeedSafetyTest):
 
-  TX_MSGS = [[0x120, 0], [0x321, 2], [0x162, 2]]
-  RELAY_MALFUNCTION_ADDRS = {0: (0x120,), 2: (0x321, 0x162)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: [0x120]}
+  TX_MSGS = [[0x120, 0]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x120,)}
+  FWD_BLACKLISTED_ADDRS = {2: [0x120]}
 
   MAX_TORQUE_LOOKUP = [9, 25, 27], [385, 295, 275]
   DYNAMIC_MAX_TORQUE = True
@@ -39,8 +39,8 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
   DRIVER_TORQUE_ALLOWANCE = 100
   DRIVER_TORQUE_FACTOR = 2
 
-  MIN_VALID_STEERING_FRAMES = 89
-  MAX_INVALID_STEERING_FRAMES = 2
+  MIN_VALID_STEERING_FRAMES = 43
+  MAX_INVALID_STEERING_FRAMES = 1
 
   cnt_speed = 0
   cnt_speed_2 = 0
@@ -64,8 +64,8 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
     return self._user_gas_msg(0, speed, quality_flag)
 
   def _user_brake_msg(self, brake):
-    values = {"iBESP2_BrakePedalApplied": brake}
-    return self.packer.make_can_msg_safety("iBESP2", 0, values)
+    values = {"iB_BrakePedalApplied": brake}
+    return self.packer.make_can_msg_safety("ESP_AebFb", 0, values)
 
   def _user_gas_msg(self, gas, speed=0, quality_flag=True):
     values = {"VDM_AcceleratorPedalPosition": gas, "VDM_VehicleSpeed": speed * 3.6,
@@ -75,22 +75,11 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
 
   def _pcm_status_msg(self, enable):
     values = {"ACM_FeatureStatus": enable, "ACM_Unkown1": 1}
-    return self.packer.make_can_msg_safety("ACM_Status", 2, values)
+    return self.packer.make_can_msg_safety("ACM_Status", 1, values)
 
   def _accel_msg(self, accel: float):
     values = {"ACM_AccelerationRequest": accel}
     return self.packer.make_can_msg_safety("ACM_longitudinalRequest", 0, values)
-
-  def test_wheel_touch(self):
-    # For hiding hold wheel alert on engage
-    for controls_allowed in (True, False):
-      self.safety.set_controls_allowed(controls_allowed)
-      values = {
-        "SCCM_WheelTouch_HandsOn": 1 if controls_allowed else 0,
-        "SCCM_WheelTouch_CapacitiveValue": 100 if controls_allowed else 0,
-        "SETME_X52": 100,
-      }
-      self.assertTrue(self._tx(self.packer.make_can_msg_safety("SCCM_WheelTouch", 2, values)))
 
   def test_rx_hook(self):
     # checksum, counter, and quality flag checks
@@ -123,20 +112,12 @@ class TestRivianStockSafety(TestRivianSafetyBase):
     self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, 0)
     self.safety.init_tests()
 
-  def test_adas_status(self):
-    # For canceling stock ACC
-    for controls_allowed in (True, False):
-      self.safety.set_controls_allowed(controls_allowed)
-      for interface_status in range(4):
-        values = {"VDM_AdasInterfaceStatus": interface_status}
-        self.assertTrue(self._tx(self.packer.make_can_msg_safety("VDM_AdasSts", 2, values)))
-
 
 class TestRivianLongitudinalSafety(TestRivianSafetyBase):
 
-  TX_MSGS = [[0x120, 0], [0x321, 2], [0x160, 0]]
-  RELAY_MALFUNCTION_ADDRS = {0: (0x120, 0x160), 2: (0x321,)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x321], 2: [0x120, 0x160]}
+  TX_MSGS = [[0x120, 0], [0x160, 0]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x120, 0x160)}
+  FWD_BLACKLISTED_ADDRS = {2: [0x120, 0x160]}
 
   def setUp(self):
     self.packer = CANPackerSafety("rivian_primary_actuator")

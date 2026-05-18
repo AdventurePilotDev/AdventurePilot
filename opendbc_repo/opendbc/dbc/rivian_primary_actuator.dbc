@@ -33,7 +33,7 @@ NS_ :
 
 BS_:
 
-BU_: ACM CGM EPAS_P ESP IBM OCS RCM SAS TestTool VDM Vector_XXX
+BU_: ACM CGM EPAS_P ESP FCM IBM OCS RCM SAS TestTool VDM Vector_XXX
 
 
 BO_ 64 SAS_Status: 8 SAS
@@ -543,6 +543,8 @@ BO_ 1705 XCP_Daq_VDM: 8 VDM
 
 BO_ 1800 Diag_PhysReq_ACM_PrimaryActuator: 8 TestTool
 
+BO_ 1837 Diag_PhysReq_FCM: 8 TestTool
+
 BO_ 1843 Diag_PhysReq_EPAS_P_PrimaryActua: 8 TestTool
 
 BO_ 1844 Diag_PhysReq_RCM_PrimaryActuator: 8 TestTool
@@ -553,6 +555,8 @@ BO_ 1846 Diag_PhysReq_IBM_PrimaryActuator: 8 TestTool
 
 BO_ 1864 Diag_PhysResp_ACM_PrimaryActuato: 8 ACM
 
+BO_ 1901 Diag_PhysResp_FCM: 8 FCM
+
 BO_ 1907 Diag_PhysResp_EPAS_P_PrimaryActu: 8 EPAS_P
 
 BO_ 1908 Diag_PhysResp_RCM_PrimaryActuato: 8 RCM
@@ -560,6 +564,9 @@ BO_ 1908 Diag_PhysResp_RCM_PrimaryActuato: 8 RCM
 BO_ 1909 Diag_PhysResp_ESP_PrimaryActuato: 8 ESP
 
 BO_ 1910 Diag_PhysResp_IBM_PrimaryActuato: 8 IBM
+
+CM_ BO_ 1837 "UDS diagnostic physical request to FCM (forward camera module). CAN ID 0x72d.";
+CM_ BO_ 1901 "UDS diagnostic physical response from FCM. CAN ID 0x76d (request ID + 0x40).";
 
 CM_ BO_ 64 "External steering angle sensor message.";
 CM_ BO_ 801 "Not a reference message. Suspected ECU source is SCCM (Steering Column Control Module). Used by ACM to show hold wheel message on ACC engagement.";

@@ -3,14 +3,15 @@ from opendbc.can import CANPacker
 from opendbc.car import Bus
 from opendbc.car.lateral import apply_driver_steer_torque_limits, common_fault_avoidance
 from opendbc.car.interfaces import CarControllerBase
-from opendbc.car.rivian.riviancan import create_lka_steering, create_longitudinal, create_wheel_touch, create_adas_status
-from opendbc.car.rivian.values import CarControllerParams, RivianFlags
+from opendbc.car.rivian.riviancan import create_lka_steering, create_longitudinal
+from opendbc.car.rivian.values import CarControllerParams
 
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
 
 MAX_ANGLE_DEG = 90
-MAX_ANGLE_FRAMES = 89
-BLIP_FRAMES = 2
+# 1-frame blip on FCM camera tap (matches safety .min_valid_request_frames=43 / .max_invalid_request_frames=1)
+MAX_ANGLE_FRAMES = 43
+BLIP_FRAMES = 1
 # Right turns require more torque to achieve equivalent lateral acceleration (measured asymmetry on R1T/R1S 2023)
 # Above this wheel angle the rack is saturated >75% of the time (route data); cap output so the
 # controller can recover from saturation faster when geometry eases
@@ -25,7 +26,6 @@ class CarController(CarControllerBase, MadsCarController):
     self.apply_torque_last = 0
     self.packer = CANPacker(dbc_names[Bus.pt])
     self.angle_limit_counter = 0
-    self.cancel_frames = 0
 
   def update(self, CC, CC_SP, CS, now_nanos):
     MadsCarController.update(self, CC, CC_SP, CS)
@@ -58,25 +58,11 @@ class CarController(CarControllerBase, MadsCarController):
 
     can_sends.append(create_lka_steering(self.packer, self.frame, CS.acm_lka_hba_cmd, send_torque, CC.enabled, CC.latActive, self.mads, lka_act_toi))
 
-    if self.frame % 5 == 0 and not (self.CP.flags & RivianFlags.GEN2):
-      can_sends.append(create_wheel_touch(self.packer, CS.sccm_wheel_touch, CC.enabled))
-
     # Longitudinal control
     if self.CP.openpilotLongitudinalControl:
       accel = float(np.clip(actuators.accel, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX))
       can_sends.append(create_longitudinal(self.packer, self.frame, accel, CC.enabled))
-    else:
-      interface_status = None
-      if CC.cruiseControl.cancel:
-        # if there is a noEntry, we need to send a status of "available" before the ACM will accept "unavailable"
-        # send "available" right away as the VDM itself takes a few frames to acknowledge
-        interface_status = 1 if self.cancel_frames < 5 else 0
-        self.cancel_frames += 1
-      else:
-        self.cancel_frames = 0
-
-      for msg in CS.vdm_adas_status:
-        can_sends.append(create_adas_status(self.packer, msg, interface_status))
+    # SCCM_WheelTouch and VDM_AdasSts not reachable on FCM camera tap — no hold-wheel suppression, no stock-ACC cancel
 
     new_actuators = actuators.as_builder()
     new_actuators.torque = apply_torque / steer_max

@@ -77,13 +77,15 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
       update_sample(&torque_driver, torque_driver_new);
     }
 
-    // Brake pressed
-    if (msg->addr == 0x38fU) {
-      brake_pressed = (msg->data[2] >> 7) & 1U;
+    // Brake pressed - using ESP_AebFb (0x102) instead of iBESP2 (0x38f) on FCM camera tap
+    if (msg->addr == 0x102U) {
+      brake_pressed = (msg->data[1] >> 7) & 1U;  // iB_BrakePedalApplied
     }
+
+    // VDM_AdasSts (0x162) not available on this tap - MADS button detection removed
   }
 
-  if (msg->bus == 2U) {
+  if (msg->bus == 1U) {
     // Cruise state
     if (msg->addr == 0x100U) {
       const int feature_status = msg->data[2] >> 5U;
@@ -110,10 +112,10 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
     .driver_torque_multiplier = 2,
     .driver_torque_allowance = 100,
     .type = TorqueDriverLimited,
-    // 2-frame blip: openpilot sends torque=0 and steer_req=0; panda holds last torque for rate limit
-    .min_valid_request_frames = 89,
-    .max_invalid_request_frames = 2,
-    .min_valid_request_rt_interval = 810000,  // 810ms min between blips
+    // 1-frame blip on FCM camera tap: openpilot sends torque=0 and steer_req=0; panda holds last torque for rate limit
+    .min_valid_request_frames = 43,
+    .max_invalid_request_frames = 1,
+    .min_valid_request_rt_interval = 400000,  // 400ms min between blips
     .has_steer_req_tolerance = true,
   };
 
@@ -149,19 +151,17 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
 }
 
 static safety_config rivian_init(uint16_t param) {
-  // SCCM_WheelTouch: for hiding hold wheel alert
-  // VDM_AdasSts: for canceling stock ACC
-  // 0x120 = ACM_lkaHbaCmd, 0x321 = SCCM_WheelTouch, 0x162 = VDM_AdasSts
-  static const CanMsg RIVIAN_TX_MSGS[] = {{0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x162, 2, 8, .check_relay = true}};
+  // 0x120 = ACM_lkaHbaCmd (only TX reachable on FCM camera tap; SCCM_WheelTouch and VDM_AdasSts not available)
+  static const CanMsg RIVIAN_TX_MSGS[] = {{0x120, 0, 8, .check_relay = true}};
   // 0x160 = ACM_longitudinalRequest
-  static const CanMsg RIVIAN_LONG_TX_MSGS[] = {{0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x160, 0, 5, .check_relay = true}};
+  static const CanMsg RIVIAN_LONG_TX_MSGS[] = {{0x120, 0, 8, .check_relay = true}, {0x160, 0, 5, .check_relay = true}};
 
   static RxCheck rivian_rx_checks[] = {
     {.msg = {{0x208, 0, 8, 50U, .max_counter = 14U}, { 0 }, { 0 }}},                                                             // ESP_Status (speed)
     {.msg = {{0x150, 0, 7, 50U, .max_counter = 14U}, { 0 }, { 0 }}},                                                             // VDM_PropStatus (gas pedal & 2nd speed)
     {.msg = {{0x380, 0, 5, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // EPAS_SystemStatus (driver torque)
-    {.msg = {{0x38f, 0, 6, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // iBESP2 (brakes)
-    {.msg = {{0x100, 2, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // ACM_Status (cruise state)
+    {.msg = {{0x102, 0, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // ESP_AebFb (brakes)
+    {.msg = {{0x100, 1, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // ACM_Status (cruise state)
   };
 
   bool rivian_longitudinal = false;
