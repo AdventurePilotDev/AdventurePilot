@@ -478,6 +478,14 @@ struct ModelDataV2SP @0xa1680744031fdb2d {
   }
 }
 
+# sunnypilot radarState annotations — mirrors the per-lead coast state from radard's Tier-3
+# vision-coast (see selfdrive/controls/radard.py). Kept here (not in log.capnp) for fork
+# merge-hygiene; the UI subscribes to this alongside the stock radarState.
+struct RadarStateSP @0x81ed2f1cb07f25b1 {
+  leadOneCoasting @0 :Bool;   # leadOne is currently held by vision-coast (a phantom was rejected)
+  leadTwoCoasting @1 :Bool;   # leadTwo is currently held by vision-coast
+}
+
 struct CustomReserved10 @0xcb9fd56c7057593a {
 }
 
