@@ -15,9 +15,11 @@ class TogglesLayoutMici(NavScroller):
 
     self._personality_toggle = BigMultiParamToggle("driving personality", "LongitudinalPersonality", ["aggressive", "standard", "relaxed"])
     self._experimental_btn = BigParamControl("experimental mode", "ExperimentalMode")
+    self._dec_toggle = BigParamControl("dynamic experimental control", "DynamicExperimentalControl")
     is_metric_toggle = BigParamControl("use metric units", "IsMetric")
     ldw_toggle = BigParamControl("lane departure warnings", "IsLdwEnabled")
     always_on_dm_toggle = BigParamControl("always-on driver monitor", "AlwaysOnDM")
+    green_light_chime = BigParamControl("green light chime", "GreenLightAlert")
     record_front = BigParamControl("record & upload driver camera", "RecordFront", toggle_callback=restart_needed_callback)
     record_mic = BigParamControl("record & upload mic audio", "RecordAudio", toggle_callback=restart_needed_callback)
     enable_openpilot = BigParamControl("enable sunnypilot", "OpenpilotEnabledToggle", toggle_callback=restart_needed_callback)
@@ -25,9 +27,11 @@ class TogglesLayoutMici(NavScroller):
     self._scroller.add_widgets([
       self._personality_toggle,
       self._experimental_btn,
+      self._dec_toggle,
       is_metric_toggle,
       ldw_toggle,
       always_on_dm_toggle,
+      green_light_chime,
       record_front,
       record_mic,
       enable_openpilot,
@@ -36,9 +40,11 @@ class TogglesLayoutMici(NavScroller):
     # Toggle lists
     self._refresh_toggles = (
       ("ExperimentalMode", self._experimental_btn),
+      ("DynamicExperimentalControl", self._dec_toggle),
       ("IsMetric", is_metric_toggle),
       ("IsLdwEnabled", ldw_toggle),
       ("AlwaysOnDM", always_on_dm_toggle),
+      ("GreenLightAlert", green_light_chime),
       ("RecordFront", record_front),
       ("RecordAudio", record_mic),
       ("OpenpilotEnabledToggle", enable_openpilot),
@@ -70,17 +76,13 @@ class TogglesLayoutMici(NavScroller):
   def _update_toggles(self):
     ui_state.update_params()
 
-    # CP gating for experimental mode
+    # CP gating: experimental mode, personality, and dynamic experimental control only apply with OP
+    # longitudinal control. Hide-only -- do NOT delete the param (that clobbers a value set via
+    # sunnylink); the refresh loop below mirrors the param back into the widget when it's shown again.
     if ui_state.CP is not None:
-      if ui_state.has_longitudinal_control:
-        self._experimental_btn.set_visible(True)
-        self._personality_toggle.set_visible(True)
-      else:
-        # no long for now
-        self._experimental_btn.set_visible(False)
-        self._experimental_btn.set_checked(False)
-        self._personality_toggle.set_visible(False)
-        ui_state.params.remove("ExperimentalMode")
+      long_avail = ui_state.has_longitudinal_control
+      for w in (self._experimental_btn, self._personality_toggle, self._dec_toggle):
+        w.set_visible(long_avail)
 
     # Refresh toggles from params to mirror external changes
     for key, item in self._refresh_toggles:
