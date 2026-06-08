@@ -95,17 +95,18 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
 static bool rivian_tx_hook(const CANPacket_t *msg) {
   // Rivian utilizes more torque at low speed to maintain the same lateral accel
   const TorqueSteeringLimits RIVIAN_STEERING_LIMITS = {
-    .max_torque = 385,
+    .max_torque = 440,
     .dynamic_max_torque = true,
-    // 3-point envelope around the carcontroller's 4-point lookup
-    // ([9,13,25,27]->[385,350,295,275]). Safety must permit anything the software
-    // may send: this curve sits >= software at every speed (verified 9-27 m/s).
+    // 3-point envelope locked to the aggressive carcontroller lookup ([9,13,25,27]->[440,420,325,305]).
+    // Safety must permit anything the software may send: a flat 440 below 13 m/s covers the 9 m/s
+    // anchor (440) and the 13-knee (420), then tracks the highway points exactly -- >= software at
+    // every speed (verified 9-27 m/s). NOTE: panda's lookup_t is fixed at 3 x/y elements -- stay 3-point.
     .max_torque_lookup = {
-      {9., 25., 27.},
-      {385, 295, 275},
+      {13., 25., 27.},
+      {440, 325, 305},
     },
-    .max_rate_up = 3,
-    .max_rate_down = 5,
+    .max_rate_up = 4,
+    .max_rate_down = 7,
     .max_rt_delta = 125,
     .driver_torque_multiplier = 2,
     .driver_torque_allowance = 100,
