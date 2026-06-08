@@ -1,6 +1,6 @@
 from openpilot.common.time_helpers import system_time_valid
 from openpilot.system.ui.widgets.scroller import NavScroller
-from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigToggle, BigParamControl, BigCircleParamControl
+from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigToggle, BigParamControl, BigCircleParamControl, BigMultiParamToggle
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigDialog, BigInputDialog
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.selfdrive.ui.layouts.settings.common import restart_needed_callback
@@ -64,6 +64,12 @@ class DeveloperLayoutMici(NavScroller):
     self._debug_mode_toggle = BigParamControl("ui debug mode", "ShowDebugInfo",
                                               toggle_callback=lambda checked: (gui_app.set_show_touches(checked),
                                                                                gui_app.set_show_fps(checked)))
+    # Rivian R1T steering tune profile (mici/comma-4 UI has no per-brand vehicle settings, so it
+    # lives here). Auto picks by vehicle (Gen1 R1T -> aggressive, else tame); tame forces the
+    # baseline. Read at car init, so the callback flags a restart to re-init and apply.
+    self._rivian_tune_toggle = BigMultiParamToggle("steering tune", "RivianAggressiveTune",
+                                                   ["auto", "tame"],
+                                                   select_callback=self._on_rivian_tune)
 
     self._scroller.add_widgets([
       self._adb_toggle,
@@ -74,6 +80,7 @@ class DeveloperLayoutMici(NavScroller):
       self._lat_maneuver_toggle,
       self._alpha_long_toggle,
       self._debug_mode_toggle,
+      self._rivian_tune_toggle,
     ])
 
     # Toggle lists
@@ -86,9 +93,11 @@ class DeveloperLayoutMici(NavScroller):
       ("AlphaLongitudinalEnabled", self._alpha_long_toggle),
       ("ShowDebugInfo", self._debug_mode_toggle),
     )
+    # NOTE: _rivian_tune_toggle is a BigMultiParamToggle (manages its own int param), so it's not in
+    # _refresh_toggles (that loop does set_checked/get_bool, which is boolean-only).
     onroad_blocked_toggles = (self._adb_toggle, self._joystick_toggle)
     release_blocked_toggles = (self._joystick_toggle, self._long_maneuver_toggle, self._lat_maneuver_toggle, self._alpha_long_toggle)
-    engaged_blocked_toggles = (self._long_maneuver_toggle, self._lat_maneuver_toggle, self._alpha_long_toggle)
+    engaged_blocked_toggles = (self._long_maneuver_toggle, self._lat_maneuver_toggle, self._alpha_long_toggle, self._rivian_tune_toggle)
 
     # Hide non-release toggles on release builds
     for item in release_blocked_toggles:
@@ -175,3 +184,8 @@ class DeveloperLayoutMici(NavScroller):
     ui_state.params.put_bool("AlphaLongitudinalEnabled", state)
     restart_needed_callback(state)
     self._update_toggles()
+
+  def _on_rivian_tune(self, value: str):
+    # The widget writes the param itself (int index 0=auto/1=tame). Any tune change
+    # needs a car re-init to take effect, so always flag a restart.
+    restart_needed_callback(True)
