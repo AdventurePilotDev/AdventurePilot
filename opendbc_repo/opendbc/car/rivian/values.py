@@ -48,16 +48,28 @@ class RivianSafetyFlags(IntFlag):
 
 
 class CAR(Platforms):
-  RIVIAN_R1 = RivianPlatformConfig(
+  # Split by VIN into separate truck/SUV platforms: match_fw_to_car_fuzzy disambiguates on
+  # WMI (7FC truck / 7PD MPV) + ModelLine (T/S), so each VIN resolves to exactly one platform.
+  # Generation (Gen1/Gen2) is an orthogonal runtime CAN flag (RivianFlags.GEN2 in interface.py),
+  # not a platform axis.
+  RIVIAN_R1T = RivianPlatformConfig(
     [
-      RivianCarDocs("Rivian R1S 2022-24", setup_video="https://youtu.be/uaISd1j7Z4U", car_parts=CarParts.common([CarHarness.rivian_a])),
-      RivianCarDocs("Rivian R1S 2025", car_parts=CarParts.common([CarHarness.rivian_b])),
       RivianCarDocs("Rivian R1T 2022-24", setup_video="https://youtu.be/uaISd1j7Z4U", car_parts=CarParts.common([CarHarness.rivian_a])),
       RivianCarDocs("Rivian R1T 2025", car_parts=CarParts.common([CarHarness.rivian_b])),
     ],
+    CarSpecs(mass=3140., wheelbase=3.45, steerRatio=15.2),
+    wmis={WMI.RIVIAN_TRUCK},
+    lines={ModelLine.R1T},
+    years={ModelYear.N_2022, ModelYear.P_2023, ModelYear.R_2024, ModelYear.S_2025},
+  )
+  RIVIAN_R1S = RivianPlatformConfig(
+    [
+      RivianCarDocs("Rivian R1S 2022-24", setup_video="https://youtu.be/uaISd1j7Z4U", car_parts=CarParts.common([CarHarness.rivian_a])),
+      RivianCarDocs("Rivian R1S 2025", car_parts=CarParts.common([CarHarness.rivian_b])),
+    ],
     CarSpecs(mass=3206., wheelbase=3.08, steerRatio=15.2),
-    wmis={WMI.RIVIAN_TRUCK, WMI.RIVIAN_MPV},
-    lines={ModelLine.R1T, ModelLine.R1S},
+    wmis={WMI.RIVIAN_MPV},
+    lines={ModelLine.R1S},
     years={ModelYear.N_2022, ModelYear.P_2023, ModelYear.R_2024, ModelYear.S_2025},
   )
 
