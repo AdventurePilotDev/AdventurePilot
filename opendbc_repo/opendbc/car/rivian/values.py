@@ -136,16 +136,14 @@ class CarControllerParams:
   # 250 is ~2.8 m/s^2 above 17 m/s, then linearly ramps to ~1.6 m/s^2 from 17 m/s to 9 m/s
   # TODO: it is theorized older models have different steering racks and achieve down to half the
   #  lateral acceleration referenced here at all speeds. detect this and ship a torque increase for those models
-  STEER_MAX = 385  # peak of the lookup below
-  # 4-point lookup keeps the highway cap at 275 (unchanged from old [385,275]) but
-  # holds slightly elevated torque through the 13-25 m/s band. Earlier
-  # [9,13,25,27]->[481,415,305,275] shape was too aggressive (jerky low speed,
-  # oversteer at mid speed); this halves the mid-speed bump and reverts low speed
-  # to original. Knee moved 17 -> 27 m/s so modest help extends through ~55 mph.
-  STEER_MAX_LOOKUP = [9, 13, 25, 27], [385, 350, 295, 275]
+  # These constants are the aggressive-profile superset the panda envelope tracks. The
+  # carcontroller actually clips with the per-speed cap and per-profile rates from the active
+  # RIVIAN_TUNE profile (defined below), not with these directly.
+  STEER_MAX = 440  # aggressive-profile peak (<= 9 m/s)
+  STEER_MAX_LOOKUP = [9, 13, 25, 27], [440, 420, 325, 305]
   STEER_STEP = 1
-  STEER_DELTA_UP = 3  # torque increase per refresh
-  STEER_DELTA_DOWN = 5  # torque decrease per refresh
+  STEER_DELTA_UP = 4  # max torque step up per frame (aggressive; tame profile uses 3)
+  STEER_DELTA_DOWN = 7  # max torque step down per frame (aggressive; tame 5). EPS faults on di/dt; ~5-7 ceiling.
   STEER_DRIVER_ALLOWANCE = 100  # allowed driver torque before start limiting
   STEER_DRIVER_MULTIPLIER = 2  # weight driver torque
   STEER_DRIVER_FACTOR = 100
@@ -155,6 +153,27 @@ class CarControllerParams:
 
   def __init__(self, CP):
     pass
+
+
+# Runtime-selectable steering tune, chosen by the "RivianAggressiveTune" param and applied to
+# CP_SP.flags in opendbc/sunnypilot/car/interfaces.py (read by the carcontroller at car init).
+#   False = tame:       the ap-dev baseline torque shaping. Default / fail-safe fallback.
+#   True  = aggressive: Gen1 R1T tune — higher per-speed cap, low-pass torque filter, faster
+#                       rate up/down. Auto-selected only for a Gen1 R1T; everything else stays tame.
+RIVIAN_TUNE = {
+  False: {
+    'steer_max_lookup': ([9, 13, 25, 27], [385, 350, 295, 275]),
+    'steer_delta_up': 3,
+    'steer_delta_down': 5,
+    'use_torque_filter': False,
+  },
+  True: {
+    'steer_max_lookup': ([9, 13, 25, 27], [440, 420, 325, 305]),
+    'steer_delta_up': 4,
+    'steer_delta_down': 7,
+    'use_torque_filter': True,
+  },
+}
 
 
 DBC = CAR.create_dbc_map()
