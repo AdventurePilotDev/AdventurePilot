@@ -2,10 +2,13 @@
 import unittest
 
 from opendbc.car.structs import CarParams
+from opendbc.car.lateral import get_max_angle_vm
+from opendbc.car.vehicle_model import VehicleModel
 from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
 from opendbc.safety.tests.common import CANPackerSafety
-from opendbc.car.rivian.values import RivianSafetyFlags
+from opendbc.car.rivian.values import CarControllerParams, RivianSafetyFlags
+from opendbc.car.rivian.ext_controller import get_safety_CP
 from opendbc.car.rivian.riviancan import checksum as _checksum
 
 
@@ -143,6 +146,52 @@ class TestRivianLongitudinalSafety(TestRivianSafetyBase):
     self.safety = libsafety_py.libsafety
     self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, RivianSafetyFlags.LONG_CONTROL)
     self.safety.init_tests()
+
+
+class TestRivianAngleSafety(TestRivianSafetyBase, common.AngleSteeringSafetyTest):
+  # Angle mode additionally TXes ACM_Status (0x100) and ACM_SteeringControl (0x110); the 0x120
+  # cooperative-torque path is unchanged, so the inherited torque tests still apply.
+  LONGITUDINAL = False
+  TX_MSGS = [[0x100, 0], [0x110, 0], [0x120, 0], [0x321, 2], [0x162, 2]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x100, 0x110, 0x120), 2: (0x321, 0x162)}
+  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: [0x100, 0x110, 0x120]}
+
+  # Angle limits use the vehicle-model limiter (matches CarControllerParams.ANGLE_LIMITS / ext_controller)
+  STEER_ANGLE_MAX = 360
+  DEG_TO_CAN = 10
+  ANGLE_RATE_BP = None
+  ANGLE_RATE_UP = None
+  ANGLE_RATE_DOWN = None
+  LATERAL_FREQUENCY = 100  # Hz
+
+  cnt_angle_cmd = 0
+
+  def _get_steer_cmd_angle_max(self, speed):
+    return get_max_angle_vm(max(speed, 1), self.VM, CarControllerParams)
+
+  def test_angle_cmd_when_enabled(self):
+    # v1 rate test doesn't apply (we use the vehicle-model limiter). TODO: port tesla's
+    # CAN-quantization-exact test_lateral_accel_limit/test_lateral_jerk_limit with a rivian-
+    # specific round_angle + speed rounding before on-device angle use (harness pending).
+    pass
+
+  def setUp(self):
+    self.VM = VehicleModel(get_safety_CP())
+    self.packer = CANPackerSafety("rivian_primary_actuator")
+    self.safety = libsafety_py.libsafety
+    self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, RivianSafetyFlags.ANGLE_CONTROL)
+    self.safety.init_tests()
+
+  def _angle_cmd_msg(self, angle: float, enabled: bool, increment_timer: bool = True):
+    values = {"ACM_SteeringAngleRequest": angle, "ACM_EacEnabled": enabled}
+    if increment_timer:
+      self.safety.set_timer(self.cnt_angle_cmd * int(1e6 / self.LATERAL_FREQUENCY))
+      self.__class__.cnt_angle_cmd += 1
+    return self.packer.make_can_msg_safety("ACM_SteeringControl", 0, values)
+
+  def _angle_meas_msg(self, angle: float):
+    values = {"EPAS_InternalSas": angle}
+    return self.packer.make_can_msg_safety("EPAS_AdasStatus", 0, values)
 
 
 if __name__ == "__main__":

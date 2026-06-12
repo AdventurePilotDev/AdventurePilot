@@ -65,6 +65,7 @@ class Controls(ControlsExt):
       self.LaC = LatControlTorque(self.CP, self.CP_SP, self.CI, DT_CTRL)
 
     self.LaC = ControlsExt.initialize_lateral_control(self, self.LaC, self.CI, DT_CTRL)
+    ControlsExt.initialize_secondary_lateral_control(self, self.CI, DT_CTRL)  # fork: opt-in secondary lateral controller
 
   def update(self):
     self.sm.update(15)
@@ -148,6 +149,8 @@ class Controls(ControlsExt):
                                                        self.calibrated_pose, curvature_limited, lat_delay)
     actuators.torque = float(steer)
     actuators.steeringAngleDeg = float(steeringAngleDeg)
+    # fork: secondary lateral controller (Rivian angle-mode cooperative torque); no-op otherwise
+    ControlsExt.update_secondary_lateral_control(self, CC, actuators, lp, lat_delay, curvature_limited)
     # Ensure no NaNs/Infs
     for p in ACTUATOR_FIELDS:
       attr = getattr(actuators, p)

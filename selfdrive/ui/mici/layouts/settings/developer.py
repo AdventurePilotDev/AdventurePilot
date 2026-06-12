@@ -76,6 +76,9 @@ class DeveloperLayoutMici(NavScroller):
     self._rivian_tune_toggle = BigMultiParamToggle("steering tune", "RivianAggressiveTune",
                                                    ["auto", "tame"],
                                                    select_callback=self._on_rivian_tune)
+    # Cooperative steering: allow driver torque while engaged (vs disengage on driver input).
+    self._rivian_coop_toggle = BigParamControl("cooperative steering", "RivianCoopSteering",
+                                               toggle_callback=self._on_rivian_restart)
 
     self._scroller.add_widgets([
       self._adb_toggle,
@@ -88,6 +91,7 @@ class DeveloperLayoutMici(NavScroller):
       self._alpha_long_toggle,
       self._debug_mode_toggle,
       self._rivian_tune_toggle,
+      self._rivian_coop_toggle,
     ])
 
     # Toggle lists
@@ -99,12 +103,14 @@ class DeveloperLayoutMici(NavScroller):
       ("LateralManeuverMode", self._lat_maneuver_toggle),
       ("AlphaLongitudinalEnabled", self._alpha_long_toggle),
       ("ShowDebugInfo", self._debug_mode_toggle),
+      ("RivianCoopSteering", self._rivian_coop_toggle),
     )
     # NOTE: _rivian_tune_toggle is a BigMultiParamToggle (manages its own int param), so it's not in
     # _refresh_toggles (that loop does set_checked/get_bool, which is boolean-only).
     onroad_blocked_toggles = (self._adb_toggle, self._joystick_toggle)
     release_blocked_toggles = (self._joystick_toggle, self._long_maneuver_toggle, self._lat_maneuver_toggle, self._alpha_long_toggle)
-    engaged_blocked_toggles = (self._long_maneuver_toggle, self._lat_maneuver_toggle, self._alpha_long_toggle, self._rivian_tune_toggle)
+    engaged_blocked_toggles = (self._long_maneuver_toggle, self._lat_maneuver_toggle, self._alpha_long_toggle,
+                               self._rivian_tune_toggle, self._rivian_coop_toggle)
 
     # Hide non-release toggles on release builds
     for item in release_blocked_toggles:
@@ -204,4 +210,8 @@ class DeveloperLayoutMici(NavScroller):
   def _on_rivian_tune(self, value: str):
     # The widget writes the param itself (int index 0=auto/1=tame). Any tune change
     # needs a car re-init to take effect, so always flag a restart.
+    restart_needed_callback(True)
+
+  def _on_rivian_restart(self, checked: bool):
+    # angle/coop steering are read at car init; any change (on or off) needs a re-init
     restart_needed_callback(True)

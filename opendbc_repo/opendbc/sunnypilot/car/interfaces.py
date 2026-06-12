@@ -113,6 +113,11 @@ def _initialize_coop_steering(CP: structs.CarParams, CP_SP: structs.CarParamsSP,
     coop_steering = int(params_dict.get("TeslaCoopSteering", 0)) == 1
     if coop_steering:
       CP_SP.flags |= TeslaFlagsSP.COOP_STEERING.value
+  if CP.brand == 'rivian':
+    # only meaningful in angle mode; default off for AP (driver torque disengages instead of blending)
+    coop_steering = int(params_dict.get("RivianCoopSteering", 0)) == 1
+    if coop_steering:
+      CP_SP.flags |= RivianFlagsSP.COOP_STEERING.value
 
 
 def _initialize_rivian(CP: structs.CarParams, CP_SP: structs.CarParamsSP,

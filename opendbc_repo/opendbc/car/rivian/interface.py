@@ -12,6 +12,12 @@ class CarInterface(CarInterfaceBase):
   CarController = CarController
   RadarInterface = RadarInterface
 
+  def build_secondary_lateral_controller(self, CP_SP, dt):
+    # cooperative/handoff torque alongside the primary angle controller (opt-in; controlsd_ext
+    # discovers this via getattr). Only built/used in angle mode.
+    from opendbc.car.rivian.ext_controller import build_torque_controller
+    return build_torque_controller(self.CP, CP_SP, self, dt)
+
   @staticmethod
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
     ret.brand = "rivian"
@@ -22,12 +28,20 @@ class CarInterface(CarInterfaceBase):
     if 0x321 not in fingerprint[0]:
       ret.flags |= RivianFlags.GEN2.value
 
-    ret.steerActuatorDelay = 0.15
+    # angle control needs a larger actuator delay and standstill steering
+    ret.steerActuatorDelay = 0.3
+    ret.steerAtStandstill = True
     ret.steerLimitTimer = 0.4
     CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 
-    ret.steerControlType = structs.CarParams.SteerControlType.torque
+    ret.steerControlType = structs.CarParams.SteerControlType.angle
+    ret.safetyConfigs[0].safetyParam |= RivianSafetyFlags.ANGLE_CONTROL.value
     ret.radarUnavailable = True
+
+    # angle control needs Lukas's harness (CAN 0x1310 on bus 1). Without it the car is dashcam-only:
+    # this is the angle branch -- harnessless cars belong on the torque branch (rs-dev).
+    if 0x1310 not in fingerprint[1]:
+      ret.dashcamOnly = True
 
     # TODO: pending finding/handling missing set speed
     ret.alphaLongitudinalAvailable = False

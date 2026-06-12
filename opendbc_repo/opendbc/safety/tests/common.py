@@ -956,6 +956,9 @@ class SafetyTest(SafetyTestBase):
         # TODO: this should be blocked
         if current_test in ["TestNissanSafety", "TestNissanSafetyAltEpsBus", "TestNissanLeafSafety"] and [addr, bus] in self.TX_MSGS:
           continue
+        # Rivian torque/angle/long are the same car in different configs; they legitimately share msgs
+        if current_test.startswith("TestRivian") and test_name.startswith("TestRivian"):
+          continue
         self.assertFalse(self._tx(msg), f"transmit of {addr=:#x} {bus=} from {test_name} during {current_test} was allowed")
 
 

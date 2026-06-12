@@ -2,9 +2,11 @@ import copy
 from opendbc.can import CANParser
 from opendbc.car import Bus, structs
 from opendbc.car.interfaces import CarStateBase
+from opendbc.car.rivian.ext_controller import TorsionDetector
 from opendbc.car.rivian.values import DBC, GEAR_MAP, RivianFlags
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.sunnypilot.car.rivian.carstate_ext import CarStateExt
+from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
 
 GearShifter = structs.CarState.GearShifter
 
@@ -18,6 +20,15 @@ class CarState(CarStateBase, CarStateExt):
     self.acm_lka_hba_cmd: dict | None = None
     self.sccm_wheel_touch: dict | None = None
     self.vdm_adas_status: list[dict] | None = None
+
+    # EPAS angle-control (EAC) state, read by ExternalController in angle mode
+    self.hands_on_level = 0
+    self.eac_status = 0
+    self.eac_error_code = 0
+
+    # without cooperative steering, disengage on driver torque before EPAS reports an override
+    self.coop_steering = bool(CP_SP.flags & RivianFlagsSP.COOP_STEERING)
+    self.torsion_disengage = TorsionDetector(3.0, 9)
 
   def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
     cp = can_parsers[Bus.pt]
@@ -46,10 +57,23 @@ class CarState(CarStateBase, CarStateExt):
     ret.steeringTorque = cp.vl["EPAS_SystemStatus"]["EPAS_TorsionBarTorque"]
     ret.steeringPressed = self.update_steering_pressed(abs(ret.steeringTorque) > 1.0, 5)
 
-    # EPAS_HandsOnLevel: 1 = normal/hands-on; any other value is a car-reported hands-off fault
-    hands_on_level = cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"]
-    ret.steerFaultTemporary = (cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiFlt"] != 0 or
-                               hands_on_level != 1)
+    # EPAS_HandsOnLevel: 1 = normal/hands-on; any other value is a car-reported hands-off fault.
+    # EAC (Electronic Angle Control) status/error are read by the ExternalController in angle mode.
+    self.hands_on_level = int(cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"])
+    self.eac_status = int(cp.vl["EPAS_AdasStatus"]["EPAS_EacStatus"])
+    self.eac_error_code = int(cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"])
+    eps_fault = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiFlt"] != 0 or self.hands_on_level != 1
+
+    if self.CP.steerControlType == structs.CarParams.SteerControlType.angle:
+      # stock ACM publishes EAC errors when inactive; only treat them as faults when EAC is active (==2)
+      ret.steerFaultPermanent = self.eac_status == 4
+      ret.steerFaultTemporary = self.eac_status == 2 and eps_fault
+      ret.steeringDisengage = self.eac_status == 2 and self.eac_error_code == 12  # EPAS_Hands_On_Detn_Err
+      if not self.coop_steering:
+        torsion = self.torsion_disengage.update(ret.steeringTorque)
+        ret.steeringDisengage = ret.steeringDisengage or self.hands_on_level > 1 or torsion
+    else:
+      ret.steerFaultTemporary = eps_fault
 
     # Cruise state
     speed = min(int(cp_adas.vl["ACM_tsrCmd"]["ACM_tsrSpdDisClsMain"]), 85)
