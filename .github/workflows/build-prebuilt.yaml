@@ -11,8 +11,14 @@ name: Build Prebuilt
 #   - LFS: never carry .gitattributes into the published tree (so `git add` on the LFS-enabled
 #     publish runner can't re-pointerize real binaries) + a hard pointer-stub guard. (This is what
 #     bricked the deleted branch.)
-#   - boot: build in /data/ap-build (NOT /data/openpilot), and always() clean up the build dir +
-#     re-enable powersave, so a job can't leave the device's openpilot dirty.
+#   - RUNPATH: build in /data/openpilot (the device's RUNTIME path), NOT /data/ap-build. scons bakes the
+#     absolute BUILD_DIR into native binaries' RUNPATH (e.g. sunnypilot locationd -> .../models/generated
+#     for liblive.so). A /data/ap-build RUNPATH dangles on the device (no such dir) -> locationd fails with
+#     "liblive.so: cannot open" -> "locationd not running" -> can't engage. The runner's `unshare -m`
+#     bind-mounts /data/github/openpilot over /data/openpilot for the job, so building here is isolated
+#     from the runner's own openpilot AND bakes the path the device actually runs from.
+#   - boot: always() clean the build dir (contents only -- it's a bind-mount point) + re-enable powersave,
+#     so a job can't leave openpilot dirty.
 
 on:
   push:
@@ -30,7 +36,7 @@ on:
 
 env:
   SOURCE_BRANCH: ${{ github.event.inputs.source_branch || github.ref_name }}
-  BUILD_DIR: "/data/ap-build"
+  BUILD_DIR: "/data/openpilot"  # MUST equal the device's runtime path (see RUNPATH note in header)
   OUTPUT_DIR: ${{ github.workspace }}/output
   SCONS_CACHE_DIR: ${{ github.workspace }}/release/ci/scons_cache
   CACHEDB: "/data/cache/tinygrad/cache.db"
@@ -77,9 +83,9 @@ jobs:
 
       - name: Setup build environment
         run: |
-          # /data is owned by comma:comma (755) and the job runs as github-runner, so create the
-          # build dir as root then hand it to github-runner — the prior run's always() cleanup
-          # does `sudo rm -rf ${BUILD_DIR}`, so an unprivileged mkdir here fails on every re-run.
+          # BUILD_DIR is the bind-mounted /data/openpilot (job namespace masks the runner's own
+          # openpilot with github-runner-owned /data/github/openpilot). Ensure it exists, is empty,
+          # and is owned by the job user before rsyncing the source in.
           sudo mkdir -p "${BUILD_DIR}/"
           sudo find $BUILD_DIR/ -mindepth 1 -delete
           sudo chown github-runner:github-runner "${BUILD_DIR}"
@@ -165,7 +171,9 @@ jobs:
 
       - name: Cleanup build directory
         if: always()
-        run: sudo rm -rf ${BUILD_DIR}
+        # BUILD_DIR is a bind-mount point (/data/openpilot), so clear its CONTENTS, not the dir itself
+        # (rm -rf the mountpoint would EBUSY and fail this always() step -> would fail the build job).
+        run: sudo find ${BUILD_DIR}/ -mindepth 1 -delete 2>/dev/null || true
 
   publish:
     needs: [ build ]
