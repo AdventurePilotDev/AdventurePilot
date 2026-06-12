@@ -2,7 +2,9 @@ import os
 from collections.abc import Callable
 
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton
+from openpilot.selfdrive.ui.mici.widgets.dialog import BigDialog
 from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.widgets.scroller import NavScroller
 
@@ -87,6 +89,13 @@ class BranchSelectorMici(NavScroller):
 
   def _select(self, branch: str) -> None:
     ui_state.params.put("UpdaterTargetBranch", branch)
+    # Match the tici branch switcher: set the target and SIGUSR1 (UserRequest.CHECK) to refresh the
+    # updater. Downloading + installing is driven by the existing mici update flow — Device ->
+    # "update sunnypilot" (which cycles check -> download -> install) or the home "update available"
+    # alert — both of which already respect UpdaterTargetBranch, just like tici's separate
+    # Download/Install buttons.
     os.system("pkill -SIGUSR1 -f system.updated.updated")
     self._current_btn.set_value(branch)
     self.original_back_callback()
+    gui_app.push_widget(BigDialog(tr("target branch set"),
+                                  tr("open device settings and tap update to download and install")))
