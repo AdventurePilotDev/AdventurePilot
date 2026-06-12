@@ -135,9 +135,11 @@ jobs:
 
       - name: Guard - fail on any LFS pointer stub
         run: |
-          # Real binary = binary file; LFS pointer = tiny text file containing this URL.
-          # grep -I skips binaries, so any hit is a stub that would brick the device.
-          if grep -rlI "https://git-lfs.github.com/spec/v1" "${OUTPUT_DIR}" > /tmp/lfs_ptrs.txt; then
+          # An LFS pointer stub is a tiny text file whose FIRST line is exactly
+          # `version https://git-lfs.github.com/spec/v1`. Anchor on that line-start so we don't flag
+          # legit source that merely mentions the spec URL mid-line (e.g. the assert in
+          # tools/lib/comma_car_segments.py, which parses LFS pointers). grep -I skips binaries.
+          if grep -rlIE "^version https://git-lfs\.github\.com/spec/v1" "${OUTPUT_DIR}" > /tmp/lfs_ptrs.txt; then
             echo "::error::LFS pointer stubs found in build output (would brick the device):"
             cat /tmp/lfs_ptrs.txt
             exit 1
@@ -202,8 +204,8 @@ jobs:
           # LFS safety (belt + suspenders): no .gitattributes => `git add` cannot re-pointerize,
           # even though ubuntu-24.04 publish runners ship git-lfs.
           find . -name .gitattributes -delete
-          # Final pre-commit guard in case anything slipped through.
-          if grep -rlI "https://git-lfs.github.com/spec/v1" . > /tmp/lfs_ptrs.txt; then
+          # Final pre-commit guard (anchored to the pointer's `version` first line; see build job).
+          if grep -rlIE "^version https://git-lfs\.github\.com/spec/v1" . > /tmp/lfs_ptrs.txt; then
             echo "::error::LFS pointer stubs present at publish time:"; cat /tmp/lfs_ptrs.txt; exit 1
           fi
           git init -q
