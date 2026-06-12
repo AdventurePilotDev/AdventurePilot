@@ -2,6 +2,7 @@ from openpilot.common.time_helpers import system_time_valid
 from openpilot.system.ui.widgets.scroller import NavScroller
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigToggle, BigParamControl, BigCircleParamControl, BigMultiParamToggle
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigDialog, BigInputDialog
+from openpilot.selfdrive.ui.mici.layouts.settings.branch_selector import BranchSelectorMici
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.selfdrive.ui.layouts.settings.common import restart_needed_callback
 from openpilot.selfdrive.ui.ui_state import ui_state
@@ -45,6 +46,11 @@ class DeveloperLayoutMici(NavScroller):
     self._ssh_keys_btn = BigButton("SSH keys", "Not set" if not github_username else github_username, icon=txt_ssh)
     self._ssh_keys_btn.set_click_callback(ssh_keys_callback)
 
+    # Branch switcher. The mici UI has no Software settings page, so the Target Branch selector
+    # (present in the big tici/tizi UI) lives here as a pushed sub-page.
+    self._branch_btn = BigButton("target branch", ui_state.params.get("UpdaterTargetBranch") or "", scroll=True)
+    self._branch_btn.set_click_callback(self._open_branch_selector)
+
     # adb, ssh, ssh keys, debug mode, joystick debug mode, longitudinal maneuver mode, ip address
     # ******** Main Scroller ********
     self._adb_toggle = BigCircleParamControl(gui_app.texture("icons_mici/adb_short.png", 82, 82), "AdbEnabled", icon_offset=(0, 12))
@@ -75,6 +81,7 @@ class DeveloperLayoutMici(NavScroller):
       self._adb_toggle,
       self._ssh_toggle,
       self._ssh_keys_btn,
+      self._branch_btn,
       self._joystick_toggle,
       self._long_maneuver_toggle,
       self._lat_maneuver_toggle,
@@ -154,6 +161,12 @@ class DeveloperLayoutMici(NavScroller):
     # Refresh toggles from params to mirror external changes
     for key, item in self._refresh_toggles:
       item.set_checked(ui_state.params.get_bool(key))
+
+    # Mirror the current target branch (may change externally, e.g. via the selector or updater)
+    self._branch_btn.set_value(ui_state.params.get("UpdaterTargetBranch") or "")
+
+  def _open_branch_selector(self):
+    gui_app.push_widget(BranchSelectorMici(back_callback=gui_app.pop_widget))
 
   def _on_joystick_debug_mode(self, state: bool):
     ui_state.params.put_bool("JoystickDebugMode", state)
