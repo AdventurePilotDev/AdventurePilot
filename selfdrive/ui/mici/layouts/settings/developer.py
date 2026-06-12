@@ -129,6 +129,12 @@ class DeveloperLayoutMici(NavScroller):
     super()._update_state()
     self._ssh_fetcher.update()
 
+    # Mirror the current target branch every frame so the row reflects a selection made in the
+    # branch selector sub-page (which only writes the param) once we pop back here.
+    target = ui_state.params.get("UpdaterTargetBranch") or ""
+    if self._branch_btn.get_value() != target:
+      self._branch_btn.set_value(target)
+
   def show_event(self):
     super().show_event()
     self._update_toggles()
@@ -161,9 +167,6 @@ class DeveloperLayoutMici(NavScroller):
     # Refresh toggles from params to mirror external changes
     for key, item in self._refresh_toggles:
       item.set_checked(ui_state.params.get_bool(key))
-
-    # Mirror the current target branch (may change externally, e.g. via the selector or updater)
-    self._branch_btn.set_value(ui_state.params.get("UpdaterTargetBranch") or "")
 
   def _open_branch_selector(self):
     gui_app.push_widget(BranchSelectorMici(back_callback=gui_app.pop_widget))
