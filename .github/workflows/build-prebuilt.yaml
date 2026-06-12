@@ -77,8 +77,12 @@ jobs:
 
       - name: Setup build environment
         run: |
-          mkdir -p "${BUILD_DIR}/"
+          # /data is owned by comma:comma (755) and the job runs as github-runner, so create the
+          # build dir as root then hand it to github-runner — the prior run's always() cleanup
+          # does `sudo rm -rf ${BUILD_DIR}`, so an unprivileged mkdir here fails on every re-run.
+          sudo mkdir -p "${BUILD_DIR}/"
           sudo find $BUILD_DIR/ -mindepth 1 -delete
+          sudo chown github-runner:github-runner "${BUILD_DIR}"
           PYTHONPATH=$PYTHONPATH:${{ github.workspace }}/ ${{ github.workspace }}/scripts/manage-powersave.py --disable
 
       - name: Build
