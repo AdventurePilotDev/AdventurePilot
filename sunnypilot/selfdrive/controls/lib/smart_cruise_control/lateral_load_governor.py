@@ -28,9 +28,10 @@ from openpilot.sunnypilot.selfdrive.controls.lib.smart_cruise_control import MIN
 
 # Steering's usable lateral-accel ceiling (the EPS/comfort limit). Measured ~2.8 m/s^2 for the Rivian R1T from
 # EPS-torque saturation in real logs (range 2.8-3.2 across drives); a margin above the feedforward's 2.4 target.
-A_LAT_CEILING = 2.8     # m/s^2
-SETPOINT = 0.99         # regulate measured load to this fraction of the ceiling (ride the edge)
-TAPER_START = 0.85      # fade feedforward throttle from full (here) to zero at the ceiling
+A_LAT_CEILING = 2.8     # m/s^2 (the physical EPS lateral ceiling — don't change without re-measuring)
+SETPOINT = 0.85         # regulate measured load to this fraction of the ceiling. 0.85 (was 0.99): riding right
+                        # at the limit overshot it on-device given reactive lag; back off earlier (~2.38 m/s²).
+TAPER_START = 0.70      # fade feedforward throttle from full (here) to zero at the ceiling — start easing sooner
 LOAD_LP = 0.4           # EMA on the load signal (curvature/torque noise rejection)
 UNDERSTEER_TH = 0.05    # m/s^2 desired-minus-actual lateral accel that counts as "running wide"
 V_TARGET_FLOOR = 2.0    # m/s

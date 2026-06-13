@@ -32,7 +32,9 @@ T_IDXS = np.array(ModelConstants.T_IDXS)  # 33-pt model horizon, 0..10 s (quadra
 
 # Lateral-accel budget the profile plans to. Same value for R1T and R1S (same vehicle family). This is the
 # "feel" knob = how hard the car loads the steering in curves; keep it a margin below the EPS lateral ceiling.
-A_LAT_MAX = 2.4         # m/s^2
+# 2.0 (was 2.4): on-device drive 0000003b showed transient overshoots past the 2.8 EPS ceiling — a lower target
+# both starts the slowdown earlier (backward pass reaches further back) and leaves headroom for late arrivals.
+A_LAT_MAX = 2.0         # m/s^2
 A_DECEL = 1.8           # m/s^2, comfortable decel for the backward pass (braking starts early)
 A_ACCEL = 1.2           # m/s^2, comfortable accel-out cap (display a_target only; the MPC does the real tracking)
 V_TARGET_FLOOR = 2.0    # m/s, never command a crawl below this
