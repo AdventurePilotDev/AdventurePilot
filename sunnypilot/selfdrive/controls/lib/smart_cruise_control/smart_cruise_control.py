@@ -7,13 +7,19 @@ See the LICENSE.md file in the root directory for more details.
 import cereal.messaging as messaging
 from openpilot.sunnypilot.selfdrive.controls.lib.smart_cruise_control.vision_controller import SmartCruiseControlVision
 from openpilot.sunnypilot.selfdrive.controls.lib.smart_cruise_control.map_controller import SmartCruiseControlMap
+from openpilot.sunnypilot.selfdrive.controls.lib.smart_cruise_control.curve_speed_controller import CurveSpeedController
+from openpilot.sunnypilot.selfdrive.controls.lib.smart_cruise_control.lateral_load_governor import LateralLoadGovernor
 
 
 class SmartCruiseControl:
   def __init__(self):
     self.vision = SmartCruiseControlVision()
     self.map = SmartCruiseControlMap()
+    self.curve = CurveSpeedController()       # feedforward profile + backward pass
+    self.governor = LateralLoadGovernor()     # reactive lateral-load backstop + throttle-fade interlock
 
   def update(self, sm: messaging.SubMaster, long_enabled: bool, long_override: bool, v_ego: float, a_ego: float, v_cruise: float) -> None:
     self.map.update(long_enabled, long_override, v_ego, a_ego, v_cruise)
     self.vision.update(sm, long_enabled, long_override, v_ego, a_ego, v_cruise)
+    self.curve.update(sm, long_enabled, long_override, v_ego, a_ego, v_cruise)
+    self.governor.update(sm, long_enabled, long_override, v_ego)

@@ -209,6 +209,7 @@ struct LongitudinalPlanSP @0xf35cc4560bbf6ec2 {
   struct SmartCruiseControl {
     vision @0 :Vision;
     map @1 :Map;
+    curve @2 :Curve;
 
     struct Vision {
       state @0 :VisionState;
@@ -226,6 +227,26 @@ struct LongitudinalPlanSP @0xf35cc4560bbf6ec2 {
       aTarget @2 :Float32;
       enabled @3 :Bool;
       active @4 :Bool;
+    }
+
+    # Curve-aware longitudinal: profile + backward-pass feedforward + reactive lateral-load governor.
+    struct Curve {
+      state @0 :CurveState;
+      vTarget @1 :Float32;
+      aTarget @2 :Float32;
+      latAccelTarget @3 :Float32;    # a_lat_max the feedforward planned to (the "feel"/EPS budget)
+      latAccelMeasured @4 :Float32;  # measured lateral load the governor is regulating
+      governorActive @5 :Bool;       # reactive governor is trimming speed / fading throttle
+      enabled @6 :Bool;
+      active @7 :Bool;
+    }
+
+    enum CurveState {
+      disabled @0; # System disabled or inactive.
+      cruise @1;   # No constraining curve ahead.
+      slowing @2;  # Decelerating ahead of a curve (feedforward backward pass).
+      curve @3;    # Holding the curve speed through the turn.
+      governing @4; # Reactive governor trimming to keep lateral load within the steering limit.
     }
 
     enum VisionState {
@@ -290,6 +311,7 @@ struct LongitudinalPlanSP @0xf35cc4560bbf6ec2 {
     sccVision @1;
     sccMap @2;
     speedLimitAssist @3;
+    curveSpeed @4;
   }
 
   struct E2eAlerts {

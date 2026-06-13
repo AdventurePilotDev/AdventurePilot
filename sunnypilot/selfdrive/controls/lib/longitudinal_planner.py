@@ -62,15 +62,26 @@ class LongitudinalPlannerSP:
     self.sla.update(long_enabled, long_override, v_ego, a_ego, v_cruise_cluster, self.resolver.speed_limit,
                     self.resolver.speed_limit_final_last, has_speed_limit, self.resolver.distance, self.events_sp)
 
+    # Curve-aware longitudinal: feedforward profile, with the reactive lateral-load governor folded in as a
+    # tighter speed cap (whichever wants the lower speed). Both return UNSET when not constraining.
+    curve_v, curve_a = self.scc.curve.output_v_target, self.scc.curve.output_a_target
+    if self.scc.governor.output_v_target < curve_v:
+      curve_v, curve_a = self.scc.governor.output_v_target, min(curve_a, 0.0)
+
     targets = {
       LongitudinalPlanSource.cruise: (v_cruise, a_ego),
       LongitudinalPlanSource.sccVision: (self.scc.vision.output_v_target, self.scc.vision.output_a_target),
       LongitudinalPlanSource.sccMap: (self.scc.map.output_v_target, self.scc.map.output_a_target),
       LongitudinalPlanSource.speedLimitAssist: (self.sla.output_v_target, self.sla.output_a_target),
+      LongitudinalPlanSource.curveSpeed: (curve_v, curve_a),
     }
 
     self.source = min(targets, key=lambda k: targets[k][0])
     self.output_v_target, self.output_a_target = targets[self.source]
+
+    # Throttle-fade interlock: don't add throttle while the steering is near/at its lateral limit.
+    if self.output_a_target > 0.0:
+      self.output_a_target *= self.scc.governor.throttle_scale()
     return self.output_v_target, self.output_a_target
 
   def update(self, sm: messaging.SubMaster) -> None:
@@ -113,6 +124,16 @@ class LongitudinalPlannerSP:
     sccMap.aTarget = float(self.scc.map.output_a_target)
     sccMap.enabled = self.scc.map.is_enabled
     sccMap.active = self.scc.map.is_active
+    # Curve Speed Control (feedforward profile + reactive lateral-load governor)
+    curve = smartCruiseControl.curve
+    curve.state = self.scc.curve.state
+    curve.vTarget = float(self.scc.curve.output_v_target)
+    curve.aTarget = float(self.scc.curve.output_a_target)
+    curve.latAccelTarget = float(self.scc.curve.lat_accel_target)
+    curve.latAccelMeasured = float(self.scc.governor.load * self.scc.governor.ceiling)
+    curve.governorActive = self.scc.governor.is_active
+    curve.enabled = self.scc.curve.is_enabled
+    curve.active = self.scc.curve.is_active
 
     # Speed Limit
     speedLimit = longitudinalPlanSP.speedLimit
