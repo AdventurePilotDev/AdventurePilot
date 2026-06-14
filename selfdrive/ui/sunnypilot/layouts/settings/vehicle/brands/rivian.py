@@ -17,10 +17,6 @@ DESCRIPTIONS = {
     'baseline. Shapes the cooperative/handoff torque used by angle control. Takes effect after the '
     'vehicle restarts (change while parked to apply immediately).'
   ),
-  'coop_steering': tr_noop(
-    'Allows the driver to provide steering input (cooperative torque) while openpilot is engaged. '
-    'When disabled, driver steering input disengages lateral control.'
-  ),
 }
 
 
@@ -37,19 +33,9 @@ class RivianSettings(BrandSettings):
       button_width=280,
     )
 
-    self.coop_steering_toggle = toggle_item_sp(
-      lambda: tr("Cooperative Steering"),
-      description=lambda: tr(DESCRIPTIONS["coop_steering"]),
-      callback=self._on_restart_toggle,
-      param="RivianCoopSteering",
-    )
-
-    self.items = [self.aggressive_tune, self.coop_steering_toggle]
+    self.items = [self.aggressive_tune]
 
   def _on_tune_select(self, index: int):
-    self._request_restart()
-
-  def _on_restart_toggle(self, *args):
     self._request_restart()
 
   def _request_restart(self):

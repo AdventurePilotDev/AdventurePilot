@@ -220,7 +220,6 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     // sunnypilot car specific params
     {"HyundaiLongitudinalTuning", {PERSISTENT | BACKUP, INT, "0"}},
     {"RivianAggressiveTune", {PERSISTENT | BACKUP, INT, "0"}},  // 0=auto (Gen1 R1T->aggressive, else tame), 1=force tame
-    {"RivianCoopSteering", {PERSISTENT | BACKUP, BOOL, "0"}},  // cooperative torque on driver override vs disengage
     {"SubaruStopAndGo", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"SubaruStopAndGoManualParkingBrake", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"TeslaCoopSteering", {PERSISTENT | BACKUP, BOOL, "0"}},

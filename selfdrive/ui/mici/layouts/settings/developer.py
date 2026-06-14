@@ -91,9 +91,6 @@ class DeveloperLayoutMici(NavScroller):
     self._debug_mode_toggle = BigParamControl("ui debug mode", "ShowDebugInfo",
                                               toggle_callback=lambda checked: (gui_app.set_show_touches(checked),
                                                                                gui_app.set_show_fps(checked)))
-    # Cooperative steering: allow driver torque while engaged (vs disengage on driver input).
-    self._rivian_coop_toggle = BigParamControl("cooperative steering", "RivianCoopSteering",
-                                               toggle_callback=self._on_rivian_restart)
 
     self._scroller.add_widgets([
       self._adb_toggle,
@@ -105,7 +102,6 @@ class DeveloperLayoutMici(NavScroller):
       self._lat_maneuver_toggle,
       self._alpha_long_toggle,
       self._debug_mode_toggle,
-      self._rivian_coop_toggle,
     ])
 
     # Toggle lists
@@ -117,12 +113,10 @@ class DeveloperLayoutMici(NavScroller):
       ("LateralManeuverMode", self._lat_maneuver_toggle),
       ("AlphaLongitudinalEnabled", self._alpha_long_toggle),
       ("ShowDebugInfo", self._debug_mode_toggle),
-      ("RivianCoopSteering", self._rivian_coop_toggle),
     )
     onroad_blocked_toggles = (self._adb_toggle, self._joystick_toggle)
     release_blocked_toggles = (self._joystick_toggle, self._long_maneuver_toggle, self._lat_maneuver_toggle, self._alpha_long_toggle)
-    engaged_blocked_toggles = (self._long_maneuver_toggle, self._lat_maneuver_toggle, self._alpha_long_toggle,
-                               self._rivian_coop_toggle)
+    engaged_blocked_toggles = (self._long_maneuver_toggle, self._lat_maneuver_toggle, self._alpha_long_toggle)
 
     # Hide non-release toggles on release builds
     for item in release_blocked_toggles:
@@ -182,10 +176,6 @@ class DeveloperLayoutMici(NavScroller):
 
   def _open_branch_selector(self):
     gui_app.push_widget(BranchSelectorMici(back_callback=gui_app.pop_widget))
-
-  def _on_rivian_restart(self, checked: bool):
-    # angle/coop steering are read at car init; any change (on or off) needs a re-init
-    restart_needed_callback()
 
   def _on_joystick_debug_mode(self, state: bool):
     ui_state.params.put_bool("JoystickDebugMode", state, block=True)

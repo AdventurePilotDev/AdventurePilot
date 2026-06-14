@@ -114,11 +114,6 @@ def initialize_params(params) -> list[dict[str, Any]]:
     "HyundaiLongitudinalTuning",
   ])
 
-  # rivian
-  keys.extend([
-    "RivianCoopSteering",
-  ])
-
   # subaru
   keys.extend([
     "SubaruStopAndGo",

@@ -9,7 +9,6 @@ from opendbc.car.lateral import (
 )
 from opendbc.car.rivian.values import CarControllerParams as CCP
 from opendbc.car.vehicle_model import VehicleModel
-from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
 
 # EPAS angle envelope (EPAS_High_Angle_Cmd_Err)
 EPAS_FW_MAX_ANGLE_BP = [0.0, 2.78, 5.56, 8.33, 12.50, 16.67, 22.22, 27.78]  # m/s
@@ -106,9 +105,6 @@ class ExternalController:
     self.wheelbase = CP.wheelbase
     self.VM = VehicleModel(get_safety_CP())
 
-    # cooperative steering on driver override (toggle); without it, driver torque disengages instead (see carstate)
-    self.coop_steering = bool(CP_SP.flags & RivianFlagsSP.COOP_STEERING)
-
     # hands-on
     self.wheel_touch_cnt = 0
     self.torsion = TorsionDetector(4.0, 9)
@@ -153,8 +149,8 @@ class ExternalController:
 
     if not lat_active:
       self.torque_active = False
-    # driver override (only with cooperative steering; otherwise carstate disengages on driver torque)
-    elif self.coop_steering and self.hands_on and CS.out.steeringPressed:
+    # driver override -> cooperative torque (forced on, matches xnor rx; no disengage-on-torque toggle)
+    elif self.hands_on and CS.out.steeringPressed:
       self.torque_active = True
     # fresh re-engage while EPAS isn't ready
     elif not self.lat_active_last and not epas_ready:

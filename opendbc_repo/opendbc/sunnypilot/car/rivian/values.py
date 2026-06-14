@@ -9,4 +9,3 @@ from enum import IntFlag
 
 class RivianFlagsSP(IntFlag):
   LONGITUDINAL_HARNESS_UPGRADE = 1
-  COOP_STEERING = 2
