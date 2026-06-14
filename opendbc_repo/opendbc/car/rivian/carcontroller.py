@@ -4,10 +4,10 @@ from opendbc.car import Bus
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.rivian.ext_controller import ExternalController, get_safety_CP  # noqa: F401
 from opendbc.car.rivian.riviancan import create_angle_steering, create_lka_steering, create_longitudinal, create_wheel_touch, create_adas_status, create_acm_status
-from opendbc.car.rivian.values import CarControllerParams, RivianFlags, RIVIAN_TUNE
-from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
+from opendbc.car.rivian.values import CarControllerParams, RivianFlags
 
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
+
 
 class CarController(CarControllerBase, MadsCarController):
   def __init__(self, dbc_names, CP, CP_SP):
@@ -19,19 +19,14 @@ class CarController(CarControllerBase, MadsCarController):
     self.cancel_frames = 0
     self.erc = ExternalController(CP, CP_SP)
 
-    # Steering tune profile, fixed at car init from the RivianAggressiveTune param (applied to
-    # CP_SP.flags in opendbc/sunnypilot/car/interfaces.py). Default = tame (ap-dev baseline);
-    # aggressive = rs-dev R1T tune. Toggling the param takes effect on the next car restart.
-    self.tune = RIVIAN_TUNE[bool(CP_SP.flags & RivianFlagsSP.AGGRESSIVE_TUNE)]
-
   def update(self, CC, CC_SP, CS, now_nanos):
     MadsCarController.update(self, CC, CC_SP, CS)
     actuators = CC.actuators
     can_sends = []
 
     apply_torque = 0
-    lookup = self.tune['steer_max_lookup']
-    steer_max = round(float(np.interp(CS.out.vEgoRaw, lookup[0], lookup[1])))
+    steer_max = round(float(np.interp(CS.out.vEgoRaw, CarControllerParams.STEER_MAX_LOOKUP[0],
+                                      CarControllerParams.STEER_MAX_LOOKUP[1])))
 
     self.erc.update(CS, self.mads.lat_active, actuators)
     apply_torque = self.erc.apply_torque_last

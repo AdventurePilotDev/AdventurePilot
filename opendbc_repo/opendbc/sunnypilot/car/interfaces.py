@@ -12,7 +12,6 @@ from collections.abc import Callable
 from opendbc.car import structs
 from opendbc.car.can_definitions import CanRecvCallable, CanSendCallable
 from opendbc.car.hyundai.values import HyundaiFlags
-from opendbc.car.rivian.values import RivianFlags, CAR as RIVIAN_CAR
 from opendbc.car.subaru.values import SubaruFlags
 from opendbc.car.toyota.values import ToyotaSafetyFlags
 from opendbc.sunnypilot.car.hyundai.enable_radar_tracks import enable_radar_tracks as hyundai_enable_radar_tracks
@@ -87,7 +86,6 @@ def setup_interfaces(CI, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
 
   _initialize_custom_longitudinal_tuning(CI, CP, CP_SP, params_dict)
   _initialize_coop_steering(CP, CP_SP, params_dict)
-  _initialize_rivian(CP, CP_SP, params_dict)
   _initialize_radar_tracks(CP, CP_SP, can_recv, can_send)
   _initialize_stop_and_go(CP, CP_SP, params_dict)
   _initialize_toyota(CP, CP_SP, params_dict)
@@ -118,29 +116,6 @@ def _initialize_coop_steering(CP: structs.CarParams, CP_SP: structs.CarParamsSP,
     coop_steering = int(params_dict.get("RivianCoopSteering", 1)) == 1
     if coop_steering:
       CP_SP.flags |= RivianFlagsSP.COOP_STEERING.value
-
-
-def _initialize_rivian(CP: structs.CarParams, CP_SP: structs.CarParamsSP,
-                       params_dict: dict[str, str]) -> None:
-  if CP.brand != 'rivian':
-    return
-
-  # Auto-select the steering tune from what's detectable on-device. aggressive = Gen1 R1T ONLY
-  # (the config we have data for); everything else -- R1S, Gen2 R1T -- stays tame (fail-safe:
-  # aggressive requires a positive Gen1-R1T match).
-  #   R1T  <- platform (VIN-resolved by the fuzzy matcher: WMI 7FC + line 'T' -> CAR.RIVIAN_R1T)
-  #   Gen1 <- absence of the GEN2 CAN flag  [orthogonal generation axis]
-  is_r1t = CP.carFingerprint == RIVIAN_CAR.RIVIAN_R1T
-  is_gen1 = not (CP.flags & RivianFlags.GEN2.value)
-  aggressive = is_r1t and is_gen1
-
-  # Manual override (RivianAggressiveTune, INT): 0 = auto, 1 = force tame.
-  override = int(params_dict.get("RivianAggressiveTune", 0))
-  if override == 1:
-    aggressive = False
-
-  if aggressive:
-    CP_SP.flags |= RivianFlagsSP.AGGRESSIVE_TUNE.value
 
 
 def _initialize_radar_tracks(CP: structs.CarParams, CP_SP: structs.CarParamsSP,
