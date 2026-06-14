@@ -919,6 +919,8 @@ class SafetyTest(SafetyTestBase):
             volkswagen_shared = ('TestVolkswagenMqb', 'TestVolkswagenMlb')
             if attr.startswith(volkswagen_shared) and current_test.startswith(volkswagen_shared):
               continue
+            if attr.startswith('TestRivian') and current_test.startswith('TestRivian'):
+              continue
 
             # overlapping TX addrs, but they're not actuating messages for either car
             if attr == 'TestHyundaiCanfdLKASteeringLongEV' and current_test.startswith('TestToyota'):
@@ -955,9 +957,6 @@ class SafetyTest(SafetyTestBase):
         self.safety.set_controls_allowed(1)
         # TODO: this should be blocked
         if current_test in ["TestNissanSafety", "TestNissanSafetyAltEpsBus", "TestNissanLeafSafety"] and [addr, bus] in self.TX_MSGS:
-          continue
-        # Rivian torque/angle/long are the same car in different configs; they legitimately share msgs
-        if current_test.startswith("TestRivian") and test_name.startswith("TestRivian"):
           continue
         self.assertFalse(self._tx(msg), f"transmit of {addr=:#x} {bus=} from {test_name} during {current_test} was allowed")
 

@@ -1,11 +1,11 @@
 from dataclasses import dataclass, field
 from enum import StrEnum, IntFlag
 
-from opendbc.car import ACCELERATION_DUE_TO_GRAVITY, Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs, uds
+from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs, uds, ACCELERATION_DUE_TO_GRAVITY
 from opendbc.car.docs_definitions import CarHarness, CarDocs, CarParts
-from opendbc.car.lateral import AngleSteeringLimits, ISO_LATERAL_ACCEL
 from opendbc.car.fw_query_definitions import FwQueryConfig, Request, StdQueries, p16
 from opendbc.car.vin import Vin
+from opendbc.car.lateral import AngleSteeringLimitsVM, ISO_LATERAL_ACCEL
 
 
 class WMI(StrEnum):
@@ -46,32 +46,19 @@ class RivianFlags(IntFlag):
 
 class RivianSafetyFlags(IntFlag):
   LONG_CONTROL = 1
-  ANGLE_CONTROL = 2  # panda switches to the angle TX config (0x100/0x110) + angle checks
 
 
 class CAR(Platforms):
-  # Split by VIN into separate truck/SUV platforms: match_fw_to_car_fuzzy disambiguates on
-  # WMI (7FC truck / 7PD MPV) + ModelLine (T/S), so each VIN resolves to exactly one platform.
-  # Generation (Gen1/Gen2) is an orthogonal runtime CAN flag (RivianFlags.GEN2 in interface.py),
-  # not a platform axis.
-  RIVIAN_R1T = RivianPlatformConfig(
-    [
-      RivianCarDocs("Rivian R1T 2022-24", setup_video="https://youtu.be/uaISd1j7Z4U", car_parts=CarParts.common([CarHarness.rivian_a])),
-      RivianCarDocs("Rivian R1T 2025", car_parts=CarParts.common([CarHarness.rivian_b])),
-    ],
-    CarSpecs(mass=3140., wheelbase=3.45, steerRatio=15.2),
-    wmis={WMI.RIVIAN_TRUCK},
-    lines={ModelLine.R1T},
-    years={ModelYear.N_2022, ModelYear.P_2023, ModelYear.R_2024, ModelYear.S_2025},
-  )
-  RIVIAN_R1S = RivianPlatformConfig(
+  RIVIAN_R1 = RivianPlatformConfig(
     [
       RivianCarDocs("Rivian R1S 2022-24", setup_video="https://youtu.be/uaISd1j7Z4U", car_parts=CarParts.common([CarHarness.rivian_a])),
       RivianCarDocs("Rivian R1S 2025", car_parts=CarParts.common([CarHarness.rivian_b])),
+      RivianCarDocs("Rivian R1T 2022-24", setup_video="https://youtu.be/uaISd1j7Z4U", car_parts=CarParts.common([CarHarness.rivian_a])),
+      RivianCarDocs("Rivian R1T 2025", car_parts=CarParts.common([CarHarness.rivian_b])),
     ],
     CarSpecs(mass=3206., wheelbase=3.08, steerRatio=15.2),
-    wmis={WMI.RIVIAN_MPV},
-    lines={ModelLine.R1S},
+    wmis={WMI.RIVIAN_TRUCK, WMI.RIVIAN_MPV},
+    lines={ModelLine.R1T, ModelLine.R1S},
     years={ModelYear.N_2022, ModelYear.P_2023, ModelYear.R_2024, ModelYear.S_2025},
   )
 
@@ -128,8 +115,6 @@ GEAR_MAP = {
   4: structs.CarState.GearShifter.drive,
 }
 
-
-# Extra tolerance for average banked road since safety doesn't model roll
 AVERAGE_ROAD_ROLL = 0.06  # ~3.4 degrees, 6% superelevation. higher actual roll lowers lateral acceleration
 
 
@@ -142,55 +127,29 @@ class CarControllerParams:
   # 250 is ~2.8 m/s^2 above 17 m/s, then linearly ramps to ~1.6 m/s^2 from 17 m/s to 9 m/s
   # TODO: it is theorized older models have different steering racks and achieve down to half the
   #  lateral acceleration referenced here at all speeds. detect this and ship a torque increase for those models
-  # Angle control (EXPERIMENTAL, harness-gated). VM-based angle/jerk envelope used by ext_controller +
-  # panda when steerControlType==angle; the torque path ignores this. Rivian commands angle at 100 Hz (10ms).
-  ANGLE_LIMITS: AngleSteeringLimits = AngleSteeringLimits(
-    500,  # deg, EPAS faults above this (EPAS_High_Angle_Cmd_Err)
-    ([], []),  # v1 rate-up unused (Rivian uses the vehicle-model limiter)
-    ([], []),  # v1 rate-down unused
+  STEER_MAX = 250  # 350 is intended to maintain lateral accel, not increase it
+  STEER_MAX_LOOKUP = [9, 17], [350, 250]
+  STEER_STEP = 1
+  STEER_DELTA_UP = 3  # torque increase per refresh
+  STEER_DELTA_DOWN = 5  # torque decrease per refresh
+  STEER_DRIVER_ALLOWANCE = 100  # allowed driver torque before start limiting
+  STEER_DRIVER_MULTIPLIER = 2  # weight driver torque
+  STEER_DRIVER_FACTOR = 100
+
+  # master split AngleSteeringLimits into v1 (rate) + VM (lateral-accel); Rivian
+  # angle control uses the VM limiter (ext_controller.apply_steer_angle_limits_vm).
+  ANGLE_LIMITS: AngleSteeringLimitsVM = AngleSteeringLimitsVM(
+    500,  # deg, STEER_ANGLE_MAX
     MAX_LATERAL_ACCEL=ISO_LATERAL_ACCEL + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL),  # ~3.6 m/s^2
     MAX_LATERAL_JERK=3.0 + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL),  # ~3.6 m/s^3
     MAX_ANGLE_RATE=2.5,  # deg/10ms frame
   )
-
-  # These constants are the aggressive-profile superset the panda envelope tracks. The
-  # carcontroller actually clips with the per-speed cap and per-profile rates from the active
-  # RIVIAN_TUNE profile (defined below), not with these directly.
-  STEER_MAX = 440  # aggressive-profile peak (<= 9 m/s)
-  STEER_MAX_LOOKUP = [9, 13, 25, 27], [440, 420, 325, 305]
-  STEER_STEP = 1
-  STEER_DELTA_UP = 4  # max torque step up per frame (aggressive; tame profile uses 3)
-  STEER_DELTA_DOWN = 7  # max torque step down per frame (aggressive; tame 5). EPS faults on di/dt; ~5-7 ceiling.
-  STEER_DRIVER_ALLOWANCE = 100  # allowed driver torque before start limiting
-  STEER_DRIVER_MULTIPLIER = 2  # weight driver torque
-  STEER_DRIVER_FACTOR = 100
 
   ACCEL_MIN = -3.5  # m/s^2
   ACCEL_MAX = 2.0  # m/s^2
 
   def __init__(self, CP):
     pass
-
-
-# Runtime-selectable steering tune, chosen by the "RivianAggressiveTune" param and applied to
-# CP_SP.flags in opendbc/sunnypilot/car/interfaces.py (read by the carcontroller at car init).
-#   False = tame:       the ap-dev baseline torque shaping. Default / fail-safe fallback.
-#   True  = aggressive: Gen1 R1T tune — higher per-speed cap, low-pass torque filter, faster
-#                       rate up/down. Auto-selected only for a Gen1 R1T; everything else stays tame.
-RIVIAN_TUNE = {
-  False: {
-    'steer_max_lookup': ([9, 13, 25, 27], [385, 350, 295, 275]),
-    'steer_delta_up': 3,
-    'steer_delta_down': 5,
-    'use_torque_filter': False,
-  },
-  True: {
-    'steer_max_lookup': ([9, 13, 25, 27], [440, 420, 325, 305]),
-    'steer_delta_up': 4,
-    'steer_delta_down': 7,
-    'use_torque_filter': True,
-  },
-}
 
 
 DBC = CAR.create_dbc_map()

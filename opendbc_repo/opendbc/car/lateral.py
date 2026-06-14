@@ -1,26 +1,39 @@
 import math
 import numpy as np
 from dataclasses import dataclass
-from opendbc.car import structs, rate_limit, DT_CTRL
+from opendbc.car import structs, rate_limit, DT_CTRL, ACCELERATION_DUE_TO_GRAVITY
 from opendbc.car.vehicle_model import VehicleModel
 
 FRICTION_THRESHOLD = 0.2
 
-# ISO 11270
+# - ISO 11270
 ISO_LATERAL_ACCEL = 3.0  # m/s^2
 ISO_LATERAL_JERK = 5.0  # m/s^3
 
+# - Common angle safety limits
+AVERAGE_ROAD_ROLL = 0.06  # ~3.4 degrees, 6% superelevation. higher actual roll lowers lateral acceleration
 
+
+# TODO: deprecate in favor of vehicle-model-based limiting
+#  (need to solve cars having different steering ratios, etc.)
 @dataclass
 class AngleSteeringLimits:
-  # v1 limits (using apply_std_steer_angle_limits)
+  # uses apply_std_steer_angle_limits
   STEER_ANGLE_MAX: float
   ANGLE_RATE_LIMIT_UP: tuple[list[float], list[float]]
   ANGLE_RATE_LIMIT_DOWN: tuple[list[float], list[float]]
 
-  # v2 vehicle model limits (using apply_steer_angle_limits_vm)
-  MAX_LATERAL_ACCEL: float = 0
-  MAX_LATERAL_JERK: float = 0
+
+@dataclass
+class AngleSteeringLimitsVM:
+  # uses apply_steer_angle_limits_vm
+  # Max accepted by the EPS
+  STEER_ANGLE_MAX: float
+  # Add extra tolerance for average banked road since safety doesn't have the roll
+  MAX_LATERAL_ACCEL: float = ISO_LATERAL_ACCEL + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL)  # ~3.6 m/s^2
+  # Lower than ISO 11270 lateral jerk limit (5.0 m/s^3) with bank tolerance, matches safety MAX_LATERAL_JERK
+  MAX_LATERAL_JERK: float = 3.0 + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL)  # ~3.6 m/s^3
+  # Used for comfort or to prevent faults at low speed
   MAX_ANGLE_RATE: float = math.inf
 
 
@@ -109,16 +122,16 @@ def apply_steer_angle_limits_vm(apply_angle: float, apply_angle_last: float, v_e
   """Apply jerk, accel, and safety limit constraints to steering angle."""
   v_ego_raw = max(v_ego_raw, 1)
 
+  # *** max lateral accel limit ***
+  max_angle = get_max_angle_vm(v_ego_raw, VM, limits)
+  new_apply_angle = np.clip(apply_angle, -max_angle, max_angle)
+
   # *** max lateral jerk limit ***
   max_angle_delta = get_max_angle_delta_vm(v_ego_raw, VM, limits)
 
   # prevent fault/low speed comfort
   max_angle_delta = min(max_angle_delta, limits.ANGLE_LIMITS.MAX_ANGLE_RATE)
-  new_apply_angle = rate_limit(apply_angle, apply_angle_last, -max_angle_delta, max_angle_delta)
-
-  # *** max lateral accel limit ***
-  max_angle = get_max_angle_vm(v_ego_raw, VM, limits)
-  new_apply_angle = np.clip(new_apply_angle, -max_angle, max_angle)
+  new_apply_angle = rate_limit(new_apply_angle, apply_angle_last, -max_angle_delta, max_angle_delta)
 
   # angle is current angle when inactive
   if not lat_active:

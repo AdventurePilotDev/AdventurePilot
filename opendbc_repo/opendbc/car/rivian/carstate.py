@@ -20,14 +20,11 @@ class CarState(CarStateBase, CarStateExt):
     self.acm_lka_hba_cmd: dict | None = None
     self.sccm_wheel_touch: dict | None = None
     self.vdm_adas_status: list[dict] | None = None
-
-    # EPAS angle-control (EAC) state, read by ExternalController in angle mode
     self.hands_on_level = 0
     self.eac_status = 0
     self.eac_error_code = 0
-
-    # without cooperative steering, disengage on driver torque before EPAS reports an override
     self.coop_steering = bool(CP_SP.flags & RivianFlagsSP.COOP_STEERING)
+    # without cooperative steering, disengage on driver torque well before EPAS reports an override
     self.torsion_disengage = TorsionDetector(3.0, 9)
 
   def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
@@ -48,7 +45,6 @@ class CarState(CarStateBase, CarStateExt):
     ret.gasPressed = cp.vl["VDM_PropStatus"]["VDM_AcceleratorPedalPosition"] > 0
 
     # Brake pedal
-    ret.brake = cp.vl["ESPiB3"]["ESPiB3_pMC1"] / 250.0  # pressure in Bar
     ret.brakePressed = cp.vl["iBESP2"]["iBESP2_BrakePedalApplied"] == 1
 
     # Steering wheel
@@ -57,23 +53,14 @@ class CarState(CarStateBase, CarStateExt):
     ret.steeringTorque = cp.vl["EPAS_SystemStatus"]["EPAS_TorsionBarTorque"]
     ret.steeringPressed = self.update_steering_pressed(abs(ret.steeringTorque) > 1.0, 5)
 
-    # EPAS_HandsOnLevel: 1 = normal/hands-on; any other value is a car-reported hands-off fault.
-    # EAC (Electronic Angle Control) status/error are read by the ExternalController in angle mode.
-    self.hands_on_level = int(cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"])
-    self.eac_status = int(cp.vl["EPAS_AdasStatus"]["EPAS_EacStatus"])
-    self.eac_error_code = int(cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"])
-    eps_fault = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiFlt"] != 0 or self.hands_on_level != 1
+    ret.steerFaultTemporary = cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"] != 0
 
-    if self.CP.steerControlType == structs.CarParams.SteerControlType.angle:
-      # stock ACM publishes EAC errors when inactive; only treat them as faults when EAC is active (==2)
-      ret.steerFaultPermanent = self.eac_status == 4
-      ret.steerFaultTemporary = self.eac_status == 2 and eps_fault
-      ret.steeringDisengage = self.eac_status == 2 and self.eac_error_code == 12  # EPAS_Hands_On_Detn_Err
-      if not self.coop_steering:
-        torsion = self.torsion_disengage.update(ret.steeringTorque)
-        ret.steeringDisengage = ret.steeringDisengage or self.hands_on_level > 1 or torsion
-    else:
-      ret.steerFaultTemporary = eps_fault
+    eac_status = cp.vl["EPAS_AdasStatus"]["EPAS_EacStatus"]
+    ret.steerFaultPermanent = eac_status == 4
+    # stock ACM shows EAC errors when inactive, only fault when EAC is active
+    ret.steerFaultTemporary = eac_status == 2 and ret.steerFaultTemporary
+    # EPAS reports a dedicated error when the driver overrides the angle steering request
+    ret.steeringDisengage = eac_status == 2 and cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"] == 12  # EPAS_Hands_On_Detn_Err
 
     # Cruise state
     speed = min(int(cp_adas.vl["ACM_tsrCmd"]["ACM_tsrSpdDisClsMain"]), 85)
@@ -126,6 +113,13 @@ class CarState(CarStateBase, CarStateExt):
     # This message can lag and send two messages at once, make sure we forward all of them
     adas_status_msgs = cp.vl_all["VDM_AdasSts"]
     self.vdm_adas_status = [dict(zip(adas_status_msgs, vals, strict=True)) for vals in zip(*adas_status_msgs.values(), strict=True)]
+    self.eac_error_code = int(cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"])
+    self.eac_status = int(cp.vl["EPAS_AdasStatus"]["EPAS_EacStatus"])
+    self.hands_on_level = int(cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"])
+
+    if not self.coop_steering:
+      torsion = self.torsion_disengage.update(ret.steeringTorque)
+      ret.steeringDisengage = ret.steeringDisengage or self.hands_on_level > 1 or torsion
 
     CarStateExt.update(self, ret, can_parsers)
 

@@ -13,8 +13,7 @@ class CarInterface(CarInterfaceBase):
   RadarInterface = RadarInterface
 
   def build_secondary_lateral_controller(self, CP_SP, dt):
-    # cooperative/handoff torque alongside the primary angle controller (opt-in; controlsd_ext
-    # discovers this via getattr). Only built/used in angle mode.
+    # cooperative torque alongside the primary angle path (handoff / driver override)
     from opendbc.car.rivian.ext_controller import build_torque_controller
     return build_torque_controller(self.CP, CP_SP, self, dt)
 
@@ -28,20 +27,16 @@ class CarInterface(CarInterfaceBase):
     if 0x321 not in fingerprint[0]:
       ret.flags |= RivianFlags.GEN2.value
 
-    # angle control needs a larger actuator delay and standstill steering
+    # no angle upgrade installed
+    if 0x1310 not in fingerprint[1]:
+      ret.dashcamOnly = True
+
     ret.steerActuatorDelay = 0.3
     ret.steerAtStandstill = True
     ret.steerLimitTimer = 0.4
-    CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 
     ret.steerControlType = structs.CarParams.SteerControlType.angle
-    ret.safetyConfigs[0].safetyParam |= RivianSafetyFlags.ANGLE_CONTROL.value
     ret.radarUnavailable = True
-
-    # angle control needs Lukas's harness (CAN 0x1310 on bus 1). Without it the car is dashcam-only:
-    # this is the angle branch -- harnessless cars belong on the torque branch (rs-dev).
-    if 0x1310 not in fingerprint[1]:
-      ret.dashcamOnly = True
 
     # TODO: pending finding/handling missing set speed
     ret.alphaLongitudinalAvailable = False
@@ -49,12 +44,13 @@ class CarInterface(CarInterfaceBase):
       ret.openpilotLongitudinalControl = True
       ret.safetyConfigs[0].safetyParam |= RivianSafetyFlags.LONG_CONTROL.value
 
-    # Measured command->aEgo lag ~0.25s (route 00000028, xcorr); was 0.1 = under-modeled, so the
-    # planner under-anticipates the VDM. 0.2 tightens anticipation (smoother) while staying well under
-    # xnor's conservative 0.5 to keep AP's responsive feel. Fall back to 0.15 if it feels laggy on lead-brake.
+    # Our long tuning, used in full — xnor's base long values are intentionally NOT retained (his
+    # long tuning isn't good). 0.2 actuator delay (measured cmd->aEgo lag ~0.25s, route 00000028)
+    # tightens anticipation vs xnor's conservative 0.5 for AP's responsive feel. vEgoStarting /
+    # stoppingDecelRate left at the openpilot defaults, exactly as in our ap-dev config (NOT xnor's 0.5/0.8).
     ret.longitudinalActuatorDelay = 0.2
-    ret.vEgoStopping = 0.25
     ret.stopAccel = -0.2
+    ret.vEgoStopping = 0.25
     ret.longitudinalTuning.kiBP = [0.]
     ret.longitudinalTuning.kiV = [0.2]
 

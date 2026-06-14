@@ -77,9 +77,10 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
       update_sample(&torque_driver, torque_driver_new);
     }
 
-    // Measured steering angle from EPAS (EPAS_AdasStatus), for angle-control safety
+    // Measured steering angle from EPAS (EPAS_AdasStatus)
     if (msg->addr == 0x390U) {
-      // EPAS_InternalSas: 47|14@0+ (0.1,-819.2) deg, stored as deg*10 to match angle_deg_to_can
+      // EPAS_InternalSas: 47|14@0+ (0.1,-819.2) deg
+      // Stored as degrees * 10 to match angle_deg_to_can
       int angle_meas_new = ((msg->data[5] << 6) | (msg->data[6] >> 2)) - 8192U;
       update_sample(&angle_meas, angle_meas_new);
     }
@@ -100,43 +101,31 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
 }
 
 static bool rivian_tx_hook(const CANPacket_t *msg) {
-  // Rivian utilizes more torque at low speed to maintain the same lateral accel
-  const TorqueSteeringLimits RIVIAN_STEERING_LIMITS = {
-    .max_torque = 440,
-    .dynamic_max_torque = true,
-    // 3-point envelope locked to the aggressive carcontroller lookup ([9,13,25,27]->[440,420,325,305]).
-    // Safety must permit anything the software may send: a flat 440 below 13 m/s covers the 9 m/s
-    // anchor (440) and the 13-knee (420), then tracks the highway points exactly -- >= software at
-    // every speed (verified 9-27 m/s). NOTE: panda's lookup_t is fixed at 3 x/y elements -- stay 3-point.
-    .max_torque_lookup = {
-      {13., 25., 27.},
-      {440, 325, 305},
-    },
-    .max_rate_up = 4,
-    .max_rate_down = 7,
-    .max_rt_delta = 125,
-    .driver_torque_multiplier = 2,
-    .driver_torque_allowance = 100,
-    .type = TorqueDriverLimited,
-    // 2-frame blip: openpilot sends torque=0 and steer_req=0; panda holds last torque for rate limit
-    .min_valid_request_frames = 89,
-    .max_invalid_request_frames = 2,
-    .min_valid_request_rt_interval = 810000,  // 810ms min between blips
-    .has_steer_req_tolerance = true,
-  };
-
   const AngleSteeringLimits RIVIAN_ANGLE_STEERING_LIMITS = {
-    .max_angle = 5000,  // 500 deg (deg * angle_deg_to_can), EPAS faults above this
+    .max_angle = 5000,  // 500 deg
     .angle_deg_to_can = 10,
     .frequency = 100U,
   };
 
-  // VM params MUST match VehicleModel(get_safety_CP()) in ext_controller (RIVIAN_R1T specs):
-  // slip_factor = calc_slip_factor(VM) for wheelbase 3.45 / steer_ratio 15.2
   const AngleSteeringParams RIVIAN_ANGLE_STEERING_PARAMS = {
-    .slip_factor = -0.000486168830251636,
+    .slip_factor = -0.0005445721739802007,
     .steer_ratio = 15.2,
-    .wheelbase = 3.45,
+    .wheelbase = 3.08,
+  };
+
+  const TorqueSteeringLimits RIVIAN_STEERING_LIMITS = {
+    .max_torque = 350,
+    .dynamic_max_torque = true,
+    .max_torque_lookup = {
+      {9., 17., 17.},
+      {350, 250, 250},
+    },
+    .max_rate_up = 3,
+    .max_rate_down = 5,
+    .max_rt_delta = 125,
+    .driver_torque_multiplier = 2,
+    .driver_torque_allowance = 100,
+    .type = TorqueDriverLimited,
   };
 
   const LongitudinalLimits RIVIAN_LONG_LIMITS = {
@@ -148,7 +137,7 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
   bool tx = true;
 
   if (msg->bus == 0U) {
-    // Angle steering control (ACM_SteeringControl) — only sent in angle mode
+    // Angle steering control
     if (msg->addr == 0x110U) {
       int desired_angle = ((msg->data[2] << 7) | (msg->data[3] >> 1)) - 16384U;
       bool lka_active = GET_BIT(msg, 12U);
@@ -158,7 +147,7 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
       }
     }
 
-    // Torque steering control (ACM_lkaHbaCmd) — torque mode, and cooperative torque in angle mode
+    // Torque steering control (cooperative override)
     if (msg->addr == 0x120U) {
       int desired_torque = ((msg->data[2] << 3U) | (msg->data[3] >> 5U)) - 1024U;
       bool steer_req = (msg->data[3] >> 4) & 1U;
@@ -183,25 +172,12 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
 static safety_config rivian_init(uint16_t param) {
   // SCCM_WheelTouch: for hiding hold wheel alert
   // VDM_AdasSts: for canceling stock ACC
-  // 0x120 = ACM_lkaHbaCmd, 0x321 = SCCM_WheelTouch, 0x162 = VDM_AdasSts
-  static const CanMsg RIVIAN_TX_MSGS[] = {{0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x162, 2, 8, .check_relay = true}};
+  // 0x100 = ACM_Status, 0x110 = ACM_SteeringControl, 0x120 = ACM_lkaHbaCmd, 0x321 = SCCM_WheelTouch, 0x162 = VDM_AdasSts
+  static const CanMsg RIVIAN_TX_MSGS[] = {{0x100, 0, 8, .check_relay = true}, {0x110, 0, 8, .check_relay = true}, {0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x162, 2, 8, .check_relay = true}};
   // 0x160 = ACM_longitudinalRequest
-  static const CanMsg RIVIAN_LONG_TX_MSGS[] = {{0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x160, 0, 5, .check_relay = true}};
-  // Angle mode also sends 0x100 = ACM_Status and 0x110 = ACM_SteeringControl
-  static const CanMsg RIVIAN_ANGLE_TX_MSGS[] = {{0x100, 0, 8, .check_relay = true}, {0x110, 0, 8, .check_relay = true}, {0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x162, 2, 8, .check_relay = true}};
-  static const CanMsg RIVIAN_ANGLE_LONG_TX_MSGS[] = {{0x100, 0, 8, .check_relay = true}, {0x110, 0, 8, .check_relay = true}, {0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x160, 0, 5, .check_relay = true}};
+  static const CanMsg RIVIAN_LONG_TX_MSGS[] = {{0x100, 0, 8, .check_relay = true}, {0x110, 0, 8, .check_relay = true}, {0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x160, 0, 5, .check_relay = true}};
 
   static RxCheck rivian_rx_checks[] = {
-    {.msg = {{0x208, 0, 8, 50U, .max_counter = 14U}, { 0 }, { 0 }}},                                                             // ESP_Status (speed)
-    {.msg = {{0x150, 0, 7, 50U, .max_counter = 14U}, { 0 }, { 0 }}},                                                             // VDM_PropStatus (gas pedal & 2nd speed)
-    {.msg = {{0x380, 0, 5, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // EPAS_SystemStatus (driver torque)
-    {.msg = {{0x38f, 0, 6, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // iBESP2 (brakes)
-    {.msg = {{0x100, 2, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // ACM_Status (cruise state)
-  };
-
-  // Angle mode additionally requires the measured-angle source (0x390) for the angle check;
-  // torque mode (today's default) keeps its existing rx checks untouched.
-  static RxCheck rivian_angle_rx_checks[] = {
     {.msg = {{0x208, 0, 8, 50U, .max_counter = 14U}, { 0 }, { 0 }}},                                                             // ESP_Status (speed)
     {.msg = {{0x150, 0, 7, 50U, .max_counter = 14U}, { 0 }, { 0 }}},                                                             // VDM_PropStatus (gas pedal & 2nd speed)
     {.msg = {{0x380, 0, 5, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // EPAS_SystemStatus (driver torque)
@@ -210,28 +186,19 @@ static safety_config rivian_init(uint16_t param) {
     {.msg = {{0x100, 2, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // ACM_Status (cruise state)
   };
 
-  // Angle control is a normal (non-debug) flag since it's user-selectable behind the harness
-  const int FLAG_RIVIAN_ANGLE_CONTROL = 2;
-  bool rivian_angle = GET_FLAG(param, FLAG_RIVIAN_ANGLE_CONTROL);
-
   bool rivian_longitudinal = false;
+
+  SAFETY_UNUSED(param);
   #ifdef ALLOW_DEBUG
     const int FLAG_RIVIAN_LONG_CONTROL = 1;
     rivian_longitudinal = GET_FLAG(param, FLAG_RIVIAN_LONG_CONTROL);
   #endif
 
-  safety_config ret;
   // FIXME: cppcheck thinks that rivian_longitudinal is always false. This is not true
   // if ALLOW_DEBUG is defined but cppcheck is run without ALLOW_DEBUG
   // cppcheck-suppress knownConditionTrueFalse
-  if (rivian_angle) {
-    ret = rivian_longitudinal ? BUILD_SAFETY_CFG(rivian_angle_rx_checks, RIVIAN_ANGLE_LONG_TX_MSGS) : \
-                                BUILD_SAFETY_CFG(rivian_angle_rx_checks, RIVIAN_ANGLE_TX_MSGS);
-  } else {
-    ret = rivian_longitudinal ? BUILD_SAFETY_CFG(rivian_rx_checks, RIVIAN_LONG_TX_MSGS) : \
-                                BUILD_SAFETY_CFG(rivian_rx_checks, RIVIAN_TX_MSGS);
-  }
-  return ret;
+  return rivian_longitudinal ? BUILD_SAFETY_CFG(rivian_rx_checks, RIVIAN_LONG_TX_MSGS) : \
+                               BUILD_SAFETY_CFG(rivian_rx_checks, RIVIAN_TX_MSGS);
 }
 
 const safety_hooks rivian_hooks = {

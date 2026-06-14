@@ -74,35 +74,24 @@ bool steer_torque_cmd_checks(int desired_torque, int steer_req, const TorqueStee
     // *** global torque limit check ***
     violation |= safety_max_limit_check(desired_torque, max_torque, -max_torque);
 
-    // *** torque rate limit check *** — skip when (torque=0, steer_req=0) blip frame would exceed max_rate_down
-    // Only skip when torque is also 0; other cars send non-zero torque with steer_req=0 and still need rate checks
-    bool skip_rate_checks = limits.has_steer_req_tolerance && (steer_req == 0) && (desired_torque == 0);
-    if (!skip_rate_checks) {
-      if (limits.type == TorqueDriverLimited) {
-        violation |= driver_limit_check(desired_torque, desired_torque_last, &torque_driver,
-                                        max_torque, limits.max_rate_up, limits.max_rate_down,
-                                        limits.driver_torque_allowance, limits.driver_torque_multiplier);
-      } else {
-        violation |= dist_to_meas_check(desired_torque, desired_torque_last, &torque_meas,
-                                        limits.max_rate_up, limits.max_rate_down, limits.max_torque_error);
-      }
+    // *** torque rate limit check ***
+    if (limits.type == TorqueDriverLimited) {
+      violation |= driver_limit_check(desired_torque, desired_torque_last, &torque_driver,
+                                      max_torque, limits.max_rate_up, limits.max_rate_down,
+                                      limits.driver_torque_allowance, limits.driver_torque_multiplier);
+    } else {
+      violation |= dist_to_meas_check(desired_torque, desired_torque_last, &torque_meas,
+                                      limits.max_rate_up, limits.max_rate_down, limits.max_torque_error);
     }
-    // Only update last torque when request is active; blip frame (torque=0, steer_req=0) must not reset for rate limit
-    if (!limits.has_steer_req_tolerance || steer_req) {
-      desired_torque_last = desired_torque;
-    }
+    desired_torque_last = desired_torque;
 
-    // *** torque real time rate limit check *** — skip for blip frame so 0 passes
-    if (!skip_rate_checks) {
-      violation |= rt_torque_rate_limit_check(desired_torque, rt_torque_last, limits.max_rt_delta);
-    }
+    // *** torque real time rate limit check ***
+    violation |= rt_torque_rate_limit_check(desired_torque, rt_torque_last, limits.max_rt_delta);
 
     // every RT_INTERVAL set the new limits
     uint32_t ts_elapsed = safety_get_ts_elapsed(ts, ts_torque_check_last);
     if (ts_elapsed > MAX_RT_INTERVAL) {
-      if (!limits.has_steer_req_tolerance || steer_req) {
-        rt_torque_last = desired_torque;
-      }
+      rt_torque_last = desired_torque;
       ts_torque_check_last = ts;
     }
   }

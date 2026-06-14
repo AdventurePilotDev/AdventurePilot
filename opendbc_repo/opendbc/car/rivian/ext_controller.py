@@ -7,7 +7,7 @@ from opendbc.car.lateral import (
   apply_driver_steer_torque_limits,
   apply_steer_angle_limits_vm, get_max_angle_delta_vm,
 )
-from opendbc.car.rivian.values import CarControllerParams as CCP, RIVIAN_TUNE
+from opendbc.car.rivian.values import CarControllerParams as CCP
 from opendbc.car.vehicle_model import VehicleModel
 from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
 
@@ -96,8 +96,7 @@ class _RateBudget:
 
 def get_safety_CP():
   from opendbc.car.rivian.interface import CarInterface
-  # Angle control is harness-gated R1T; the VM uses R1T specs (wheelbase 3.45, the slip_factor basis).
-  return CarInterface.get_non_essential_params("RIVIAN_R1T")
+  return CarInterface.get_non_essential_params("RIVIAN_R1")
 
 
 class ExternalController:
@@ -106,10 +105,6 @@ class ExternalController:
     self.steer_ratio = CP.steerRatio
     self.wheelbase = CP.wheelbase
     self.VM = VehicleModel(get_safety_CP())
-
-    # cooperative/handoff torque honours the active RIVIAN_TUNE profile (tame/aggressive), the same
-    # selection the torque-mode carcontroller uses
-    self.tune = RIVIAN_TUNE[bool(CP_SP.flags & RivianFlagsSP.AGGRESSIVE_TUNE)]
 
     # cooperative steering on driver override (toggle); without it, driver torque disengages instead (see carstate)
     self.coop_steering = bool(CP_SP.flags & RivianFlagsSP.COOP_STEERING)
@@ -209,18 +204,8 @@ class ExternalController:
       self.apply_torque_last = 0
       return
 
-    # cooperative/handoff torque uses the selected RIVIAN_TUNE profile (cap + per-profile rate-down),
-    # matching the torque-mode carcontroller; rate-up + driver limits stay on CarControllerParams
-    lookup = self.tune['steer_max_lookup']
-    steer_max = round(float(np.interp(CS.out.vEgoRaw, lookup[0], lookup[1])))
-    limits = SimpleNamespace(
-      STEER_MAX=CCP.STEER_MAX,
-      STEER_DELTA_UP=CCP.STEER_DELTA_UP,
-      STEER_DELTA_DOWN=self.tune['steer_delta_down'],
-      STEER_DRIVER_ALLOWANCE=CCP.STEER_DRIVER_ALLOWANCE,
-      STEER_DRIVER_MULTIPLIER=CCP.STEER_DRIVER_MULTIPLIER,
-      STEER_DRIVER_FACTOR=CCP.STEER_DRIVER_FACTOR,
-    )
+    v_ego = CS.out.vEgoRaw
+    steer_max = round(float(np.interp(v_ego, CCP.STEER_MAX_LOOKUP[0], CCP.STEER_MAX_LOOKUP[1])))
     new_torque = int(round(float(actuators.torque) * steer_max))
     self.apply_torque_last = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last,
-                                                              CS.out.steeringTorque, limits, steer_max)
+                                                              CS.out.steeringTorque, CCP, steer_max)
