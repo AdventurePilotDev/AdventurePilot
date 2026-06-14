@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from openpilot.common.time_helpers import system_time_valid
 from openpilot.system.ui.widgets.scroller import NavScroller
-from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigToggle, BigParamControl, BigCircleParamControl, GreyBigButton, BigMultiParamToggle
+from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigToggle, BigParamControl, BigCircleParamControl, GreyBigButton
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigDialog, BigInputDialog, BigConfirmationCircleButton
 from openpilot.selfdrive.ui.mici.layouts.settings.branch_selector import BranchSelectorMici
 from openpilot.system.ui.lib.application import gui_app
@@ -91,12 +91,6 @@ class DeveloperLayoutMici(NavScroller):
     self._debug_mode_toggle = BigParamControl("ui debug mode", "ShowDebugInfo",
                                               toggle_callback=lambda checked: (gui_app.set_show_touches(checked),
                                                                                gui_app.set_show_fps(checked)))
-    # Rivian R1T steering tune profile (mici/comma-4 UI has no per-brand vehicle settings, so it
-    # lives here). Auto picks by vehicle (Gen1 R1T -> aggressive, else tame); tame forces the
-    # baseline. Read at car init, so the callback flags a restart to re-init and apply.
-    self._rivian_tune_toggle = BigMultiParamToggle("steering tune", "RivianAggressiveTune",
-                                                   ["auto", "tame"],
-                                                   select_callback=self._on_rivian_tune)
     # Cooperative steering: allow driver torque while engaged (vs disengage on driver input).
     self._rivian_coop_toggle = BigParamControl("cooperative steering", "RivianCoopSteering",
                                                toggle_callback=self._on_rivian_restart)
@@ -111,7 +105,6 @@ class DeveloperLayoutMici(NavScroller):
       self._lat_maneuver_toggle,
       self._alpha_long_toggle,
       self._debug_mode_toggle,
-      self._rivian_tune_toggle,
       self._rivian_coop_toggle,
     ])
 
@@ -126,12 +119,10 @@ class DeveloperLayoutMici(NavScroller):
       ("ShowDebugInfo", self._debug_mode_toggle),
       ("RivianCoopSteering", self._rivian_coop_toggle),
     )
-    # NOTE: _rivian_tune_toggle is a BigMultiParamToggle (manages its own int param), so it's not in
-    # _refresh_toggles (that loop does set_checked/get_bool, which is boolean-only).
     onroad_blocked_toggles = (self._adb_toggle, self._joystick_toggle)
     release_blocked_toggles = (self._joystick_toggle, self._long_maneuver_toggle, self._lat_maneuver_toggle, self._alpha_long_toggle)
     engaged_blocked_toggles = (self._long_maneuver_toggle, self._lat_maneuver_toggle, self._alpha_long_toggle,
-                               self._rivian_tune_toggle, self._rivian_coop_toggle)
+                               self._rivian_coop_toggle)
 
     # Hide non-release toggles on release builds
     for item in release_blocked_toggles:
@@ -191,11 +182,6 @@ class DeveloperLayoutMici(NavScroller):
 
   def _open_branch_selector(self):
     gui_app.push_widget(BranchSelectorMici(back_callback=gui_app.pop_widget))
-
-  def _on_rivian_tune(self, value: str):
-    # The widget writes the param itself (int index 0=auto/1=tame). Any tune change
-    # needs a car re-init to take effect, so always flag a restart.
-    restart_needed_callback()
 
   def _on_rivian_restart(self, checked: bool):
     # angle/coop steering are read at car init; any change (on or off) needs a re-init
