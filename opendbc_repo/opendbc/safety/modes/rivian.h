@@ -108,9 +108,9 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
   };
 
   const AngleSteeringParams RIVIAN_ANGLE_STEERING_PARAMS = {
-    .slip_factor = -0.0005445721739802007,
+    .slip_factor = -0.000486168830251636,
     .steer_ratio = 15.2,
-    .wheelbase = 3.08,
+    .wheelbase = 3.45,
   };
 
   const TorqueSteeringLimits RIVIAN_STEERING_LIMITS = {

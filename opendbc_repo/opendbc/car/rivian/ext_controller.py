@@ -96,7 +96,8 @@ class _RateBudget:
 
 def get_safety_CP():
   from opendbc.car.rivian.interface import CarInterface
-  return CarInterface.get_non_essential_params("RIVIAN_R1")
+  # Angle control is harness-gated R1T; the VM uses R1T specs (wheelbase 3.45, the slip_factor basis).
+  return CarInterface.get_non_essential_params("RIVIAN_R1T")
 
 
 class ExternalController:
