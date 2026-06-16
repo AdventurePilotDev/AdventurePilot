@@ -274,3 +274,25 @@ sections:
       - type: capability
         field: has_icbm
         equals: true
+  - key: CurveSpeedControl
+    widget: toggle
+    title: Curve
+    description: Slow down ahead of curves and power smoothly through them, keeping cornering within the steering's limits. Uses the vision path; no map data required.
+    visibility:
+    - type: any
+      conditions:
+      - type: capability
+        field: has_longitudinal_control
+        equals: true
+      - type: capability
+        field: has_icbm
+        equals: true
+    enablement:
+    - type: any
+      conditions:
+      - type: capability
+        field: has_longitudinal_control
+        equals: true
+      - type: capability
+        field: has_icbm
+        equals: true
