@@ -21,10 +21,13 @@ class SmartCruiseControlRenderer(Widget):
     self.vision_active = False
     self.map_enabled = False
     self.map_active = False
+    self.curve_enabled = False
+    self.curve_active = False
     self.long_override = False
 
     self._vision_fade = AlertFadeAnimator(gui_app.target_fps)
     self._map_fade = AlertFadeAnimator(gui_app.target_fps)
+    self._curve_fade = AlertFadeAnimator(gui_app.target_fps)
 
     self.font = gui_app.font(FontWeight.BOLD)
 
@@ -34,17 +37,22 @@ class SmartCruiseControlRenderer(Widget):
       lp_sp = sm["longitudinalPlanSP"]
       vision = lp_sp.smartCruiseControl.vision
       map_ = lp_sp.smartCruiseControl.map
+      curve = lp_sp.smartCruiseControl.curve
 
       self.vision_enabled = vision.enabled
       self.vision_active = vision.active
       self.map_enabled = map_.enabled
       self.map_active = map_.active
+      self.curve_enabled = curve.enabled
+      # "working" = feedforward slowing for a curve OR the reactive governor trimming
+      self.curve_active = curve.active or curve.governorActive
 
     if sm.updated["carControl"]:
       self.long_override = sm["carControl"].cruiseControl.override
 
     self._vision_fade.update(self.vision_active)
     self._map_fade.update(self.map_active)
+    self._curve_fade.update(self.curve_active)
 
   def _draw_icon(self, rect_center_x, rect_height, x_offset, y_offset, name, alpha=1.0):
     text = name
@@ -82,10 +90,12 @@ class SmartCruiseControlRenderer(Widget):
     x_offset = -260
     y1_offset = -40
     y2_offset = -100
+    y3_offset = -160
 
-    orders = [y1_offset, y2_offset]
+    orders = [y1_offset, y2_offset, y3_offset]
     y_scc_v = 0
     y_scc_m = 0
+    y_scc_c = 0
     idx = 0
 
     if self.vision_enabled:
@@ -96,6 +106,10 @@ class SmartCruiseControlRenderer(Widget):
       y_scc_m = orders[idx]
       idx += 1
 
+    if self.curve_enabled:
+      y_scc_c = orders[idx]
+      idx += 1
+
     if self.vision_enabled:
       alpha = self._vision_fade.alpha if self.vision_active else 1.0
       self._draw_icon(rect.x + rect.width / 2, rect.height, x_offset, y_scc_v, "SCC-V", alpha)
@@ -103,3 +117,7 @@ class SmartCruiseControlRenderer(Widget):
     if self.map_enabled:
       alpha = self._map_fade.alpha if self.map_active else 1.0
       self._draw_icon(rect.x + rect.width / 2, rect.height, x_offset, y_scc_m, "SCC-M", alpha)
+
+    if self.curve_enabled:
+      alpha = self._curve_fade.alpha if self.curve_active else 1.0
+      self._draw_icon(rect.x + rect.width / 2, rect.height, x_offset, y_scc_c, "CURVE", alpha)
