@@ -32,6 +32,7 @@ class CarInterface(CarInterfaceBase):
       ret.dashcamOnly = True
 
     ret.steerActuatorDelay = 0.3
+    ret.lateralSmoothSeconds = 0.4  # speed-scheduled lateral curvature low-pass (delay-compensated in modeld); off by 8 m/s
     ret.steerAtStandstill = True
     ret.steerLimitTimer = 0.4
 

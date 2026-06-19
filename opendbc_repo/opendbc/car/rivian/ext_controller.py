@@ -3,8 +3,6 @@ from collections import deque
 from types import SimpleNamespace
 import numpy as np
 
-from opendbc.car import DT_CTRL
-from opendbc.car.common.filter_simple import FirstOrderFilter
 from opendbc.car.lateral import (
   apply_driver_steer_torque_limits,
   apply_steer_angle_limits_vm, get_max_angle_delta_vm,
@@ -25,12 +23,6 @@ EPAS_FW_RATE_MARGIN  = 0.94
 
 # final per-frame cap inside panda's jerk limit
 PANDA_STEP_MARGIN = 0.9
-
-# low-speed-chatter low-pass on the desired angle. Speed schedule matches Tony's angle-overnight (which the
-# tester preferred; measured chatter runs up to ~20 mph) PLUS an angle gate so turns >35 deg stay sharp.
-ANGLE_SMOOTH_V_BP = [5.0, 10.0, 20.0]   # m/s
-ANGLE_SMOOTH_V_RC = [0.20, 0.10, 0.0]   # s: rc 0.20 <=11 mph, 0.10 @22 mph, 0 by 45 mph
-ANGLE_SMOOTH_DEG_BP = [25.0, 35.0]      # deg desired: full <=25, off by 35 (turns stay sharp)
 
 MIN_TORQUE_FRAMES = 50
 UNWIND_HANDOFF_DEG = 15.0   # stay in torque until |target - actual| < this when unwinding
@@ -127,8 +119,6 @@ class ExternalController:
     self.apply_angle_last = 0.0
     self.angle_active = False
     self.rate_budget = _RateBudget()
-    # crawl-chatter low-pass on the desired angle (speed+angle gated in _update_angle; inert otherwise)
-    self.angle_filter = FirstOrderFilter(0.0, 0.0, DT_CTRL, initialized=False)
 
     # cooperative torque (from controlsd's LatControlTorque via actuators.torque)
     self.apply_torque_last = 0
@@ -182,17 +172,6 @@ class ExternalController:
     self.angle_active = lat_active and not self.torque_active
 
     apply_angle = actuators.steeringAngleDeg
-
-    # crawl-chatter low-pass: smooth the desired angle at low speed AND near-straight. rc comes from Tony's
-    # speed schedule (faded out by 20 m/s) and is gated to 0 by the desired angle so turns stay sharp.
-    if self.angle_active:
-      rc = float(np.interp(CS.out.vEgoRaw, ANGLE_SMOOTH_V_BP, ANGLE_SMOOTH_V_RC)) \
-        * float(np.interp(abs(apply_angle), ANGLE_SMOOTH_DEG_BP, [1.0, 0.0]))
-      self.angle_filter.update_alpha(rc)
-      apply_angle = self.angle_filter.update(apply_angle)
-    else:
-      self.angle_filter.x = CS.out.steeringAngleDeg
-      self.angle_filter.initialized = True
 
     # use future v_ego so the jerk limit ramps the angle down before the lat-accel envelope shrinks
     v_lookahead = max(CS.out.vEgoRaw + max(CS.out.aEgo, 0.0), 1.0)

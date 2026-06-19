@@ -509,6 +509,7 @@ struct CarParams {
   startingState @70 :Bool; # Does this car make use of special starting state
 
   steerActuatorDelay @36 :Float32; # Steering wheel actuator delay in seconds
+  lateralSmoothSeconds @78 :Float32; # [s] crawl max for the speed-scheduled lateral curvature low-pass (0 = off; modeld get_lat_smooth_seconds)
   longitudinalActuatorDelay @58 :Float32; # Gas/Brake actuator delay in seconds
   openpilotLongitudinalControl @37 :Bool; # is openpilot doing the longitudinal control?
   carVin @38 :Text; # VIN number queried during fingerprinting
