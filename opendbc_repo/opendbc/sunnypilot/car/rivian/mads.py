@@ -22,11 +22,7 @@ class MadsCarController:
 
   def mads_status_update(self, CC: structs.CarControl, CC_SP: structs.CarControlSP, CS: CarStateBase) -> MadsDataSP:
     if CC_SP.mads.available:
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
       self.lka_icon_states = CC.latActive
-=======
-      self.lka_icon_states = self.lat_active
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
       self.lat_active = CC.latActive
     else:
       self.lka_icon_states = CC.enabled

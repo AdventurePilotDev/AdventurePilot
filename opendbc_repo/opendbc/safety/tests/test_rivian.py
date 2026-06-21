@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
 import unittest
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-
-from opendbc.car.structs import CarParams
-from opendbc.safety.tests.libsafety import libsafety_py
-import opendbc.safety.tests.common as common
-from opendbc.safety.tests.common import CANPackerSafety
-from opendbc.car.rivian.values import RivianSafetyFlags
-from opendbc.car.rivian.riviancan import checksum as _checksum
-=======
 import numpy as np
 
 from opendbc.car.lateral import get_max_angle_delta_vm, get_max_angle_vm
@@ -20,7 +11,6 @@ from opendbc.car.vehicle_model import VehicleModel
 from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
 from opendbc.safety.tests.common import CANPackerSafety
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 
 
 def checksum(msg):
@@ -36,30 +26,6 @@ def checksum(msg):
   return addr, ret, bus
 
 
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest, common.SteerRequestCutSafetyTest,
-                           common.LongitudinalAccelSafetyTest, common.VehicleSpeedSafetyTest):
-
-  TX_MSGS = [[0x120, 0], [0x321, 2], [0x162, 2]]
-  RELAY_MALFUNCTION_ADDRS = {0: (0x120,), 2: (0x321, 0x162)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: [0x120]}
-
-  MAX_TORQUE_LOOKUP = [9, 25, 27], [385, 295, 275]
-  DYNAMIC_MAX_TORQUE = True
-  MAX_RATE_UP = 3
-  MAX_RATE_DOWN = 5
-
-  MAX_RT_DELTA = 125
-
-  DRIVER_TORQUE_ALLOWANCE = 100
-  DRIVER_TORQUE_FACTOR = 2
-
-  MIN_VALID_STEERING_FRAMES = 89
-  MAX_INVALID_STEERING_FRAMES = 2
-
-  cnt_speed = 0
-  cnt_speed_2 = 0
-=======
 class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest, common.DriverTorqueSteeringSafetyTest,
                            common.LongitudinalAccelSafetyTest):
 
@@ -90,7 +56,6 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
 
   def _get_steer_cmd_angle_max(self, speed):
     return get_max_angle_vm(max(speed, 1), self.VM, CarControllerParams)
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 
   def _torque_driver_msg(self, torque):
     values = {"EPAS_TorsionBarTorque": torque / 100.0}
@@ -100,8 +65,6 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
     values = {"ACM_lkaStrToqReq": torque, "ACM_lkaActToi": steer_req}
     return self.packer.make_can_msg_safety("ACM_lkaHbaCmd", 0, values)
 
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-=======
   def _angle_cmd_msg(self, angle: float, enabled: bool, increment_timer: bool = True):
     values = {"ACM_SteeringAngleRequest": angle, "ACM_EacEnabled": enabled}
     if increment_timer:
@@ -113,7 +76,6 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
     values = {"EPAS_InternalSas": angle}
     return self.packer.make_can_msg_safety("EPAS_AdasStatus", 0, values)
 
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
   def _speed_msg(self, speed, quality_flag=True):
     values = {"ESP_Vehicle_Speed": speed * 3.6, "ESP_Status_Counter": self.cnt_speed % 15,
               "ESP_Vehicle_Speed_Q": 1 if quality_flag else 0}
@@ -142,8 +104,6 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
     values = {"ACM_AccelerationRequest": accel}
     return self.packer.make_can_msg_safety("ACM_longitudinalRequest", 0, values)
 
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-=======
   def test_angle_cmd_when_enabled(self):
     # VM-based limits tested in test_lateral_accel_limit and test_lateral_jerk_limit
     pass
@@ -206,7 +166,6 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
         self.assertFalse(self._tx(self._angle_cmd_msg(0, True)))
         self.assertTrue(self._tx(self._angle_cmd_msg(0, True)))
 
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
   def test_wheel_touch(self):
     # For hiding hold wheel alert on engage
     for controls_allowed in (True, False):
@@ -244,10 +203,7 @@ class TestRivianStockSafety(TestRivianSafetyBase):
   LONGITUDINAL = False
 
   def setUp(self):
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-=======
     self.VM = VehicleModel(get_safety_CP())
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
     self.packer = CANPackerSafety("rivian_primary_actuator")
     self.safety = libsafety_py.libsafety
     self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, 0)
@@ -264,20 +220,12 @@ class TestRivianStockSafety(TestRivianSafetyBase):
 
 class TestRivianLongitudinalSafety(TestRivianSafetyBase):
 
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-  TX_MSGS = [[0x120, 0], [0x321, 2], [0x160, 0]]
-  RELAY_MALFUNCTION_ADDRS = {0: (0x120, 0x160), 2: (0x321,)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x321], 2: [0x120, 0x160]}
-
-  def setUp(self):
-=======
   TX_MSGS = [[0x100, 0], [0x110, 0], [0x120, 0], [0x321, 2], [0x160, 0]]
   RELAY_MALFUNCTION_ADDRS = {0: (0x100, 0x110, 0x120, 0x160), 2: (0x321,)}
   FWD_BLACKLISTED_ADDRS = {0: [0x321], 2: [0x100, 0x110, 0x120, 0x160]}
 
   def setUp(self):
     self.VM = VehicleModel(get_safety_CP())
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
     self.packer = CANPackerSafety("rivian_primary_actuator")
     self.safety = libsafety_py.libsafety
     self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, RivianSafetyFlags.LONG_CONTROL)

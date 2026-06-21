@@ -18,12 +18,9 @@ class CarState(CarStateBase, CarStateExt):
     self.acm_lka_hba_cmd: dict | None = None
     self.sccm_wheel_touch: dict | None = None
     self.vdm_adas_status: list[dict] | None = None
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-=======
     self.hands_on_level = 0
     self.eac_status = 0
     self.eac_error_code = 0
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 
   def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
     cp = can_parsers[Bus.pt]
@@ -51,12 +48,9 @@ class CarState(CarStateBase, CarStateExt):
     ret.steeringTorque = cp.vl["EPAS_SystemStatus"]["EPAS_TorsionBarTorque"]
     ret.steeringPressed = self.update_steering_pressed(abs(ret.steeringTorque) > 1.0, 5)
 
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
     # EPAS_HandsOnLevel: 1 = normal/hands-on; any other value is a car-reported hands-off fault
     hands_on_level = cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"]
     ret.steerFaultTemporary = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiFlt"] != 0 or hands_on_level != 1
-=======
-    ret.steerFaultTemporary = cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"] != 0
 
     eac_status = cp.vl["EPAS_AdasStatus"]["EPAS_EacStatus"]
     ret.steerFaultPermanent = eac_status == 4
@@ -64,7 +58,6 @@ class CarState(CarStateBase, CarStateExt):
     ret.steerFaultTemporary = eac_status == 2 and ret.steerFaultTemporary
     # EPAS reports a dedicated error when the driver overrides the angle steering request
     ret.steeringDisengage = eac_status == 2 and cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"] == 12  # EPAS_Hands_On_Detn_Err
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 
     # Cruise state
     speed = min(int(cp_adas.vl["ACM_tsrCmd"]["ACM_tsrSpdDisClsMain"]), 85)
@@ -117,12 +110,9 @@ class CarState(CarStateBase, CarStateExt):
     # This message can lag and send two messages at once, make sure we forward all of them
     adas_status_msgs = cp.vl_all["VDM_AdasSts"]
     self.vdm_adas_status = [dict(zip(adas_status_msgs, vals, strict=True)) for vals in zip(*adas_status_msgs.values(), strict=True)]
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-=======
     self.eac_error_code = int(cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"])
     self.eac_status = int(cp.vl["EPAS_AdasStatus"]["EPAS_EacStatus"])
     self.hands_on_level = int(cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"])
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 
     CarStateExt.update(self, ret, can_parsers)
 

@@ -1,31 +1,13 @@
 import numpy as np
 from opendbc.can import CANPacker
 from opendbc.car import Bus
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-from opendbc.car.lateral import apply_driver_steer_torque_limits, common_fault_avoidance
-from opendbc.car.interfaces import CarControllerBase
-from opendbc.car.rivian.riviancan import create_lka_steering, create_longitudinal, create_wheel_touch, create_adas_status
-=======
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.rivian.ext_controller import ExternalController, get_safety_CP  # noqa: F401
 from opendbc.car.rivian.riviancan import create_angle_steering, create_lka_steering, create_longitudinal, create_wheel_touch, create_adas_status, create_acm_status
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 from opendbc.car.rivian.values import CarControllerParams, RivianFlags
 
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
 
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-MAX_ANGLE_DEG = 90
-MAX_ANGLE_FRAMES = 89
-BLIP_FRAMES = 2
-# Right turns require more torque to achieve equivalent lateral acceleration (measured asymmetry on R1T/R1S 2023)
-# Above this wheel angle the rack is saturated >75% of the time (route data); cap output so the
-# controller can recover from saturation faster when geometry eases
-HIGH_ANGLE_THRESHOLD_DEG = 90
-HIGH_ANGLE_CAP_FRAC = 0.95
-
-=======
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 
 class CarController(CarControllerBase, MadsCarController):
   def __init__(self, dbc_names, CP, CP_SP):
@@ -33,14 +15,9 @@ class CarController(CarControllerBase, MadsCarController):
     MadsCarController.__init__(self)
     self.apply_torque_last = 0
     self.packer = CANPacker(dbc_names[Bus.pt])
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-    self.angle_limit_counter = 0
-    self.cancel_frames = 0
-=======
 
     self.cancel_frames = 0
     self.erc = ExternalController(CP, CP_SP)
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 
   def update(self, CC, CC_SP, CS, now_nanos):
     MadsCarController.update(self, CC, CC_SP, CS)
@@ -50,30 +27,6 @@ class CarController(CarControllerBase, MadsCarController):
     apply_torque = 0
     steer_max = round(float(np.interp(CS.out.vEgoRaw, CarControllerParams.STEER_MAX_LOOKUP[0],
                                       CarControllerParams.STEER_MAX_LOOKUP[1])))
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-    if self.mads.lat_active:
-      new_torque = int(round(CC.actuators.torque * steer_max))
-      apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last,
-                                                      CS.out.steeringTorque, CarControllerParams, steer_max)
-      if abs(CS.out.steeringAngleDeg) > HIGH_ANGLE_THRESHOLD_DEG:
-        cap = int(round(steer_max * HIGH_ANGLE_CAP_FRAC))
-        apply_torque = max(-cap, min(cap, apply_torque))
-
-    self.angle_limit_counter, lka_act_toi = common_fault_avoidance(
-      abs(CS.out.steeringAngleDeg) >= MAX_ANGLE_DEG,
-      self.mads.lat_active,
-      self.angle_limit_counter,
-      MAX_ANGLE_FRAMES,
-      BLIP_FRAMES,
-    )
-
-    blip = self.mads.lat_active and not lka_act_toi
-    send_torque = 0 if blip else apply_torque
-    if not blip:
-      self.apply_torque_last = apply_torque
-
-    can_sends.append(create_lka_steering(self.packer, self.frame, CS.acm_lka_hba_cmd, send_torque, CC.enabled, CC.latActive, self.mads, lka_act_toi))
-=======
 
     self.erc.update(CS, self.mads.lat_active, actuators)
     apply_torque = self.erc.apply_torque_last
@@ -85,7 +38,6 @@ class CarController(CarControllerBase, MadsCarController):
     can_sends.append(create_angle_steering(self.packer, self.frame, self.erc.apply_angle_last, self.erc.angle_active))
     feature_status = (1 if self.erc.torque_active else 2) if self.mads.lat_active else 0
     can_sends.append(create_acm_status(self.packer, self.frame, feature_status))
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 
     if self.frame % 5 == 0 and not (self.CP.flags & RivianFlags.GEN2):
       can_sends.append(create_wheel_touch(self.packer, CS.sccm_wheel_touch, self.mads.lat_active))
@@ -110,10 +62,7 @@ class CarController(CarControllerBase, MadsCarController):
     new_actuators = actuators.as_builder()
     new_actuators.torque = apply_torque / steer_max
     new_actuators.torqueOutputCan = apply_torque
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-=======
     new_actuators.steeringAngleDeg = self.erc.apply_angle_last
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 
     self.frame += 1
     return new_actuators, can_sends

@@ -1,0 +1,247 @@
+name: Build Prebuilt
+
+# Branch-generic prebuilt builder for the comma 3X self-hosted runner (label: tici).
+# Lives ON each *-src source branch (rel-src, stg-src), NOT on dev or ap-dev. Fires on push to its
+# branch and publishes the de-suffixed prebuilt branch in THIS repo:
+#   push to rel-src -> builds rel-src -> publishes rel
+#   push to stg-src -> builds stg-src -> publishes stg
+# Same-repo publish uses the built-in GITHUB_TOKEN (no PAT). GITHUB_TOKEN pushes don't re-trigger CI,
+# so publishing rel/stg can't loop.
+#
+# Safety carried over from the known-good build:
+#   - LFS: never carry .gitattributes into the published tree (so `git add` can't re-pointerize real
+#     binaries) + a hard pointer-stub guard.
+#   - RUNPATH: build in /data/openpilot (the device's RUNTIME path). The runner's `unshare -m`
+#     bind-mounts /data/github/openpilot over /data/openpilot for the job, so the build is isolated
+#     from the device's own openpilot AND bakes the path the device actually runs from.
+#   - boot: always() clean the build dir (contents only -- it's a bind-mount point) + re-enable
+#     powersave, so a job can't leave openpilot dirty.
+
+on:
+  push:
+    branches: [ '*-src' ]   # stg-src/rel-src + variants stg-a-src/stg-t-src/... ; publish strips -src
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: "Branch to build (blank = the branch you run this from)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_BRANCH: ${{ github.event.inputs.source_branch || github.ref_name }}
+  BUILD_DIR: "/data/openpilot"  # MUST equal the device's runtime path (see RUNPATH note in header)
+  OUTPUT_DIR: ${{ github.workspace }}/output
+  SCONS_CACHE_DIR: ${{ github.workspace }}/release/ci/scons_cache
+  CACHEDB: "/data/cache/tinygrad/cache.db"
+  XDG_CACHE_HOME: "/data/cache"
+
+jobs:
+  build:
+    runs-on: [self-hosted, tici]
+    concurrency:
+      group: build-${{ github.event.inputs.source_branch || github.ref_name }}
+      cancel-in-progress: false
+    outputs:
+      source_sha: ${{ steps.meta.outputs.sha }}
+    steps:
+      - name: Checkout source branch (submodules + LFS)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ env.SOURCE_BRANCH }}
+
+      - name: LFS pull (guarantee real bytes, not pointers)
+        run: git lfs pull
+
+      - name: Record source commit
+        id: meta
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache SCons
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SCONS_CACHE_DIR }}
+          key: scons-${{ runner.os }}-${{ runner.arch }}-${{ env.SOURCE_BRANCH }}-${{ github.sha }}
+          restore-keys: |
+            scons-${{ runner.os }}-${{ runner.arch }}-${{ env.SOURCE_BRANCH }}
+            scons-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Set environment variables (+ provision cache dir & venv; survives a /data wipe)
+        run: |
+          source /etc/profile
+          export UV_PROJECT_ENVIRONMENT=${HOME}/venv
+          unset VIRTUAL_ENV
+          # These are NOT created by the runner install, so a /data wipe destroys them and the build
+          # would fail assuming they pre-exist. Recreate idempotently:
+          #   - the tinygrad/XDG cache dir, owned by the job user (github-runner can't mkdir under
+          #     /data otherwise: /data is comma:comma 755);
+          #   - a venv synced to THIS branch's lockfile, built against the device's SYSTEM Python.
+          #     The device runs 3.12.x and requires-python allows it; pin to it so uv doesn't demand a
+          #     managed 3.12.13 download (comma's uv is python-preference=only-system, downloads blocked).
+          sudo mkdir -p /data/cache/tinygrad && sudo chown -R github-runner:github-runner /data/cache
+          uv sync --frozen --python /usr/local/venv/bin/python
+          # Put the venv first on PATH so the Build step's `scons`/`python` come straight from it
+          # (not the comma shim's `uv run`, which would re-resolve to the pinned 3.12.13 and fail).
+          export VIRTUAL_ENV="${UV_PROJECT_ENVIRONMENT}"
+          echo "${UV_PROJECT_ENVIRONMENT}/bin" >> "$GITHUB_PATH"
+          printenv >> $GITHUB_ENV
+
+      - name: Setup build environment
+        run: |
+          # BUILD_DIR is the bind-mounted /data/openpilot (job namespace masks the runner's own
+          # openpilot with github-runner-owned /data/github/openpilot). Ensure it exists, is empty,
+          # and is owned by the job user before rsyncing the source in.
+          sudo mkdir -p "${BUILD_DIR}/"
+          sudo find $BUILD_DIR/ -mindepth 1 -delete
+          sudo chown github-runner:github-runner "${BUILD_DIR}"
+          PYTHONPATH=$PYTHONPATH:${{ github.workspace }}/ ${{ github.workspace }}/scripts/manage-powersave.py --disable
+
+      - name: Build
+        run: |
+          export PYTHONPATH="$BUILD_DIR"
+          # Copy only release-manifest files (this is why .gitattributes never enters the tree).
+          ./release/release_files.py | sort | uniq | rsync -rRl --files-from=- . $BUILD_DIR/
+          cd $BUILD_DIR
+          sed -i '/from .board.jungle import PandaJungle, PandaJungleDFU/s/^/#/' panda/__init__.py
+          echo "Building sunnypilot's modeld_v2..."
+          scons -j$(nproc) cache_dir=${{ env.SCONS_CACHE_DIR }} --minimal sunnypilot/modeld_v2
+          echo "Building sunnypilot's locationd..."
+          scons -j2 cache_dir=${{ env.SCONS_CACHE_DIR }} --minimal sunnypilot/selfdrive/locationd
+          echo "Building openpilot's locationd..."
+          scons -j$(nproc) cache_dir=${{ env.SCONS_CACHE_DIR }} --minimal selfdrive/locationd
+          echo "Building rest of sunnypilot..."
+          scons -j$(nproc) cache_dir=${{ env.SCONS_CACHE_DIR }} --minimal
+          touch ${BUILD_DIR}/prebuilt
+
+      - name: Prepare Output
+        run: |
+          sudo rm -rf ${OUTPUT_DIR}
+          mkdir -p ${OUTPUT_DIR}
+          rsync -am \
+            --exclude='.sconsign.dblite' \
+            --exclude='*.a' \
+            --exclude='*.o' \
+            --exclude='*.os' \
+            --exclude='*.pyc' \
+            --exclude='moc_*' \
+            --exclude='__pycache__' \
+            --exclude='Jenkinsfile' \
+            --exclude='**/release/' \
+            --exclude='**/.github/' \
+            --exclude='**/selfdrive/ui/replay/' \
+            --exclude='**/__pycache__/' \
+            --exclude="${SCONS_CACHE_DIR}" \
+            --exclude='**/.git/' \
+            --exclude='**/.gitattributes' \
+            --exclude='**/SConstruct' \
+            --exclude='**/SConscript' \
+            --exclude='**/.venv/' \
+            --exclude='selfdrive/modeld/models/*driving*.onnx' \
+            --exclude='third_party/*x86*' \
+            --exclude='third_party/*Darwin*' \
+            --delete-excluded \
+            --chown=comma:comma \
+            ${BUILD_DIR}/ ${OUTPUT_DIR}/
+
+      - name: Guard - fail on any LFS pointer stub
+        run: |
+          # An LFS pointer stub is a tiny text file whose FIRST line is exactly
+          # `version https://git-lfs.github.com/spec/v1`. Anchor on that line-start so we don't flag
+          # legit source that merely mentions the spec URL mid-line. grep -I skips binaries.
+          if grep -rlIE "^version https://git-lfs\.github\.com/spec/v1" "${OUTPUT_DIR}" > /tmp/lfs_ptrs.txt; then
+            echo "::error::LFS pointer stubs found in build output (would brick the device):"
+            cat /tmp/lfs_ptrs.txt
+            exit 1
+          fi
+          # GitHub rejects any file >100MB on push -> the publish would fail silently. Catch it loud here.
+          if find "${OUTPUT_DIR}" -type f -size +99M | grep -q .; then
+            echo "::error::file(s) >99MB in output (GitHub push would reject them):"
+            find "${OUTPUT_DIR}" -type f -size +99M -exec ls -lh {} +
+            exit 1
+          fi
+          echo "OK: no LFS pointer stubs or oversized files in output."
+
+      - name: Tar files
+        run: |
+          tar czf prebuilt.tar.gz -C ${{ env.OUTPUT_DIR }} .
+          ls -la prebuilt.tar.gz
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prebuilt
+          path: prebuilt.tar.gz
+
+      # --- boot-safety: always restore the device, even if the build failed ---
+      - name: Re-enable powersave
+        if: always()
+        run: |
+          PYTHONPATH=$PYTHONPATH:${{ github.workspace }}/ ${{ github.workspace }}/scripts/manage-powersave.py --enable
+
+      - name: Cleanup build directory
+        if: always()
+        # BUILD_DIR is a bind-mount point (/data/openpilot), so clear its CONTENTS, not the dir itself
+        # (rm -rf the mountpoint would EBUSY and fail this always() step -> would fail the build job).
+        run: sudo find ${BUILD_DIR}/ -mindepth 1 -delete 2>/dev/null || true
+
+  publish:
+    needs: [ build ]
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: publish-${{ github.event.inputs.source_branch || github.ref_name }}
+      cancel-in-progress: true
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: prebuilt
+
+      - name: Untar prebuilt
+        run: |
+          mkdir -p ${{ env.OUTPUT_DIR }}
+          tar xzf prebuilt.tar.gz -C ${{ env.OUTPUT_DIR }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+      - name: Publish prebuilt (strip -src)
+        env:
+          SRC: ${{ github.event.inputs.source_branch || github.ref_name }}
+          REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          # rel-src -> rel, stg-src -> stg; anything else falls back to <branch>-prebuilt.
+          case "$SRC" in
+            *-src) DEV_BRANCH="${SRC%-src}" ;;
+            *)     DEV_BRANCH="${SRC}-prebuilt" ;;
+          esac
+          VERSION="$(date '+%Y.%m.%d')-${{ github.run_number }}"
+          GIT_ORIGIN="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          echo "[-] publishing ${SRC} -> ${DEV_BRANCH} on ${REPO}"
+          cd ${{ env.OUTPUT_DIR }}
+          # LFS safety (belt + suspenders): no .gitattributes => `git add` cannot re-pointerize.
+          find . -name .gitattributes -delete
+          # Final pre-commit guard (anchored to the pointer's `version` first line; see build job).
+          if grep -rlIE "^version https://git-lfs\.github\.com/spec/v1" . > /tmp/lfs_ptrs.txt; then
+            echo "::error::LFS pointer stubs present at publish time:"; cat /tmp/lfs_ptrs.txt; exit 1
+          fi
+          git init -q
+          git remote add origin "$GIT_ORIGIN"
+          git fetch -q origin "$DEV_BRANCH" \
+            || (git checkout -b "$DEV_BRANCH" && git commit -q --allow-empty -m "initial prebuilt" && git push -u origin "$DEV_BRANCH")
+          git add -f .
+          DATETIME=$(date '+%Y-%m-%dT%H:%M:%S')
+          git commit -q -a -m "prebuilt v${VERSION}
+          source branch: ${SRC}
+          date: ${DATETIME}
+          source commit: ${SOURCE_SHA}
+          "
+          git branch -M "$DEV_BRANCH"
+          git push -f origin "$DEV_BRANCH"

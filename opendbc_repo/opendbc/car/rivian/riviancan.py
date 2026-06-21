@@ -11,11 +11,7 @@ def checksum(data, poly, xor_output):
   return crc ^ xor_output
 
 
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-def create_lka_steering(packer, frame, acm_lka_hba_cmd, apply_torque, enabled, active, mads, lka_act_toi):
-=======
 def create_lka_steering(packer, frame, acm_lka_hba_cmd, apply_torque, enabled, active, mads):
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
   # forward auto high beam and speed limit status and nothing else
   values = {s: acm_lka_hba_cmd[s] for s in (
     "ACM_hbaSysState",
@@ -27,11 +23,7 @@ def create_lka_steering(packer, frame, acm_lka_hba_cmd, apply_torque, enabled, a
   values |= {
     "ACM_lkaHbaCmd_Counter": frame % 15,
     "ACM_lkaStrToqReq": apply_torque,
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-    "ACM_lkaActToi": lka_act_toi,
-=======
     "ACM_lkaActToi": active,
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 
     "ACM_lkaLaneRecogState": 3 if mads.lka_icon_states else 0,
     "ACM_lkaSymbolState": 3 if mads.lka_icon_states else 0,
@@ -51,8 +43,6 @@ def create_lka_steering(packer, frame, acm_lka_hba_cmd, apply_torque, enabled, a
   return packer.make_can_msg("ACM_lkaHbaCmd", 0, values)
 
 
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-=======
 def create_angle_steering(packer, frame, angle, active):
   values = {
     "ACM_SteeringControl_Counter": frame % 15,
@@ -79,7 +69,6 @@ def create_acm_status(packer, frame, feature_status):
   return packer.make_can_msg("ACM_Status", 0, values)
 
 
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 def create_wheel_touch(packer, sccm_wheel_touch, enabled):
   values = {s: sccm_wheel_touch[s] for s in (
     "SCCM_WheelTouch_Counter",
@@ -129,11 +118,8 @@ def create_adas_status(packer, vdm_adas_status, interface_status):
   )}
 
   if interface_status is not None:
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-=======
     if interface_status == 1:
       values["VDM_UserAdasRequest"] = 1
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
     values["VDM_AdasInterfaceStatus"] = interface_status
 
   data = packer.make_can_msg("VDM_AdasSts", 2, values)[1]

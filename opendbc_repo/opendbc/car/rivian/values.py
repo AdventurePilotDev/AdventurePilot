@@ -1,18 +1,11 @@
 from dataclasses import dataclass, field
 from enum import StrEnum, IntFlag
 
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs, uds
-from opendbc.car.docs_definitions import CarHarness, CarDocs, CarParts
-from opendbc.car.fw_query_definitions import FwQueryConfig, Request, StdQueries, p16
-from opendbc.car.vin import Vin
-=======
 from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs, uds, ACCELERATION_DUE_TO_GRAVITY
 from opendbc.car.docs_definitions import CarHarness, CarDocs, CarParts
 from opendbc.car.fw_query_definitions import FwQueryConfig, Request, StdQueries, p16
 from opendbc.car.vin import Vin
 from opendbc.car.lateral import AngleSteeringLimitsVM, ISO_LATERAL_ACCEL
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 
 
 class WMI(StrEnum):
@@ -122,11 +115,8 @@ GEAR_MAP = {
   4: structs.CarState.GearShifter.drive,
 }
 
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-=======
 AVERAGE_ROAD_ROLL = 0.06  # ~3.4 degrees, 6% superelevation. higher actual roll lowers lateral acceleration
 
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 
 class CarControllerParams:
   # The R1T 2023 and R1S 2023 we tested on achieves slightly more lateral acceleration going left vs. right
@@ -137,7 +127,6 @@ class CarControllerParams:
   # 250 is ~2.8 m/s^2 above 17 m/s, then linearly ramps to ~1.6 m/s^2 from 17 m/s to 9 m/s
   # TODO: it is theorized older models have different steering racks and achieve down to half the
   #  lateral acceleration referenced here at all speeds. detect this and ship a torque increase for those models
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
   STEER_MAX = 385  # peak of the lookup below
   # 4-point lookup keeps the highway cap at 275 (unchanged from old [385,275]) but
   # holds slightly elevated torque through the 13-25 m/s band. Earlier
@@ -145,10 +134,6 @@ class CarControllerParams:
   # oversteer at mid speed); this halves the mid-speed bump and reverts low speed
   # to original. Knee moved 17 -> 27 m/s so modest help extends through ~55 mph.
   STEER_MAX_LOOKUP = [9, 13, 25, 27], [385, 350, 295, 275]
-=======
-  STEER_MAX = 250  # 350 is intended to maintain lateral accel, not increase it
-  STEER_MAX_LOOKUP = [9, 17], [350, 250]
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
   STEER_STEP = 1
   STEER_DELTA_UP = 3  # torque increase per refresh
   STEER_DELTA_DOWN = 5  # torque decrease per refresh
@@ -156,8 +141,6 @@ class CarControllerParams:
   STEER_DRIVER_MULTIPLIER = 2  # weight driver torque
   STEER_DRIVER_FACTOR = 100
 
-<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
-=======
   # master split AngleSteeringLimits into v1 (rate) + VM (lateral-accel); Rivian
   # angle control uses the VM limiter (ext_controller.apply_steer_angle_limits_vm).
   ANGLE_LIMITS: AngleSteeringLimitsVM = AngleSteeringLimitsVM(
@@ -167,7 +150,6 @@ class CarControllerParams:
     MAX_ANGLE_RATE=2.5,  # deg/10ms frame
   )
 
->>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
   ACCEL_MIN = -3.5  # m/s^2
   ACCEL_MAX = 2.0  # m/s^2
 
