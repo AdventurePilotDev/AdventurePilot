@@ -15,8 +15,8 @@ EPAS_FW_MAX_ANGLE_BP = [0.0, 2.78, 5.56, 8.33, 12.50, 16.67, 22.22, 27.78]  # m/
 EPAS_FW_MAX_ANGLE_V  = [500, 500,  250,  150,  85,    56,    40,    25   ]  # deg
 
 # EPAS windowed rate limit (EPAS_High_Actual_Angle_Rate_Err)
-EPAS_FW_RATE_BP = [0.0,  2.78, 5.56, 8.33, 12.50, 16.67]  # m/s
-EPAS_FW_RATE_V  = [4.50, 4.50, 4.50, 1.50, 0.60,  0.18 ]  # deg/frame
+EPAS_FW_RATE_BP = [5.56, 8.33, 12.50, 16.67]  # m/s
+EPAS_FW_RATE_V  = [4.50, 1.50, 0.60,  0.18 ]  # deg/frame
 
 EPAS_FW_ANGLE_MARGIN = 0.98
 EPAS_FW_RATE_MARGIN  = 0.94
@@ -160,10 +160,13 @@ class ExternalController:
     elif self.torque_active and self.torque_active_frames >= MIN_TORQUE_FRAMES and not self.hands_on and epas_ready:
       fw_max = float(np.interp(CS.out.vEgoRaw, EPAS_FW_MAX_ANGLE_BP, EPAS_FW_MAX_ANGLE_V)) * EPAS_FW_ANGLE_MARGIN
       in_envelope = abs(CS.out.steeringAngleDeg) < fw_max
-      settled = abs(CS.out.steeringRateDeg) < UNWIND_HANDOFF_RATE
+      # hand back to angle only once the wheel's recent motion fits the EPAS 0.16s rate budget
+      thr_dps = float(np.interp(CS.out.vEgoRaw, EPAS_FW_RATE_BP, EPAS_FW_RATE_V)) * 100.0
+      lo, hi = self.rate_budget.bounds(thr_dps, EPAS_FW_RATE_MARGIN)
+      rate_settled = lo <= CS.out.steeringAngleDeg <= hi and abs(CS.out.steeringRateDeg) < UNWIND_HANDOFF_RATE
       unwinding = abs(actuators.steeringAngleDeg) < abs(CS.out.steeringAngleDeg)
       gap = abs(actuators.steeringAngleDeg - CS.out.steeringAngleDeg)
-      if in_envelope and settled and (not unwinding or gap < UNWIND_HANDOFF_DEG):
+      if in_envelope and rate_settled and (not unwinding or gap < UNWIND_HANDOFF_DEG):
         self.torque_active = False
 
     self.lat_active_last = lat_active
