@@ -35,7 +35,11 @@ def is_steering_msg(mode, param, addr):
   elif mode == CarParams.SafetyModel.nissan:
     ret = addr == 0x169
   elif mode == CarParams.SafetyModel.rivian:
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
     ret = addr == 0x120
+=======
+    ret = addr == 0x110
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
   elif mode == CarParams.SafetyModel.tesla:
     ret = addr == 0x488
   return ret
@@ -75,7 +79,11 @@ def get_steer_value(mode, param, msg):
     angle = (msg.data[0] << 10) | (msg.data[1] << 2) | (msg.data[2] >> 6)
     angle = -angle + (1310 * 100)
   elif mode == CarParams.SafetyModel.rivian:
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
     torque = ((msg.data[2] << 3) | (msg.data[3] >> 5)) - 1024
+=======
+    angle = ((msg.data[2] << 7) | (msg.data[3] >> 1)) - 16384
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
   elif mode == CarParams.SafetyModel.tesla:
     angle = (((msg.data[0] & 0x7F) << 8) | (msg.data[1])) - 16384  # ceil(1638.35/0.1)
   return torque, angle

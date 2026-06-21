@@ -919,6 +919,11 @@ class SafetyTest(SafetyTestBase):
             volkswagen_shared = ('TestVolkswagenMqb', 'TestVolkswagenMlb')
             if attr.startswith(volkswagen_shared) and current_test.startswith(volkswagen_shared):
               continue
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
+=======
+            if attr.startswith('TestRivian') and current_test.startswith('TestRivian'):
+              continue
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 
             # overlapping TX addrs, but they're not actuating messages for either car
             if attr == 'TestHyundaiCanfdLKASteeringLongEV' and current_test.startswith('TestToyota'):

@@ -74,6 +74,7 @@ bool steer_torque_cmd_checks(int desired_torque, int steer_req, const TorqueStee
     // *** global torque limit check ***
     violation |= safety_max_limit_check(desired_torque, max_torque, -max_torque);
 
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
     // *** torque rate limit check *** — skip when (torque=0, steer_req=0) blip frame would exceed max_rate_down
     // Only skip when torque is also 0; other cars send non-zero torque with steer_req=0 and still need rate checks
     bool skip_rate_checks = limits.has_steer_req_tolerance && (steer_req == 0) && (desired_torque == 0);
@@ -96,13 +97,32 @@ bool steer_torque_cmd_checks(int desired_torque, int steer_req, const TorqueStee
     if (!skip_rate_checks) {
       violation |= rt_torque_rate_limit_check(desired_torque, rt_torque_last, limits.max_rt_delta);
     }
+=======
+    // *** torque rate limit check ***
+    if (limits.type == TorqueDriverLimited) {
+      violation |= driver_limit_check(desired_torque, desired_torque_last, &torque_driver,
+                                      max_torque, limits.max_rate_up, limits.max_rate_down,
+                                      limits.driver_torque_allowance, limits.driver_torque_multiplier);
+    } else {
+      violation |= dist_to_meas_check(desired_torque, desired_torque_last, &torque_meas,
+                                      limits.max_rate_up, limits.max_rate_down, limits.max_torque_error);
+    }
+    desired_torque_last = desired_torque;
+
+    // *** torque real time rate limit check ***
+    violation |= rt_torque_rate_limit_check(desired_torque, rt_torque_last, limits.max_rt_delta);
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 
     // every RT_INTERVAL set the new limits
     uint32_t ts_elapsed = safety_get_ts_elapsed(ts, ts_torque_check_last);
     if (ts_elapsed > MAX_RT_INTERVAL) {
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
       if (!limits.has_steer_req_tolerance || steer_req) {
         rt_torque_last = desired_torque;
       }
+=======
+      rt_torque_last = desired_torque;
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
       ts_torque_check_last = ts;
     }
   }

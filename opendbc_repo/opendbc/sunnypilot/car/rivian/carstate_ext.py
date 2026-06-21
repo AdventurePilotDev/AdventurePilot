@@ -8,8 +8,11 @@ import math
 from enum import StrEnum
 
 from opendbc.car import Bus, structs
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
 from openpilot.common.params import Params
 from openpilot.sunnypilot.mads.helpers import MadsSteeringModeOnBrake, read_steering_mode_param
+=======
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 from opendbc.can.parser import CANParser
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.rivian.values import DBC
@@ -32,6 +35,7 @@ class CarStateExt:
     self.distance_button = 0
     self.increase_counter = 0
     self.decrease_counter = 0
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
     self.vdm_user_adas_request = 0
     self._lkas_pending = False
     self.steering_mode_on_brake = read_steering_mode_param(CP, CP_SP, Params())
@@ -83,6 +87,14 @@ class CarStateExt:
     cp_adas = can_parsers[Bus.adas]
     cp = can_parsers[Bus.pt]
     button_events = []
+=======
+    self.stalk_down_counter = 0
+
+  def update_longitudinal_upgrade(self, ret: structs.CarState, can_parsers: dict[StrEnum, CANParser]) -> None:
+    cp_park = can_parsers[Bus.alt]
+    cp_adas = can_parsers[Bus.adas]
+    cp = can_parsers[Bus.pt]
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 
     prev_increase_button = self.increase_button
     prev_decrease_button = self.decrease_button
@@ -92,7 +104,11 @@ class CarStateExt:
       right_scroll = cp_park.vl["WheelButtons_Fwd"]["RightButton_Scroll"]
       if right_scroll != 255:
         if self.distance_button != right_scroll:
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
           button_events.append(structs.CarState.ButtonEvent(pressed=False, type=ButtonType.gapAdjustCruise))
+=======
+          ret.buttonEvents = [structs.CarState.ButtonEvent(pressed=False, type=ButtonType.gapAdjustCruise)]
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
         self.distance_button = right_scroll
 
       # button logic for set-speed
@@ -119,6 +135,7 @@ class CarStateExt:
         elif not prev_decrease_button:
           self.set_speed -= conversion
 
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
       # VDM_UserAdasRequest: 0=IDLE, 1=UP_1, 2=UP_2, 3=DOWN_1, 4=DOWN_2
       vdm_request = int(cp.vl["VDM_AdasSts"]["VDM_UserAdasRequest"])
       stalk_down2 = vdm_request == 4
@@ -171,6 +188,18 @@ class CarStateExt:
         self._resume_eligible = False
         self._resume_acc_counter = 0
 
+=======
+      if not ret.cruiseState.enabled:
+        self.set_speed = ret.vEgoCluster
+
+      # VDM_UserAdasRequest: 0=IDLE, 1=UP_1, 2=UP_2, 3=DOWN_1, 4=DOWN_2
+      stalk_down = int(cp.vl["VDM_AdasSts"]["VDM_UserAdasRequest"]) in (3, 4)
+      self.stalk_down_counter = self.stalk_down_counter + 1 if stalk_down else 0
+      if self.stalk_down_counter == 50:
+        # Mimic Rivian ACC: holding stalk 0.5s sets speed to current speed (never decreases)
+        self.set_speed = max(self.set_speed, ret.vEgoCluster)
+
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
       self.set_speed = max(MIN_SET_SPEED, min(self.set_speed, MAX_SET_SPEED))
       ret.cruiseState.speed = self.set_speed
 
@@ -178,6 +207,7 @@ class CarStateExt:
       ret.leftBlindspot = cp_park.vl["BSM_BlindSpotIndicator_Fwd"]["BSM_BlindSpotIndicator_Left"] != 0
       ret.rightBlindspot = cp_park.vl["BSM_BlindSpotIndicator_Fwd"]["BSM_BlindSpotIndicator_Right"] != 0
 
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
     return button_events
 
   def update(self, ret: structs.CarState, can_parsers: dict[StrEnum, CANParser]) -> None:
@@ -188,6 +218,11 @@ class CarStateExt:
 
     button_events.extend(self.update_stalk_controls(ret, can_parsers))
     ret.buttonEvents = button_events
+=======
+  def update(self, ret: structs.CarState, can_parsers: dict[StrEnum, CANParser]) -> None:
+    if self.CP_SP.flags & RivianFlagsSP.LONGITUDINAL_HARNESS_UPGRADE:
+      self.update_longitudinal_upgrade(ret, can_parsers)
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 
   @staticmethod
   def get_parser(CP, CP_SP) -> dict[StrEnum, CANParser]:

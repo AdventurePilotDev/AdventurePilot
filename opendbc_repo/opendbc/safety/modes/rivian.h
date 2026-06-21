@@ -2,16 +2,25 @@
 
 #include "opendbc/safety/declarations.h"
 
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
 // Forward declaration: defined in safety.h, included after mode headers
 static void stock_ecu_check(bool stock_ecu_detected);
 
 static uint8_t rivian_get_counter(const CANPacket_t *msg) {
   // Signal: ESP_Status_Counter, VDM_PropStatus_Counter, VDM_AdasSts_Counter
+=======
+static uint8_t rivian_get_counter(const CANPacket_t *msg) {
+  // Signal: ESP_Status_Counter, VDM_PropStatus_Counter
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
   return msg->data[1] & 0xFU;
 }
 
 static uint32_t rivian_get_checksum(const CANPacket_t *msg) {
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
   // Signal: ESP_Status_Checksum, VDM_PropStatus_Checksum, VDM_AdasSts_Checksum
+=======
+  // Signal: ESP_Status_Checksum, VDM_PropStatus_Checksum
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
   return msg->data[0];
 }
 
@@ -39,15 +48,21 @@ static uint32_t rivian_compute_checksum(const CANPacket_t *msg) {
     chksum = _rivian_compute_checksum(msg, 0x1D, 0xB1);
   } else if (msg->addr == 0x150U) {
     chksum = _rivian_compute_checksum(msg, 0x1D, 0x9A);
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
   } else if (msg->addr == 0x162U) {
     chksum = _rivian_compute_checksum(msg, 0x1D, 0xD1);
+=======
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
   } else {
   }
   return chksum;
 }
 
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
 static uint8_t rivian_prev_user_adas_request = 0U;
 
+=======
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 static bool rivian_get_quality_flag_valid(const CANPacket_t *msg) {
   bool valid = false;
   if (msg->addr == 0x208U) {
@@ -78,6 +93,7 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
       speed_mismatch_check(vdm_speed);
     }
 
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
     // VDM_AdasSts: stalk position — used to manage MADS lateral state
     if (msg->addr == 0x162U) {
       const uint8_t user_adas_request = msg->data[7] & 0x7U;
@@ -95,12 +111,25 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
       rivian_prev_user_adas_request = user_adas_request;
     }
 
+=======
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
     // Driver torque
     if (msg->addr == 0x380U) {
       int torque_driver_new = (((msg->data[2] << 4) | (msg->data[3] >> 4))) - 2050U;
       update_sample(&torque_driver, torque_driver_new);
     }
 
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
+=======
+    // Measured steering angle from EPAS (EPAS_AdasStatus)
+    if (msg->addr == 0x390U) {
+      // EPAS_InternalSas: 47|14@0+ (0.1,-819.2) deg
+      // Stored as degrees * 10 to match angle_deg_to_can
+      int angle_meas_new = ((msg->data[5] << 6) | (msg->data[6] >> 2)) - 8192U;
+      update_sample(&angle_meas, angle_meas_new);
+    }
+
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
     // Brake pressed
     if (msg->addr == 0x38fU) {
       brake_pressed = (msg->data[2] >> 7) & 1U;
@@ -108,6 +137,7 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
   }
 
   if (msg->bus == 2U) {
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
     // Cruise state — also drives mads_state_update() via stock_ecu_check so that
     // controls_allowed_lateral is updated every time ACM_Status arrives (100 Hz).
     // acc_main_on is left false: lateral is not tied to ACC state, allowing Mode B
@@ -116,11 +146,18 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
       const int feature_status = msg->data[2] >> 5U;
       pcm_cruise_check(feature_status == 1);
       stock_ecu_check(false);
+=======
+    // Cruise state
+    if (msg->addr == 0x100U) {
+      const int feature_status = msg->data[2] >> 5U;
+      pcm_cruise_check(feature_status == 1);
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
     }
   }
 }
 
 static bool rivian_tx_hook(const CANPacket_t *msg) {
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
   const TorqueSteeringLimits RIVIAN_STEERING_LIMITS = {
     .max_torque = 385,
     .dynamic_max_torque = true,
@@ -130,6 +167,26 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
     .max_torque_lookup = {
       {9., 25., 27.},
       {385, 295, 275},
+=======
+  const AngleSteeringLimits RIVIAN_ANGLE_STEERING_LIMITS = {
+    .max_angle = 5000,  // 500 deg
+    .angle_deg_to_can = 10,
+    .frequency = 100U,
+  };
+
+  const AngleSteeringParams RIVIAN_ANGLE_STEERING_PARAMS = {
+    .slip_factor = -0.0005445721739802007,
+    .steer_ratio = 15.2,
+    .wheelbase = 3.08,
+  };
+
+  const TorqueSteeringLimits RIVIAN_STEERING_LIMITS = {
+    .max_torque = 350,
+    .dynamic_max_torque = true,
+    .max_torque_lookup = {
+      {9., 17., 17.},
+      {350, 250, 250},
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
     },
     .max_rate_up = 3,
     .max_rate_down = 5,
@@ -137,11 +194,14 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
     .driver_torque_multiplier = 2,
     .driver_torque_allowance = 100,
     .type = TorqueDriverLimited,
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
     // 2-frame blip: openpilot sends torque=0 and steer_req=0; panda holds last torque for rate limit
     .min_valid_request_frames = 89,
     .max_invalid_request_frames = 2,
     .min_valid_request_rt_interval = 810000,  // 810ms min between blips
     .has_steer_req_tolerance = true,
+=======
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
   };
 
   const LongitudinalLimits RIVIAN_LONG_LIMITS = {
@@ -153,7 +213,21 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
   bool tx = true;
 
   if (msg->bus == 0U) {
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
     // Steering control
+=======
+    // Angle steering control
+    if (msg->addr == 0x110U) {
+      int desired_angle = ((msg->data[2] << 7) | (msg->data[3] >> 1)) - 16384U;
+      bool lka_active = GET_BIT(msg, 12U);
+
+      if (steer_angle_cmd_checks_vm(desired_angle, lka_active, RIVIAN_ANGLE_STEERING_LIMITS, RIVIAN_ANGLE_STEERING_PARAMS)) {
+        tx = false;
+      }
+    }
+
+    // Torque steering control (cooperative override)
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
     if (msg->addr == 0x120U) {
       int desired_torque = ((msg->data[2] << 3U) | (msg->data[3] >> 5U)) - 1024U;
       bool steer_req = (msg->data[3] >> 4) & 1U;
@@ -178,6 +252,7 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
 static safety_config rivian_init(uint16_t param) {
   // SCCM_WheelTouch: for hiding hold wheel alert
   // VDM_AdasSts: for canceling stock ACC
+<<<<<<< c488ab5f4fa43d6481f26bf1d97a40cc9a5a4271
   // 0x120 = ACM_lkaHbaCmd, 0x321 = SCCM_WheelTouch, 0x162 = VDM_AdasSts
   static const CanMsg RIVIAN_TX_MSGS[] = {{0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x162, 2, 8, .check_relay = true}};
   // 0x160 = ACM_longitudinalRequest
@@ -194,6 +269,23 @@ static safety_config rivian_init(uint16_t param) {
 
   bool rivian_longitudinal = false;
   rivian_prev_user_adas_request = 0U;
+=======
+  // 0x100 = ACM_Status, 0x110 = ACM_SteeringControl, 0x120 = ACM_lkaHbaCmd, 0x321 = SCCM_WheelTouch, 0x162 = VDM_AdasSts
+  static const CanMsg RIVIAN_TX_MSGS[] = {{0x100, 0, 8, .check_relay = true}, {0x110, 0, 8, .check_relay = true}, {0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x162, 2, 8, .check_relay = true}};
+  // 0x160 = ACM_longitudinalRequest
+  static const CanMsg RIVIAN_LONG_TX_MSGS[] = {{0x100, 0, 8, .check_relay = true}, {0x110, 0, 8, .check_relay = true}, {0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x160, 0, 5, .check_relay = true}};
+
+  static RxCheck rivian_rx_checks[] = {
+    {.msg = {{0x208, 0, 8, 50U, .max_counter = 14U}, { 0 }, { 0 }}},                                                             // ESP_Status (speed)
+    {.msg = {{0x150, 0, 7, 50U, .max_counter = 14U}, { 0 }, { 0 }}},                                                             // VDM_PropStatus (gas pedal & 2nd speed)
+    {.msg = {{0x380, 0, 5, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // EPAS_SystemStatus (driver torque)
+    {.msg = {{0x390, 0, 7, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // EPAS_AdasStatus (measured angle)
+    {.msg = {{0x38f, 0, 6, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // iBESP2 (brakes)
+    {.msg = {{0x100, 2, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // ACM_Status (cruise state)
+  };
+
+  bool rivian_longitudinal = false;
+>>>>>>> 4210a4aaac1940234ae19cb3f7f0521313993816
 
   SAFETY_UNUSED(param);
   #ifdef ALLOW_DEBUG
