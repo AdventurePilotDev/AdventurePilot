@@ -22,6 +22,8 @@ def checksum(msg):
     ret[0] = _checksum(ret[1:], 0x1D, 0xB1)
   elif addr == 0x150:
     ret[0] = _checksum(ret[1:], 0x1D, 0x9A)
+  elif addr == 0x162:
+    ret[0] = _checksum(ret[1:], 0x1D, 0xD1)
 
   return addr, ret, bus
 
@@ -53,6 +55,7 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
   cnt_speed = 0
   cnt_speed_2 = 0
   cnt_angle_cmd = 0
+  cnt_adas = 0
 
   def _get_steer_cmd_angle_max(self, speed):
     return get_max_angle_vm(max(speed, 1), self.VM, CarControllerParams)
@@ -99,6 +102,13 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
   def _pcm_status_msg(self, enable):
     values = {"ACM_FeatureStatus": enable, "ACM_Unkown1": 1}
     return self.packer.make_can_msg_safety("ACM_Status", 2, values)
+
+  def _lkas_button_msg(self, enabled):
+    # MADS toggle = Rivian stalk-up (VDM_AdasSts.VDM_UserAdasRequest UP_1=1), the signal
+    # carstate_ext maps to ButtonType.lkas. The 0x162 rx_check validates checksum + counter.
+    values = {"VDM_UserAdasRequest": 1 if enabled else 0, "VDM_AdasStatus_Counter": self.cnt_adas % 15}
+    self.__class__.cnt_adas += 1
+    return self.packer.make_can_msg_safety("VDM_AdasSts", 0, values, fix_checksum=checksum)
 
   def _accel_msg(self, accel: float):
     values = {"ACM_AccelerationRequest": accel}

@@ -2,13 +2,16 @@
 
 #include "opendbc/safety/declarations.h"
 
+// Forward declaration: defined in safety.h, included after mode headers
+static void stock_ecu_check(bool stock_ecu_detected);
+
 static uint8_t rivian_get_counter(const CANPacket_t *msg) {
-  // Signal: ESP_Status_Counter, VDM_PropStatus_Counter
+  // Signal: ESP_Status_Counter, VDM_PropStatus_Counter, VDM_AdasSts_Counter
   return msg->data[1] & 0xFU;
 }
 
 static uint32_t rivian_get_checksum(const CANPacket_t *msg) {
-  // Signal: ESP_Status_Checksum, VDM_PropStatus_Checksum
+  // Signal: ESP_Status_Checksum, VDM_PropStatus_Checksum, VDM_AdasSts_Checksum
   return msg->data[0];
 }
 
@@ -36,10 +39,14 @@ static uint32_t rivian_compute_checksum(const CANPacket_t *msg) {
     chksum = _rivian_compute_checksum(msg, 0x1D, 0xB1);
   } else if (msg->addr == 0x150U) {
     chksum = _rivian_compute_checksum(msg, 0x1D, 0x9A);
+  } else if (msg->addr == 0x162U) {
+    chksum = _rivian_compute_checksum(msg, 0x1D, 0xD1);
   } else {
   }
   return chksum;
 }
+
+static uint8_t rivian_prev_user_adas_request = 0U;
 
 static bool rivian_get_quality_flag_valid(const CANPacket_t *msg) {
   bool valid = false;
@@ -71,6 +78,23 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
       speed_mismatch_check(vdm_speed);
     }
 
+    // VDM_AdasSts: stalk position — used to manage MADS lateral state
+    if (msg->addr == 0x162U) {
+      const uint8_t user_adas_request = msg->data[7] & 0x7U;
+
+      // UP_1 (value 1) is the MADS toggle gesture. Drive mads_button_press so
+      // the panda MADS state machine can grant controls_allowed_lateral for Mode B
+      // without requiring ACC to be active.
+      mads_button_press = (user_adas_request == 1U) ? MADS_BUTTON_PRESSED : MADS_BUTTON_NOT_PRESSED;
+
+      // UP_2 (value 2, past detent): do not force-disengage here. Python suppresses
+      // pcmEnable via altButton2 to prevent unintended MADS engagement from disengaged.
+      // Forcing mads_exit_controls() would clear controls_allowed_lateral while Python
+      // MADS stays active, causing a lateral mismatch and immediate red screen.
+
+      rivian_prev_user_adas_request = user_adas_request;
+    }
+
     // Driver torque
     if (msg->addr == 0x380U) {
       int torque_driver_new = (((msg->data[2] << 4) | (msg->data[3] >> 4))) - 2050U;
@@ -92,10 +116,14 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
   }
 
   if (msg->bus == 2U) {
-    // Cruise state
+    // Cruise state — also drives mads_state_update() via stock_ecu_check so that
+    // controls_allowed_lateral is updated every time ACM_Status arrives (100 Hz).
+    // acc_main_on is left false: lateral is not tied to ACC state, allowing Mode B
+    // (MADS active without ACC) to work correctly for Keep Active / Pause modes.
     if (msg->addr == 0x100U) {
       const int feature_status = msg->data[2] >> 5U;
       pcm_cruise_check(feature_status == 1);
+      stock_ecu_check(false);
     }
   }
 }
@@ -184,11 +212,13 @@ static safety_config rivian_init(uint16_t param) {
     {.msg = {{0x390, 0, 7, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // EPAS_AdasStatus (measured angle)
     {.msg = {{0x38f, 0, 6, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // iBESP2 (brakes)
     {.msg = {{0x100, 2, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // ACM_Status (cruise state)
+    {.msg = {{0x162, 0, 8, 50U, .max_counter = 14U, .ignore_quality_flag = true}, { 0 }, { 0 }}},                                // VDM_AdasSts (stalk requests)
   };
 
   bool rivian_longitudinal = false;
 
   SAFETY_UNUSED(param);
+  rivian_prev_user_adas_request = 0U;
   #ifdef ALLOW_DEBUG
     const int FLAG_RIVIAN_LONG_CONTROL = 1;
     rivian_longitudinal = GET_FLAG(param, FLAG_RIVIAN_LONG_CONTROL);
