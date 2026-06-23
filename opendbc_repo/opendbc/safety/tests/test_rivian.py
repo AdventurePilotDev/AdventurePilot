@@ -35,14 +35,16 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
   RELAY_MALFUNCTION_ADDRS = {0: (0x100, 0x110, 0x120), 2: (0x321, 0x162)}
   FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: [0x100, 0x110, 0x120]}
 
-  # Torque limits
-  MAX_TORQUE_LOOKUP = [9, 17], [350, 250]
+  # Torque limits (cooperative override torque; matches dev's AP envelope + the software 385 tune)
+  MAX_TORQUE_LOOKUP = [9, 25, 27], [385, 295, 275]
   DYNAMIC_MAX_TORQUE = True
   MAX_RATE_UP = 3
   MAX_RATE_DOWN = 5
   MAX_RT_DELTA = 125
   DRIVER_TORQUE_ALLOWANCE = 100
   DRIVER_TORQUE_FACTOR = 2
+  MIN_VALID_STEERING_FRAMES = 89
+  MAX_INVALID_STEERING_FRAMES = 2
 
   # Angle limits (VM-based, no simple breakpoint rates)
   STEER_ANGLE_MAX = 360
