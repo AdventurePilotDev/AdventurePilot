@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import unittest
 
-import numpy as np
 from opendbc.car.structs import CarParams
 from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
@@ -23,35 +22,33 @@ def checksum(msg):
   return addr, ret, bus
 
 
-class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
-                           common.LongitudinalAccelSafetyTest, common.VehicleSpeedSafetyTest):
+class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest, common.LongitudinalAccelSafetyTest,
+                           common.VehicleSpeedSafetyTest):
 
-  TX_MSGS = [[0x321, 2], [0x162, 2], [0x110, 0], [0x100, 0]]
-  RELAY_MALFUNCTION_ADDRS = {0: (0x110, 0x100), 2: (0x321, 0x162)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: [0x110, 0x100]}
+  TX_MSGS = [[0x120, 0], [0x321, 2], [0x162, 2]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x120,), 2: (0x321, 0x162)}
+  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: [0x120]}
 
-  STEER_ANGLE_MAX = 360.0
-  STEER_ANGLE_TEST_MAX = 200.0  # don't test beyond max_angle
-  DEG_TO_CAN = 10
-  ANGLE_RATE_BP = [0., 5., 25.]
-  ANGLE_RATE_UP = [3.0, 1.5, 0.3]
-  ANGLE_RATE_DOWN = [3.0, 1.5, 0.5]
-  LATERAL_FREQUENCY = 100
+  MAX_TORQUE_LOOKUP = [9, 17], [350, 250]
+  DYNAMIC_MAX_TORQUE = True
+  MAX_RATE_UP = 3
+  MAX_RATE_DOWN = 5
+
+  MAX_RT_DELTA = 125
+
+  DRIVER_TORQUE_ALLOWANCE = 100
+  DRIVER_TORQUE_FACTOR = 2
 
   cnt_speed = 0
   cnt_speed_2 = 0
-  cnt_angle_cmd = 0
 
-  def _angle_cmd_msg(self, angle: float, enabled: bool, increment_timer: bool = True):
-    values = {"ACM_SteeringAngleRequest": angle, "ACM_EacEnabled": 1 if enabled else 0}
-    if increment_timer:
-      self.safety.set_timer(self.cnt_angle_cmd * int(1e6 / self.LATERAL_FREQUENCY))
-      self.__class__.cnt_angle_cmd += 1
-    return self.packer.make_can_msg_safety("ACM_SteeringControl", 0, values)
+  def _torque_driver_msg(self, torque):
+    values = {"EPAS_TorsionBarTorque": torque / 100.0}
+    return self.packer.make_can_msg_safety("EPAS_SystemStatus", 0, values)
 
-  def _angle_meas_msg(self, angle: float):
-    values = {"EPAS_InternalSas": angle}
-    return self.packer.make_can_msg_safety("EPAS_AdasStatus", 0, values)
+  def _torque_cmd_msg(self, torque, steer_req=1):
+    values = {"ACM_lkaStrToqReq": torque, "ACM_lkaActToi": steer_req}
+    return self.packer.make_can_msg_safety("ACM_lkaHbaCmd", 0, values)
 
   def _speed_msg(self, speed, quality_flag=True):
     values = {"ESP_Vehicle_Speed": speed * 3.6, "ESP_Status_Counter": self.cnt_speed % 15,
@@ -60,7 +57,7 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
     return self.packer.make_can_msg_safety("ESP_Status", 0, values, fix_checksum=checksum)
 
   def _speed_msg_2(self, speed, quality_flag=True):
-    # Cross-checked against ESP_Status to disable controls if the two speed sources diverge
+    # Rivian has a dynamic max torque limit based on speed, so it checks two sources
     return self._user_gas_msg(0, speed, quality_flag)
 
   def _user_brake_msg(self, brake):
@@ -112,26 +109,6 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
         self.assertFalse(self._rx(msg))
         self.assertFalse(self.safety.get_controls_allowed())
 
-  def test_angle_cmd_when_disabled(self):
-    # Override the AngleSteeringSafetyTest version: Rivian deviates from the
-    # standard ±1 inactive tracking. Our rivian_tx_hook only enforces a
-    # max_angle sanity bound when EacEnabled=0, to absorb the dual-panda
-    # cross-bus skew between ext panda's angle_meas (rebroadcast on the
-    # front-object FD bus) and carstate's source (primary actuator). Any
-    # inactive angle inside ±max_angle is accepted regardless of measured.
-    max_angle_can = int(self.STEER_ANGLE_MAX * self.DEG_TO_CAN)
-    for controls_allowed in (True, False):
-      self.safety.set_controls_allowed(controls_allowed)
-      for angle_meas in np.arange(-90, 91, 30):
-        self._reset_angle_measurement(angle_meas)
-        for angle_cmd in np.arange(-90, 91, 30):
-          self._set_prev_desired_angle(angle_cmd)
-          # Inactive: anything in ±STEER_ANGLE_MAX passes; outside is rejected
-          # by the sanity bound.
-          should_tx = abs(angle_cmd) <= self.STEER_ANGLE_MAX
-          self.assertEqual(should_tx, self._tx(self._angle_cmd_msg(angle_cmd, False)),
-                           f"inactive angle_cmd={angle_cmd} meas={angle_meas}")
-
 
 class TestRivianStockSafety(TestRivianSafetyBase):
 
@@ -154,9 +131,9 @@ class TestRivianStockSafety(TestRivianSafetyBase):
 
 class TestRivianLongitudinalSafety(TestRivianSafetyBase):
 
-  TX_MSGS = [[0x321, 2], [0x160, 0], [0x110, 0], [0x100, 0]]
-  RELAY_MALFUNCTION_ADDRS = {0: (0x110, 0x160, 0x100), 2: (0x321,)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x321], 2: [0x110, 0x160, 0x100]}
+  TX_MSGS = [[0x120, 0], [0x321, 2], [0x160, 0]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x120, 0x160), 2: (0x321,)}
+  FWD_BLACKLISTED_ADDRS = {0: [0x321], 2: [0x120, 0x160]}
 
   def setUp(self):
     self.packer = CANPackerSafety("rivian_primary_actuator")
@@ -165,58 +142,35 @@ class TestRivianLongitudinalSafety(TestRivianSafetyBase):
     self.safety.init_tests()
 
 
-class TestRivianSecondarySafety(common.SafetyTest):
-  # Ext panda (front-object FD bus relay-cut): minimal safety config mirroring only
-  # the int panda's 0x110 angle + 0x100 ACM_Status injections. Brake/gas/cruise state
-  # aren't visible on the ext panda's buses, so the full CarSafetyTest mixins don't
-  # apply — we only verify the TX whitelist + relay-malfunction set here.
-  TX_MSGS = [[0x110, 0], [0x100, 0]]
-  RELAY_MALFUNCTION_ADDRS = {0: (0x110, 0x100), 2: ()}
-  FWD_BLACKLISTED_ADDRS = {0: [], 2: [0x110, 0x100]}
-
-  STEER_ANGLE_MAX = 360.0
-  DEG_TO_CAN = 10
-  LATERAL_FREQUENCY = 100
-
-  cnt_angle_cmd = 0
+class TestRivianIgnition(unittest.TestCase):
+  TX_MSGS: list = []
 
   def setUp(self):
-    self.packer = CANPackerSafety("rivian_primary_actuator")
     self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, RivianSafetyFlags.SECONDARY_TX)
     self.safety.init_tests()
+    self.packer = CANPackerSafety("rivian_primary_actuator")
 
-  def _angle_cmd_msg(self, angle: float, enabled: bool, increment_timer: bool = True):
-    values = {"ACM_SteeringAngleRequest": angle, "ACM_EacEnabled": 1 if enabled else 0}
-    if increment_timer:
-      self.safety.set_timer(self.cnt_angle_cmd * int(1e6 / self.LATERAL_FREQUENCY))
-      self.__class__.cnt_angle_cmd += 1
-    return self.packer.make_can_msg_safety("ACM_SteeringControl", 0, values)
+  def _msg(self, counter, mode):
+    return self.packer.make_can_msg_safety("VDM_OutputSignals", 0,
+                                           {"VDM_OutputSigs_Counter": counter,
+                                            "VDM_EpasPowerMode": mode})
 
-  def _angle_meas_msg(self, angle: float):
-    values = {"EPAS_InternalSas": angle}
-    return self.packer.make_can_msg_safety("EPAS_AdasStatus", 0, values)
+  # VDM_EpasPowerMode_Drive_On=1
+  def test_ignition_on(self):
+    for i in range(15):
+      self.safety.init_tests()
+      self.safety.ignition_can_hook(self._msg(i, 1))
+      self.assertFalse(self.safety.get_ignition_can())
+      self.safety.ignition_can_hook(self._msg((i + 1) % 15, 1))
+      self.assertTrue(self.safety.get_ignition_can())
 
-  def test_angle_cmd_mirrors_int_panda(self):
-    # The ext panda must accept whatever 0x110 the int panda accepts so the
-    # two streams converging at the EPAS stay frame-identical. Confirm:
-    #   1. Active angle commands pass regardless of measured-angle skew
-    #      (the int panda alone enforces the angle-error bound).
-    #   2. The same sanity bound applies: anything inside ±max_angle passes,
-    #      outside is rejected.
-    for enabled in (True, False):
-      for angle_meas in (-90, -30, 0, 30, 90):
-        # Prime the measured-angle history with values that would fail the
-        # default ±10° angle-error check on the int panda.
-        for _ in range(6):
-          self._rx(self._angle_meas_msg(angle_meas))
-        for angle_cmd in np.arange(-self.STEER_ANGLE_MAX, self.STEER_ANGLE_MAX + 1, 60):
-          self.assertTrue(self._tx(self._angle_cmd_msg(angle_cmd, enabled)),
-                          f"in-range cmd={angle_cmd} enabled={enabled} meas={angle_meas}")
-        # Out-of-range commands must still be rejected by the max_angle sanity bound.
-        for angle_cmd in (-self.STEER_ANGLE_MAX - 1, self.STEER_ANGLE_MAX + 1):
-          self.assertFalse(self._tx(self._angle_cmd_msg(angle_cmd, enabled)),
-                           f"out-of-range cmd={angle_cmd} enabled={enabled}")
+  def test_ignition_off(self):
+    self.safety.ignition_can_hook(self._msg(0, 1))
+    self.safety.ignition_can_hook(self._msg(1, 1))
+    self.assertTrue(self.safety.get_ignition_can())
+    self.safety.ignition_can_hook(self._msg(2, 0))
+    self.safety.ignition_can_hook(self._msg(3, 0))
+    self.assertFalse(self.safety.get_ignition_can())
 
 
 if __name__ == "__main__":

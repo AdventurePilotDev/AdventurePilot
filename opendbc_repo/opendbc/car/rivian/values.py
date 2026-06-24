@@ -4,7 +4,7 @@ from enum import StrEnum, IntFlag
 from opendbc.car import ACCELERATION_DUE_TO_GRAVITY, Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs, uds
 from opendbc.car.docs_definitions import CarHarness, CarDocs, CarParts
 from opendbc.car.fw_query_definitions import FwQueryConfig, Request, StdQueries, p16
-from opendbc.car.lateral import AngleSteeringLimits, ISO_LATERAL_ACCEL
+from opendbc.car.lateral import AngleSteeringLimitsVM, ISO_LATERAL_ACCEL
 from opendbc.car.vin import Vin
 
 AVERAGE_ROAD_ROLL = 0.06  # ~3.4 degrees, 6% superelevation. higher actual roll lowers lateral acceleration
@@ -126,10 +126,8 @@ class CarControllerParams:
   # Mirror RIVIAN_STEERING_PARAMS/LIMITS in safety/modes/rivian.h. VM-derived
   # rate from MAX_LATERAL_JERK, comfort cap via MAX_ANGLE_RATE for low-speed
   # feel (~250°/s at 100 Hz TX). Lookups empty — VM math handles it.
-  ANGLE_LIMITS: AngleSteeringLimits = AngleSteeringLimits(
+  ANGLE_LIMITS: AngleSteeringLimitsVM = AngleSteeringLimitsVM(
     360,        # STEER_ANGLE_MAX (deg)
-    ([], []),   # ANGLE_RATE_LIMIT_UP unused under VM path
-    ([], []),   # ANGLE_RATE_LIMIT_DOWN unused under VM path
     MAX_LATERAL_ACCEL=ISO_LATERAL_ACCEL + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL),  # ~3.6 m/s^2
     MAX_LATERAL_JERK=3.0 + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL),                 # ~3.6 m/s^3
     MAX_ANGLE_RATE=2.5,  # deg/10ms frame = 250°/s comfort cap. min(VM jerk rate, this) keeps it under safety's jerk limit, so no rivian.h mirror needed
