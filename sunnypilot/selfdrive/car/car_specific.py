@@ -29,6 +29,8 @@ class CarSpecificEventsSP:
     self._rivian_up2_active = False
     self._rivian_prev_in_park = False
     self._rivian_park_disable_pending = False
+    self._rivian_prev_in_reverse = False
+    self._rivian_reverse_disable_pending = False
     if self.CP.brand == 'rivian':
       self._rivian_steering_mode_on_brake = read_steering_mode_param(CP, CP_SP, Params())
 
@@ -89,6 +91,20 @@ class CarSpecificEventsSP:
       if not in_park:
         self._rivian_park_disable_pending = False
       self._rivian_prev_in_park = in_park
+      # Reverse entry: full MADS disengage, same as park.
+      # Same two-frame pattern: frame N lkasDisable conflicts with silentLkasDisable
+      # (from mads.update_events() → transition_paused_state()) → paused.
+      # Frame N+1 transition_paused_state() is a no-op, so only lkasDisable fires → disabled.
+      in_reverse = CS.gearShifter == GearShifter.reverse
+      if in_reverse and not self._rivian_prev_in_reverse:
+        events_sp.add(EventNameSP.lkasDisable)
+        self._rivian_reverse_disable_pending = True
+      elif in_reverse and self._rivian_reverse_disable_pending:
+        events_sp.add(EventNameSP.lkasDisable)
+        self._rivian_reverse_disable_pending = False
+      if not in_reverse:
+        self._rivian_reverse_disable_pending = False
+      self._rivian_prev_in_reverse = in_reverse
       # Suppress pcmEnable while UP_2 is held or in park.
       if self._rivian_up2_active or in_park:
         events.remove(EventName.pcmEnable)
