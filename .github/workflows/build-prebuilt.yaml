@@ -83,6 +83,17 @@ jobs:
           #     managed 3.12.13 download (comma's uv is python-preference=only-system, downloads blocked).
           sudo mkdir -p /data/cache/tinygrad && sudo chown -R github-runner:github-runner /data/cache
           uv sync --frozen --python /usr/local/venv/bin/python
+          # Device-matched ffmpeg: `uv sync` compiles comma's `ffmpeg` (a git-source dep) into the build venv as
+          # SHARED libs (libavformat.so.61), but the device/AGNOS ships ffmpeg STATIC (/usr/local/venv). Linking
+          # the shared lib makes loggerd/encoderd NEED libav*.so.61 the device lacks -> "loggerd process not
+          # running", no logs, no engage. Overlay comma's static .a set so the build links ffmpeg statically
+          # (baked in, no .so dep) -- exactly the known-good binary. SConstruct's `import ffmpeg` path is unchanged.
+          FF_STATIC=/usr/local/venv/lib/python3.12/site-packages/ffmpeg/install/lib
+          FF_BUILD=$("${UV_PROJECT_ENVIRONMENT}"/bin/python -c "import ffmpeg,os;print(os.path.dirname(ffmpeg.__file__)+'/install/lib')")
+          [ -f "$FF_STATIC/libavformat.a" ] || { echo "::error::no static ffmpeg at $FF_STATIC (AGNOS layout changed?)"; exit 1; }
+          rm -f "$FF_BUILD"/*.so*
+          cp -f "$FF_STATIC"/*.a "$FF_BUILD"/
+          echo "ffmpeg: overlaid $(ls "$FF_BUILD"/*.a 2>/dev/null | wc -l) static libs over the build venv's shared ones"
           # Put the venv first on PATH so the Build step's `scons`/`python` come straight from it
           # (not the comma shim's `uv run`, which would re-resolve to the pinned 3.12.13 and fail).
           export VIRTUAL_ENV="${UV_PROJECT_ENVIRONMENT}"
@@ -163,6 +174,24 @@ jobs:
             exit 1
           fi
           echo "OK: no LFS pointer stubs or oversized files in output."
+
+      - name: Guard - fail if loggerd/encoderd link shared ffmpeg (would brick on device)
+        run: |
+          # loggerd/encoderd must link ffmpeg STATICALLY on the device (AGNOS has no libav*.so). If a build-env
+          # drift makes them NEED a shared libav*.so, they die at load ("process not running") -> no logs, no
+          # engage. Fail loud here so a brick can never publish. readelf if present, else scan dynamic strings.
+          fail=0
+          for b in system/loggerd/loggerd system/loggerd/encoderd; do
+            f="${OUTPUT_DIR}/$b"
+            [ -f "$f" ] || continue
+            if command -v readelf >/dev/null 2>&1; then
+              needs=$(readelf -d "$f" 2>/dev/null | grep -E "NEEDED.*libav.*\.so" || true)
+            else
+              needs=$(grep -aoE "libav(format|codec|util)\.so[0-9.]*" "$f" | head -1 || true)
+            fi
+            if [ -n "$needs" ]; then echo "::error::$b links shared ffmpeg: $needs"; fail=1; fi
+          done
+          [ "$fail" = 0 ] && echo "OK: loggerd/encoderd have no shared-ffmpeg dependency." || exit 1
 
       - name: Tar files
         run: |
