@@ -1,5 +1,15 @@
 Import('env', 'arch', 'messaging', 'common', 'visionipc')
 
+# The self-hosted runner's AGNOS ffmpeg can drift ahead of the device's (e.g. libavformat.so.61 vs the comma's
+# older soname). loggerd/encoderd on larch64 use the V4L hardware encoder and don't call into ffmpeg, but the
+# av* libs sit in `libs` below -> without --as-needed the linker hard-wires the runner's newer soname, which the
+# device can't resolve, so loggerd dies at load ("process not running") and no logs upload. Clone the env and
+# link --as-needed so genuinely-unused shared libs (the av* set on-device) are dropped -- this reproduces the
+# known-good binary and keeps the prebuilt robust to runner ffmpeg drift. Libs that are actually used keep their
+# symbol refs and stay linked.
+env = env.Clone()
+env.Append(LINKFLAGS=['-Wl,--as-needed'])
+
 libs = [common, messaging, visionipc,
         'avformat', 'avcodec', 'swresample', 'avutil', 'x264',
         'pthread', 'z', 'm', 'zstd']
