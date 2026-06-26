@@ -91,8 +91,10 @@ jobs:
           FF_STATIC=/usr/local/venv/lib/python3.12/site-packages/ffmpeg/install/lib
           FF_BUILD=$("${UV_PROJECT_ENVIRONMENT}"/bin/python -c "import ffmpeg,os;print(os.path.dirname(ffmpeg.__file__)+'/install/lib')")
           [ -f "$FF_STATIC/libavformat.a" ] || { echo "::error::no static ffmpeg at $FF_STATIC (AGNOS layout changed?)"; exit 1; }
-          rm -f "$FF_BUILD"/*.so*
-          cp -f "$FF_STATIC"/*.a "$FF_BUILD"/
+          # the venv's ffmpeg libs are root-owned (uv installed them as root); the job runs as github-runner,
+          # so sudo is needed to swap them (github-runner has passwordless sudo, same as the mkdir/chown steps).
+          sudo rm -f "$FF_BUILD"/*.so*
+          sudo cp -f "$FF_STATIC"/*.a "$FF_BUILD"/
           echo "ffmpeg: overlaid $(ls "$FF_BUILD"/*.a 2>/dev/null | wc -l) static libs over the build venv's shared ones"
           # Put the venv first on PATH so the Build step's `scons`/`python` come straight from it
           # (not the comma shim's `uv run`, which would re-resolve to the pinned 3.12.13 and fail).
