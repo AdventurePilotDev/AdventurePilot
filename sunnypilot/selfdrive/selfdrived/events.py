@@ -192,6 +192,10 @@ EVENTS_SP: dict[int, dict[str, Alert | AlertCallbackType]] = {
     ET.WARNING: NoEntryAlert("Pedal Pressed")
   },
 
+  EventNameSP.belowMadsMinEngageSpeed: {
+    ET.NO_ENTRY: NoEntryAlert("Below Min. MADS Engage Speed"),
+  },
+
   EventNameSP.laneTurnLeft: {
     ET.WARNING: Alert(
       "Turning Left",
