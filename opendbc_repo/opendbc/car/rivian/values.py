@@ -124,16 +124,16 @@ class CarControllerParams:
   # 250 is ~2.8 m/s^2 above 17 m/s, then linearly ramps to ~1.6 m/s^2 from 17 m/s to 9 m/s
   # TODO: it is theorized older models have different steering racks and achieve down to half the
   #  lateral acceleration referenced here at all speeds. detect this and ship a torque increase for those models
-  STEER_MAX = 385  # peak of the lookup below
-  # 4-point lookup keeps the highway cap at 275 (unchanged from old [385,275]) but
-  # holds slightly elevated torque through the 13-25 m/s band. Earlier
-  # [9,13,25,27]->[481,415,305,275] shape was too aggressive (jerky low speed,
-  # oversteer at mid speed); this halves the mid-speed bump and reverts low speed
-  # to original. Knee moved 17 -> 27 m/s so modest help extends through ~55 mph.
-  STEER_MAX_LOOKUP = [9, 13, 25, 27], [385, 350, 295, 275]
+  STEER_MAX = 440  # peak of the lookup below
+  # dev-to: the do-not-use AGGRESSIVE (Gen1 R1T) torque tune applied to ALL Rivians -- no R1T/R1S platform
+  # split and no tame/aggressive profile select, so everyone on this branch gets the aggressive shaping even
+  # though it's tuned for the R1T. Higher per-speed cap + faster rate up/down than the tame ap-dev baseline
+  # ([385,350,295,275]/3/5); paired with the low-pass torque filter in the carcontroller and the matching
+  # aggressive panda envelope in safety/modes/rivian.h.
+  STEER_MAX_LOOKUP = [9, 13, 25, 27], [440, 420, 325, 305]
   STEER_STEP = 1
-  STEER_DELTA_UP = 3  # torque increase per refresh
-  STEER_DELTA_DOWN = 5  # torque decrease per refresh
+  STEER_DELTA_UP = 4  # torque increase per refresh (aggressive; tame was 3)
+  STEER_DELTA_DOWN = 7  # torque decrease per refresh (aggressive; tame 5). EPS faults on di/dt; ~5-7 ceiling.
   STEER_DRIVER_ALLOWANCE = 100  # allowed driver torque before start limiting
   STEER_DRIVER_MULTIPLIER = 2  # weight driver torque
   STEER_DRIVER_FACTOR = 100

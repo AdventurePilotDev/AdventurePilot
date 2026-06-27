@@ -1,6 +1,7 @@
 import numpy as np
 from opendbc.can import CANPacker
-from opendbc.car import Bus
+from opendbc.car import Bus, DT_CTRL
+from opendbc.car.common.filter_simple import FirstOrderFilter
 from opendbc.car.lateral import apply_driver_steer_torque_limits, common_fault_avoidance
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.rivian.riviancan import create_lka_steering, create_longitudinal, create_wheel_touch, create_adas_status
@@ -27,6 +28,11 @@ class CarController(CarControllerBase, MadsCarController):
     self.angle_limit_counter = 0
     self.cancel_frames = 0
 
+    # Low-pass on the planner's desired torque (part of the do-not-use aggressive tune, here always-on).
+    # The model output chatters ~5-15 Hz in hard turns; the driver-torque limiter alone can't damp it
+    # without slowing legitimate inputs. Time constant is speed-scheduled in update().
+    self.torque_filter = FirstOrderFilter(0.0, 0.2, DT_CTRL, initialized=False)
+
   def update(self, CC, CC_SP, CS, now_nanos):
     MadsCarController.update(self, CC, CC_SP, CS)
     actuators = CC.actuators
@@ -36,12 +42,20 @@ class CarController(CarControllerBase, MadsCarController):
     steer_max = round(float(np.interp(CS.out.vEgoRaw, CarControllerParams.STEER_MAX_LOOKUP[0],
                                       CarControllerParams.STEER_MAX_LOOKUP[1])))
     if self.mads.lat_active:
-      new_torque = int(round(CC.actuators.torque * steer_max))
+      # rc scheduled on speed: 0.2s @<=5 m/s (parking/intersection, where the twitch is most visible),
+      # 0.1 @10 m/s, transparent (0) @>=20 m/s where bandwidth matters.
+      self.torque_filter.update_alpha(float(np.interp(CS.out.vEgoRaw, [5., 10., 20.], [0.2, 0.1, 0.0])))
+      desired_torque = self.torque_filter.update(CC.actuators.torque)
+      new_torque = int(round(desired_torque * steer_max))
       apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last,
                                                       CS.out.steeringTorque, CarControllerParams, steer_max)
       if abs(CS.out.steeringAngleDeg) > HIGH_ANGLE_THRESHOLD_DEG:
         cap = int(round(steer_max * HIGH_ANGLE_CAP_FRAC))
         apply_torque = max(-cap, min(cap, apply_torque))
+    else:
+      # keep the filter pinned to zero so re-engagement starts from neutral with no transient
+      self.torque_filter.x = 0.0
+      self.torque_filter.initialized = True
 
     self.angle_limit_counter, lka_act_toi = common_fault_avoidance(
       abs(CS.out.steeringAngleDeg) >= MAX_ANGLE_DEG,
