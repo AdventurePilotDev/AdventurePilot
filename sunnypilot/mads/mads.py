@@ -156,10 +156,11 @@ class ModularAssistiveDrivingSystem:
       self.events.remove(EventName.manualRestart)
       self.events.remove(EventName.espActive)
 
-    if self.CP.brand == "rivian" and not self.enabled and self.min_engage_speed_ms > 0 and CS.vEgo < self.min_engage_speed_ms:
-      self.events_sp.add(EventNameSP.belowMadsMinEngageSpeed)
-
     selfdrive_enable_events = self.events.has(EventName.pcmEnable) or self.events.has(EventName.buttonEnable)
+
+    # Min-speed gate applies only to standalone MADS-stalk engagement; cruise/UEM engagement always brings lateral.
+    if self.CP.brand == "rivian" and not self.enabled and not selfdrive_enable_events and self.min_engage_speed_ms > 0 and CS.vEgo < self.min_engage_speed_ms:
+      self.events_sp.add(EventNameSP.belowMadsMinEngageSpeed)
     set_speed_btns_enable = any(be.type in SET_SPEED_BUTTONS for be in CS.buttonEvents)
 
     # wrongCarMode alert only or actively block control
