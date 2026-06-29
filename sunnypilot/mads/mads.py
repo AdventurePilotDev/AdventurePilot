@@ -9,7 +9,6 @@ from cereal import log, custom
 
 from opendbc.car import structs
 from opendbc.car.hyundai.values import HyundaiFlags
-from openpilot.common.constants import CV
 from openpilot.common.params import Params
 from openpilot.sunnypilot.mads.helpers import MadsSteeringModeOnBrake, read_steering_mode_param, MADS_NO_ACC_MAIN_BUTTON
 from openpilot.sunnypilot.mads.state import StateMachine, GEARS_ALLOW_PAUSED_SILENT
@@ -57,16 +56,10 @@ class ModularAssistiveDrivingSystem:
     self.main_enabled_toggle = self.params.get_bool("MadsMainCruiseAllowed")
     self.steering_mode_on_brake = read_steering_mode_param(self.CP, self.CP_SP, self.params)
     self.unified_engagement_mode = self.params.get_bool("MadsUnifiedEngagementMode")
-    self.min_engage_speed_ms = self._read_min_engage_speed()
-
-  def _read_min_engage_speed(self) -> float:
-    raw = self.params.get("MadsMinEngageSpeed", return_default=True)
-    return int(raw) * CV.MPH_TO_MS  # always stored in mph
 
   def read_params(self):
     self.main_enabled_toggle = self.params.get_bool("MadsMainCruiseAllowed")
     self.unified_engagement_mode = self.params.get_bool("MadsUnifiedEngagementMode")
-    self.min_engage_speed_ms = self._read_min_engage_speed()
 
   def pedal_pressed_non_gas_pressed(self, CS: structs.CarState) -> bool:
     # ignore `pedalPressed` events caused by gas presses
@@ -157,10 +150,6 @@ class ModularAssistiveDrivingSystem:
       self.events.remove(EventName.espActive)
 
     selfdrive_enable_events = self.events.has(EventName.pcmEnable) or self.events.has(EventName.buttonEnable)
-
-    # Min-speed gate applies only to standalone MADS-stalk engagement; cruise/UEM engagement always brings lateral.
-    if self.CP.brand == "rivian" and not self.enabled and not selfdrive_enable_events and self.min_engage_speed_ms > 0 and CS.vEgo < self.min_engage_speed_ms:
-      self.events_sp.add(EventNameSP.belowMadsMinEngageSpeed)
     set_speed_btns_enable = any(be.type in SET_SPEED_BUTTONS for be in CS.buttonEvents)
 
     # wrongCarMode alert only or actively block control
