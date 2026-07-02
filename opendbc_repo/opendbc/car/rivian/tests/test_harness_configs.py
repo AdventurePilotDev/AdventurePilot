@@ -65,7 +65,7 @@ class TestHarnessDetection(unittest.TestCase):
         self.assertTrue(cp.flags & RivianFlags.ANGLE_HARNESS)
         self.assertTrue(cp.safetyConfigs[0].safetyParam & RivianSafetyFlags.ANGLE_CONTROL)
         self.assertTrue(cp.steerAtStandstill)
-        self.assertEqual(cp.lateralSmoothSeconds, 0.4)
+        self.assertAlmostEqual(cp.lateralSmoothSeconds, 0.4, places=5)
 
   def test_always_dual_safety_configs(self):
     # config[1] (ext intercept mirror) is always declared; with one panda it is unapplied
@@ -111,6 +111,7 @@ class TestCarControllerTxMatrix(unittest.TestCase):
     cc = structs.CarControl()
     cc.latActive = lat_active
     cc.enabled = lat_active
+    cc = cc.as_reader()
     cc_sp = structs.CarControlSP()
     controller = CarController({Bus.pt: "rivian_primary_actuator"}, cp, structs.CarParamsSP())
     cs = _mock_cs(cp, gen2=gen2)
@@ -204,6 +205,8 @@ class TestExternalController(unittest.TestCase):
 
   def test_eac_active_stays_on_angle(self):
     erc = ExternalController(_get_cp(xnor_box=True))
+    # real EPAS sequence: ready (1) at engage, then active (2) once EacEnabled is honored
+    erc.update(_cs_frame(eac_status=1), True, _actuators())
     for _ in range(EAC_RECOVER_FRAMES * 4):
       erc.update(_cs_frame(eac_status=2), True, _actuators())
     self.assertFalse(erc.torque_active)
@@ -244,11 +247,14 @@ class TestExternalController(unittest.TestCase):
     pre_blip = history[blip_idxs[0] - 1][1]
     post_blip = history[blip_idxs[-1] + 1][1]
     self.assertGreater(pre_blip, 0)
-    self.assertEqual(post_blip, pre_blip)  # instant resume, not ramp-from-0
+    # instant resume from the frozen value (may continue ramping) — a ramp-from-0
+    # sawtooth would drop post_blip to ~DELTA_UP instead
+    self.assertGreaterEqual(post_blip, pre_blip)
 
   def test_gen2_hands_on_no_crash(self):
     # xnor upstream dereferences sccm_wheel_touch unconditionally; GEN2 leaves it None
     erc = ExternalController(_get_cp(gen2=True, xnor_box=True))
+    erc.update(_cs_frame(gen2=True, eac_status=1), True, _actuators())
     for _ in range(10):
       erc.update(_cs_frame(gen2=True, eac_status=2), True, _actuators())
     self.assertTrue(erc.angle_active)

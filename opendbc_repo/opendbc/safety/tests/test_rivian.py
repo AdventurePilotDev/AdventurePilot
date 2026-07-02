@@ -332,6 +332,9 @@ class TestRivianSecondaryTx(unittest.TestCase):
   The int panda is the safety gatekeeper (EPAS 2-of-2 voting); the ext panda must stay
   frame-identical to it, so it runs no per-panda-state checks that could desynchronize."""
 
+  # for common's cross-mode TX checker
+  TX_MSGS = [[0x110, 0], [0x100, 0]]
+
   def setUp(self):
     self.packer = CANPackerSafety("rivian_primary_actuator")
     self.safety = libsafety_py.libsafety
