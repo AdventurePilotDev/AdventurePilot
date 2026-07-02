@@ -16,17 +16,25 @@ from openpilot.sunnypilot.selfdrive.pandad.rivian_long_flasher import flash_rivi
 
 
 def get_expected_signature() -> bytes:
-  fn = os.path.join(FW_PATH, McuType.H7.config.app_fn)
-  return Panda.get_signature_from_firmware(fn)
+  try:
+    fn = os.path.join(FW_PATH, McuType.H7.config.app_fn)
+    return Panda.get_signature_from_firmware(fn)
+  except Exception:
+    cloudlog.exception("Error computing expected signature")
+    return b""
 
-def flash_panda(panda_serial: str):
-  panda = Panda(panda_serial)
+def flash_panda(panda_serial: str) -> Panda:
+  try:
+    panda = Panda(panda_serial)
+  except PandaProtocolMismatch:
+    cloudlog.warning("detected protocol mismatch, reflashing panda")
+    HARDWARE.recover_internal_panda()
+    raise
 
   # skip flashing if the detected panda is not supported
   if panda.get_type() not in Panda.SUPPORTED_DEVICES:
     cloudlog.warning(f"Panda {panda_serial} is not supported (hw_type: {panda.get_type()}), skipping flash...")
-    panda.close()
-    return
+    return panda
 
   fw_signature = get_expected_signature()
   internal_panda = panda.is_internal()
@@ -57,23 +65,30 @@ def flash_panda(panda_serial: str):
     cloudlog.info("Version mismatch after flashing, exiting")
     raise AssertionError
 
-  panda.close()
+  return panda
 
 
-def check_panda_support(panda_serials: list[str]) -> list[str]:
-  spi_serials = set(Panda.spi_list())
+def classify_panda_serials(panda_serials: list[str]) -> tuple[list[str], list[str]]:
+  """Split serials into (managed, excluded) by hardware role.
+
+  External black pandas (HW_TYPE 0x03) run xnor's standalone Rivian longitudinal-bridge
+  firmware: flash_rivian_long() owns their firmware, so they must never be managed as
+  openpilot pandas — flash_panda() would clobber the bridge, and safety would treat the
+  radar splice as the angle-intercept panda."""
+  managed: list[str] = []
+  excluded: list[str] = []
   for serial in panda_serials:
-    if serial in spi_serials:
-      return [serial]
-
-  for serial in panda_serials:
-    panda = Panda(serial)
-    is_internal = panda.is_internal()
-    panda.close()
-    if is_internal:
-      return [serial]
-
-  return []
+    try:
+      panda = Panda(serial)
+      try:
+        is_bridge = not panda.is_internal() and panda.get_type() == b'\x03'
+      finally:
+        panda.close()
+    except Exception:
+      cloudlog.exception(f"classify_panda_serials: failed to probe {serial}, managing by default")
+      is_bridge = False
+    (excluded if is_bridge else managed).append(serial)
+  return managed, excluded
 
 
 def main() -> None:
@@ -89,56 +104,118 @@ def main() -> None:
   do_exit = False
   signal.signal(signal.SIGINT, signal_handler)
 
-  # check health for lost heartbeat
-  try:
-    for s in Panda.list():
-      with Panda(s) as p:
-        health = p.health()
-        if p.is_internal() and health["heartbeat_lost"]:
-          Params().put_bool("PandaHeartbeatLost", True, block=True)
-          cloudlog.event("heartbeat lost", deviceState=health)
-  except Exception:
-    cloudlog.exception("pandad.uncaught_exception")
-
   count = 0
+  first_run = True
+  params = Params()
+  no_internal_panda_count = 0
+  excluded_serials: list[str] = []
+
   while not do_exit:
     try:
-      cloudlog.event("pandad.flash_and_connect", count=count)
-      if (count % 2) == 0:
-        HARDWARE.reset_internal_panda()
-      else:
-        HARDWARE.recover_internal_panda()
       count += 1
+      cloudlog.event("pandad.flash_and_connect", count=count)
+      params.remove("PandaSignatures")
+
+      # Handle missing internal panda
+      if no_internal_panda_count > 0:
+        if no_internal_panda_count == 3:
+          cloudlog.info("No pandas found, putting internal panda into DFU")
+          HARDWARE.recover_internal_panda()
+        else:
+          cloudlog.info("No pandas found, resetting internal panda")
+          HARDWARE.reset_internal_panda()
+        time.sleep(3)  # wait to come back up
 
       # Flash all Pandas in DFU mode
-      for serial in PandaDFU.list():
-        cloudlog.info(f"Panda in DFU mode found, flashing recovery {serial}")
-        PandaDFU(serial).recover()
+      dfu_serials = PandaDFU.list()
+      if len(dfu_serials) > 0:
+        for serial in dfu_serials:
+          cloudlog.info(f"Panda in DFU mode found, flashing recovery {serial}")
+          PandaDFU(serial).recover()
         time.sleep(1)
 
       panda_serials = Panda.list()
-      if len(panda_serials):
-        # custom flasher for xnor's Rivian Longitudinal Upgrade Kit
-        flash_rivian_long(panda_serials)
-        # find the internal supported panda (e.g. skip external Black Panda)
-        panda_serials = check_panda_support(panda_serials)
+      if len(panda_serials) == 0:
+        no_internal_panda_count += 1
+        continue
 
-        assert len(panda_serials) == 1
-        cloudlog.info(f"{len(panda_serials)} panda found, connecting - {panda_serials}")
-        flash_panda(panda_serials[0])
+      cloudlog.info(f"{len(panda_serials)} panda(s) found, connecting - {panda_serials}")
 
-        # run real pandad
-        os.environ['MANAGER_DAEMON'] = 'pandad'
-        process = subprocess.Popen(["./pandad"], cwd=os.path.join(BASEDIR, "selfdrive/pandad"))
-        process.wait()
+      # custom flasher for xnor's Rivian Longitudinal Upgrade Kit
+      flash_rivian_long(panda_serials)
+
+      # role-by-type: exclude bridge pandas (e.g. the long-kit black panda) from management
+      panda_serials, excluded_serials = classify_panda_serials(panda_serials)
+      if excluded_serials:
+        cloudlog.info(f"excluding bridge panda(s) from management: {excluded_serials}")
+      if len(panda_serials) == 0:
+        no_internal_panda_count += 1
+        continue
+
+      # Flash pandas
+      pandas: list[Panda] = []
+      for serial in panda_serials:
+        pandas.append(flash_panda(serial))
+
+      # Ensure internal panda is present if expected
+      internal_pandas = [panda for panda in pandas if panda.is_internal()]
+      if HARDWARE.has_internal_panda() and len(internal_pandas) == 0:
+        cloudlog.error("Internal panda is missing, trying again")
+        no_internal_panda_count += 1
+        continue
+      no_internal_panda_count = 0
+
+      # sort pandas to have deterministic order
+      # * the internal one is always first
+      # * then sort by hardware type
+      # * as a last resort, sort by serial number
+      pandas.sort(key=lambda x: (not x.is_internal(), x.get_type(), x.get_usb_serial()))
+      panda_serials = [p.get_usb_serial() for p in pandas]
+
+      # log panda fw versions
+      params.put("PandaSignatures", b','.join(p.get_signature() for p in pandas))
+
+      for panda in pandas:
+        # check health for lost heartbeat
+        health = panda.health()
+        if health["heartbeat_lost"]:
+          params.put_bool("PandaHeartbeatLost", True)
+          cloudlog.event("heartbeat lost", deviceState=health, serial=panda.get_usb_serial())
+        if health["som_reset_triggered"]:
+          params.put_bool("PandaSomResetTriggered", True)
+          cloudlog.event("panda.som_reset_triggered", health=health, serial=panda.get_usb_serial())
+
+        if first_run:
+          # reset panda to ensure we're in a good state
+          cloudlog.info(f"Resetting panda {panda.get_usb_serial()}")
+          panda.reset(reconnect=True)
+
+      for p in pandas:
+        p.close()
     # TODO: wrap all panda exceptions in a base panda exception
     except (usb1.USBErrorNoDevice, usb1.USBErrorPipe):
       # a panda was disconnected while setting everything up. let's try again
       cloudlog.exception("Panda USB exception while setting up")
+      continue
     except PandaProtocolMismatch:
       cloudlog.exception("pandad.protocol_mismatch")
+      continue
     except Exception:
       cloudlog.exception("pandad.uncaught_exception")
+      continue
+
+    first_run = False
+
+    # run pandad with all connected serials as arguments
+    os.environ['MANAGER_DAEMON'] = 'pandad'
+    # let pandad's new-panda watch skip the permanently-present bridge panda(s),
+    # otherwise it would restart-loop trying to "reconnect" to them
+    if excluded_serials:
+      os.environ['PANDAD_IGNORE_SERIALS'] = ','.join(excluded_serials)
+    else:
+      os.environ.pop('PANDAD_IGNORE_SERIALS', None)
+    process = subprocess.Popen(["./pandad", *panda_serials], cwd=os.path.join(BASEDIR, "selfdrive/pandad"))
+    process.wait()
 
 
 if __name__ == "__main__":
