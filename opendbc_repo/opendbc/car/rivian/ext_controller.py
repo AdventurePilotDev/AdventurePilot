@@ -93,7 +93,8 @@ class ExternalController:
     self.angle_offset_deg = 0.0
 
     # cooperative torque
-    self.apply_torque_last = 0
+    self.apply_torque_last = 0   # rate-limiter memory; frozen through a blip
+    self.torque_cmd = 0          # what actually goes on the wire (0 during a blip)
     # decoupled from torque_active so a blip does not flip angle or feature mode
     self.toi_angle_limit_counter = 0
     self.toi_act_cmd = False     # sent into ACM_lkaActToi, low for 2 frames during a blip
@@ -211,6 +212,7 @@ class ExternalController:
   def _update_torque(self, CS, actuators):
     if not self.torque_active:
       self.apply_torque_last = 0
+      self.torque_cmd = 0
       self.toi_act_cmd = False
       self.toi_angle_limit_counter = 0
       return
@@ -225,12 +227,16 @@ class ExternalController:
       cap = int(round(steer_max * HIGH_ANGLE_CAP_FRAC))
       apply_torque = max(-cap, min(cap, apply_torque))
 
-    # blip the TOI request when held at high angle, torque drops to 0 so the rate limiter ramps back from 0
+    # blip the TOI request when held at high angle so the EPAS does not latch ToiFlt.
+    # apply_torque_last is FROZEN through the blip so torque resumes at the pre-blip value
+    # (no assist sawtooth); the panda holds last torque for its rate limit through a
+    # tolerated steer_req cut, so the resume passes safety (dev-shipped behavior).
     self.toi_angle_limit_counter, toi_act = common_fault_avoidance(
       abs(CS.out.steeringAngleDeg) >= TOI_MAX_ANGLE_DEG, self.torque_active,
       self.toi_angle_limit_counter, TOI_MAX_ANGLE_FRAMES, TOI_BLIP_FRAMES)
-    if not toi_act:
-      apply_torque = 0
-
     self.toi_act_cmd = toi_act
-    self.apply_torque_last = apply_torque
+    if toi_act:
+      self.apply_torque_last = apply_torque
+      self.torque_cmd = apply_torque
+    else:
+      self.torque_cmd = 0

@@ -37,9 +37,10 @@ class CarController(CarControllerBase, MadsCarController):
                                       CarControllerParams.STEER_MAX_LOOKUP[1])))
 
     self.erc.update(CS, self.mads.lat_active, actuators)
-    apply_torque = self.erc.apply_torque_last
+    apply_torque = self.erc.torque_cmd
 
     # send steering command; torque is 0 and toi_act_cmd low during a ToiFlt-avoidance blip
+    # (erc freezes its rate-limiter memory through the blip so assist resumes instantly)
     self.apply_torque_last = apply_torque
     can_sends.append(create_lka_steering(self.packer, self.frame, CS.acm_lka_hba_cmd, apply_torque, CC.enabled, self.erc.toi_act_cmd, self.mads))
 

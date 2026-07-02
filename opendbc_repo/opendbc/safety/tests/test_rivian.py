@@ -26,15 +26,20 @@ def checksum(msg):
   return addr, ret, bus
 
 
-class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest, common.DriverTorqueSteeringSafetyTest,
-                           common.LongitudinalAccelSafetyTest):
+class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest, common.SteerRequestCutSafetyTest,
+                           common.LongitudinalAccelSafetyTest, common.VehicleSpeedSafetyTest):
+  """Torque-lateral config (vanilla Rivian-A / longitudinal harness): the angle channel
+  (0x110 stream + 0x100 status spoof) is fully locked without ANGLE_CONTROL."""
 
-  TX_MSGS = [[0x100, 0], [0x110, 0], [0x120, 0], [0x321, 2], [0x162, 2]]
-  RELAY_MALFUNCTION_ADDRS = {0: (0x100, 0x110, 0x120), 2: (0x321, 0x162)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: [0x100, 0x110, 0x120]}
+  TX_MSGS = [[0x120, 0], [0x321, 2], [0x162, 2]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x120,), 2: (0x321, 0x162)}
+  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: [0x120]}
 
-  # Torque limits
-  MAX_TORQUE_LOOKUP = [9, 17], [350, 250]
+  SAFETY_PARAM = 0
+  LONGITUDINAL = False
+
+  # Torque limits (dev tune envelope)
+  MAX_TORQUE_LOOKUP = [9, 25, 27], [385, 295, 275]
   DYNAMIC_MAX_TORQUE = True
   MAX_RATE_UP = 3
   MAX_RATE_DOWN = 5
@@ -42,20 +47,26 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
   DRIVER_TORQUE_ALLOWANCE = 100
   DRIVER_TORQUE_FACTOR = 2
 
-  # Angle limits (VM-based, no simple breakpoint rates)
-  STEER_ANGLE_MAX = 360
-  DEG_TO_CAN = 10
-  ANGLE_RATE_BP = None
-  ANGLE_RATE_UP = None
-  ANGLE_RATE_DOWN = None
-  LATERAL_FREQUENCY = 100
+  # 2-frame TOI blip tolerance
+  MIN_VALID_STEERING_FRAMES = 89
+  MAX_INVALID_STEERING_FRAMES = 2
 
   cnt_speed = 0
   cnt_speed_2 = 0
-  cnt_angle_cmd = 0
 
-  def _get_steer_cmd_angle_max(self, speed):
-    return get_max_angle_vm(max(speed, 1), self.VM, CarControllerParams)
+  @classmethod
+  def setUpClass(cls):
+    if cls.__name__ == "TestRivianSafetyBase":
+      cls.safety = None
+      raise unittest.SkipTest
+    super().setUpClass()
+
+  def setUp(self):
+    self.VM = VehicleModel(get_safety_CP())
+    self.packer = CANPackerSafety("rivian_primary_actuator")
+    self.safety = libsafety_py.libsafety
+    self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, int(self.SAFETY_PARAM))
+    self.safety.init_tests()
 
   def _torque_driver_msg(self, torque):
     values = {"EPAS_TorsionBarTorque": torque / 100.0}
@@ -65,12 +76,13 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
     values = {"ACM_lkaStrToqReq": torque, "ACM_lkaActToi": steer_req}
     return self.packer.make_can_msg_safety("ACM_lkaHbaCmd", 0, values)
 
-  def _angle_cmd_msg(self, angle: float, enabled: bool, increment_timer: bool = True):
+  def _angle_cmd_msg(self, angle: float, enabled: bool, bus: int = 0):
     values = {"ACM_SteeringAngleRequest": angle, "ACM_EacEnabled": enabled}
-    if increment_timer:
-      self.safety.set_timer(self.cnt_angle_cmd * int(1e6 / self.LATERAL_FREQUENCY))
-      self.__class__.cnt_angle_cmd += 1
-    return self.packer.make_can_msg_safety("ACM_SteeringControl", 0, values)
+    return self.packer.make_can_msg_safety("ACM_SteeringControl", bus, values)
+
+  def _acm_status_msg(self, feature_status: int, bus: int = 0):
+    values = {"ACM_FeatureStatus": feature_status}
+    return self.packer.make_can_msg_safety("ACM_Status", bus, values)
 
   def _angle_meas_msg(self, angle: float):
     values = {"EPAS_InternalSas": angle}
@@ -103,6 +115,126 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
   def _accel_msg(self, accel: float):
     values = {"ACM_AccelerationRequest": accel}
     return self.packer.make_can_msg_safety("ACM_longitudinalRequest", 0, values)
+
+  def test_angle_tx_locked_without_flag(self):
+    """Without ANGLE_CONTROL the angle stream and status spoof are rejected regardless of
+    content or controls state — a torque-config truck can never actuate the angle channel."""
+    if int(self.SAFETY_PARAM) & int(RivianSafetyFlags.ANGLE_CONTROL):
+      raise unittest.SkipTest("angle configs allow these by design")
+    for controls_allowed in (True, False):
+      self.safety.set_controls_allowed(controls_allowed)
+      for enabled in (True, False):
+        self.assertFalse(self._tx(self._angle_cmd_msg(0, enabled)))
+      for feature_status in (0, 1, 2):
+        self.assertFalse(self._tx(self._acm_status_msg(feature_status)))
+
+  def test_toi_blip_freeze_resume(self):
+    """The carcontroller freezes its rate-limiter memory through the 2-frame TOI blip and
+    resumes at the pre-blip torque. The panda holds last torque through a tolerated
+    steer_req cut, so the instant resume must pass rate checks (dev-shipped behavior)."""
+    self.safety.init_tests()
+    self.safety.set_timer(self.MIN_VALID_STEERING_RT_INTERVAL)
+    self.safety.set_controls_allowed(True)
+    self._set_prev_torque(self.MAX_TORQUE)
+    for _ in range(self.MIN_VALID_STEERING_FRAMES):
+      self.assertTrue(self._tx(self._torque_cmd_msg(self.MAX_TORQUE, steer_req=1)))
+
+    # blip: torque and TOI drop for the tolerated frames
+    for _ in range(self.MAX_INVALID_STEERING_FRAMES):
+      self.assertTrue(self._tx(self._torque_cmd_msg(0, steer_req=0)))
+
+    # instant resume at the pre-blip value
+    self.assertTrue(self._tx(self._torque_cmd_msg(self.MAX_TORQUE, steer_req=1)))
+
+  def test_rx_hook(self):
+    # checksum, counter, and quality flag checks
+    for quality_flag in (True, False):
+      for msg_type in ("speed", "speed_2"):
+        self.safety.set_controls_allowed(True)
+        # send multiple times to verify counter checks
+        for _ in range(10):
+          if msg_type == "speed":
+            msg = self._speed_msg(0, quality_flag=quality_flag)
+          elif msg_type == "speed_2":
+            msg = self._speed_msg_2(0, quality_flag=quality_flag)
+
+          self.assertEqual(quality_flag, self._rx(msg))
+          self.assertEqual(quality_flag, self.safety.get_controls_allowed())
+
+        # Mess with checksum to make it fail
+        msg[0].data[0] = 0xff
+        self.assertFalse(self._rx(msg))
+        self.assertFalse(self.safety.get_controls_allowed())
+
+  def test_wheel_touch(self):
+    # For hiding hold wheel alert on engage
+    for controls_allowed in (True, False):
+      self.safety.set_controls_allowed(controls_allowed)
+      values = {
+        "SCCM_WheelTouch_HandsOn": 1 if controls_allowed else 0,
+        "SCCM_WheelTouch_CapacitiveValue": 100 if controls_allowed else 0,
+        "SETME_X52": 100,
+      }
+      self.assertTrue(self._tx(self.packer.make_can_msg_safety("SCCM_WheelTouch", 2, values)))
+
+
+class TestRivianStockSafety(TestRivianSafetyBase):
+
+  def test_adas_status(self):
+    # For canceling stock ACC
+    for controls_allowed in (True, False):
+      self.safety.set_controls_allowed(controls_allowed)
+      for interface_status in range(4):
+        values = {"VDM_AdasInterfaceStatus": interface_status}
+        self.assertTrue(self._tx(self.packer.make_can_msg_safety("VDM_AdasSts", 2, values)))
+
+
+class TestRivianLongitudinalSafety(TestRivianSafetyBase):
+
+  TX_MSGS = [[0x120, 0], [0x321, 2], [0x160, 0]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x120, 0x160), 2: (0x321,)}
+  FWD_BLACKLISTED_ADDRS = {0: [0x321], 2: [0x120, 0x160]}
+
+  SAFETY_PARAM = RivianSafetyFlags.LONG_CONTROL
+  LONGITUDINAL = True
+
+
+class TestRivianAngleSafetyBase(TestRivianSafetyBase, common.AngleSteeringSafetyTest):
+  """Angle-harness configs (xnor extreme box / dual-intercept): ANGLE_CONTROL unlocks the
+  0x110 angle stream + 0x100 status spoof on bus 0, bounded by the VM angle checks."""
+
+  TX_MSGS = [[0x100, 0], [0x110, 0], [0x120, 0], [0x321, 2], [0x162, 2]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x100, 0x110, 0x120), 2: (0x321, 0x162)}
+  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: [0x100, 0x110, 0x120]}
+
+  SAFETY_PARAM = RivianSafetyFlags.ANGLE_CONTROL
+
+  # Angle limits (VM-based, no simple breakpoint rates)
+  STEER_ANGLE_MAX = 500
+  DEG_TO_CAN = 10
+  ANGLE_RATE_BP = None
+  ANGLE_RATE_UP = None
+  ANGLE_RATE_DOWN = None
+  LATERAL_FREQUENCY = 100
+
+  cnt_angle_cmd = 0
+
+  @classmethod
+  def setUpClass(cls):
+    if cls.__name__ == "TestRivianAngleSafetyBase":
+      cls.safety = None
+      raise unittest.SkipTest
+    super().setUpClass()
+
+  def _angle_cmd_msg(self, angle: float, enabled: bool, bus: int = 0, increment_timer: bool = True):
+    if increment_timer:
+      self.safety.set_timer(self.cnt_angle_cmd * int(1e6 / self.LATERAL_FREQUENCY))
+      self.__class__.cnt_angle_cmd += 1
+    values = {"ACM_SteeringAngleRequest": angle, "ACM_EacEnabled": enabled}
+    return self.packer.make_can_msg_safety("ACM_SteeringControl", bus, values)
+
+  def _get_steer_cmd_angle_max(self, speed):
+    return get_max_angle_vm(max(speed, 1), self.VM, CarControllerParams)
 
   def test_angle_cmd_when_enabled(self):
     # VM-based limits tested in test_lateral_accel_limit and test_lateral_jerk_limit
@@ -166,48 +298,15 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
         self.assertFalse(self._tx(self._angle_cmd_msg(0, True)))
         self.assertTrue(self._tx(self._angle_cmd_msg(0, True)))
 
-  def test_wheel_touch(self):
-    # For hiding hold wheel alert on engage
-    for controls_allowed in (True, False):
-      self.safety.set_controls_allowed(controls_allowed)
-      values = {
-        "SCCM_WheelTouch_HandsOn": 1 if controls_allowed else 0,
-        "SCCM_WheelTouch_CapacitiveValue": 100 if controls_allowed else 0,
-        "SETME_X52": 100,
-      }
-      self.assertTrue(self._tx(self.packer.make_can_msg_safety("SCCM_WheelTouch", 2, values)))
-
-  def test_rx_hook(self):
-    # checksum, counter, and quality flag checks
-    for quality_flag in (True, False):
-      for msg_type in ("speed", "speed_2"):
-        self.safety.set_controls_allowed(True)
-        # send multiple times to verify counter checks
-        for _ in range(10):
-          if msg_type == "speed":
-            msg = self._speed_msg(0, quality_flag=quality_flag)
-          elif msg_type == "speed_2":
-            msg = self._speed_msg_2(0, quality_flag=quality_flag)
-
-          self.assertEqual(quality_flag, self._rx(msg))
-          self.assertEqual(quality_flag, self.safety.get_controls_allowed())
-
-        # Mess with checksum to make it fail
-        msg[0].data[0] = 0xff
-        self.assertFalse(self._rx(msg))
-        self.assertFalse(self.safety.get_controls_allowed())
+  def test_angle_tx_bus_restriction(self):
+    """Even with ANGLE_CONTROL, 0x110/0x100 must never TX on bus 2, where the stock
+    0x100 is RX'd as the cruise-state source (the spoof can't masquerade as it)."""
+    self.safety.set_controls_allowed(True)
+    self.assertFalse(self._tx(self._angle_cmd_msg(0, True, bus=2, increment_timer=False)))
+    self.assertFalse(self._tx(self._acm_status_msg(2, bus=2)))
 
 
-class TestRivianStockSafety(TestRivianSafetyBase):
-
-  LONGITUDINAL = False
-
-  def setUp(self):
-    self.VM = VehicleModel(get_safety_CP())
-    self.packer = CANPackerSafety("rivian_primary_actuator")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, 0)
-    self.safety.init_tests()
+class TestRivianAngleSafety(TestRivianAngleSafetyBase):
 
   def test_adas_status(self):
     # For canceling stock ACC
@@ -218,18 +317,74 @@ class TestRivianStockSafety(TestRivianSafetyBase):
         self.assertTrue(self._tx(self.packer.make_can_msg_safety("VDM_AdasSts", 2, values)))
 
 
-class TestRivianLongitudinalSafety(TestRivianSafetyBase):
+class TestRivianAngleLongitudinalSafety(TestRivianAngleSafetyBase):
 
   TX_MSGS = [[0x100, 0], [0x110, 0], [0x120, 0], [0x321, 2], [0x160, 0]]
   RELAY_MALFUNCTION_ADDRS = {0: (0x100, 0x110, 0x120, 0x160), 2: (0x321,)}
   FWD_BLACKLISTED_ADDRS = {0: [0x321], 2: [0x100, 0x110, 0x120, 0x160]}
 
+  SAFETY_PARAM = RivianSafetyFlags.ANGLE_CONTROL | RivianSafetyFlags.LONG_CONTROL
+  LONGITUDINAL = True
+
+
+class TestRivianSecondaryTx(unittest.TestCase):
+  """Ext intercept panda (dual-intercept harness): minimal 0x110/0x100 mirror filter.
+  The int panda is the safety gatekeeper (EPAS 2-of-2 voting); the ext panda must stay
+  frame-identical to it, so it runs no per-panda-state checks that could desynchronize."""
+
   def setUp(self):
-    self.VM = VehicleModel(get_safety_CP())
     self.packer = CANPackerSafety("rivian_primary_actuator")
     self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, RivianSafetyFlags.LONG_CONTROL)
+    self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, int(RivianSafetyFlags.SECONDARY_TX))
     self.safety.init_tests()
+    self.cnt = 0
+
+  def _tx(self, msg):
+    return self.safety.safety_tx_hook(msg)
+
+  def _angle_cmd(self, angle, enabled, step_timer=True):
+    if step_timer:
+      self.safety.set_timer(self.cnt * 10000)  # 100 Hz cadence, usec
+      self.cnt += 1
+    values = {"ACM_SteeringAngleRequest": angle, "ACM_EacEnabled": enabled}
+    return self.packer.make_can_msg_safety("ACM_SteeringControl", 0, values)
+
+  def _acm_status(self, feature_status):
+    return self.packer.make_can_msg_safety("ACM_Status", 0, {"ACM_FeatureStatus": feature_status})
+
+  def test_mirror_allowlist(self):
+    # only the angle stream + status mirror pass; every other TX is rejected,
+    # regardless of controls state (the int panda gates engagement)
+    for controls_allowed in (True, False):
+      self.safety.set_controls_allowed(controls_allowed)
+      self.assertTrue(self._tx(self._angle_cmd(0, True)))
+      self.assertTrue(self._tx(self._acm_status(2)))
+      self.assertFalse(self._tx(self.packer.make_can_msg_safety("ACM_lkaHbaCmd", 0, {"ACM_lkaStrToqReq": 0})))
+      self.assertFalse(self._tx(self.packer.make_can_msg_safety("ACM_longitudinalRequest", 0, {"ACM_AccelerationRequest": 0})))
+      self.assertFalse(self._tx(self.packer.make_can_msg_safety("SCCM_WheelTouch", 2, {"SETME_X52": 100})))
+      self.assertFalse(self._tx(self.packer.make_can_msg_safety("VDM_AdasSts", 2, {"VDM_AdasInterfaceStatus": 1})))
+
+  def test_out_of_range_bound(self):
+    # the mirror runs only a max-angle sanity bound: large frame-to-frame jumps within
+    # +/-500 deg pass (no per-panda rate state), beyond the bound is rejected
+    for angle, should_tx in ((0, True), (499.9, True), (-499.9, True), (520, False), (-520, False)):
+      self.assertEqual(should_tx, self._tx(self._angle_cmd(angle, True)), f"angle {angle}")
+
+  def test_inactive_not_rate_capped(self):
+    # an EacEnabled=0 flood must pass: the int panda's rate cap lives inside the active
+    # branch, so capping inactive frames here would diverge the two mirrored streams
+    self.safety.init_tests()
+    self.safety.set_timer(0)
+    for _ in range(100):
+      self.assertTrue(self._tx(self._angle_cmd(0, False, step_timer=False)))
+
+  def test_active_rt_frequency_cap(self):
+    # active frames flooded at one timestamp blow the frequency budget and get rejected
+    self.safety.init_tests()
+    self.safety.set_timer(0)
+    results = [self._tx(self._angle_cmd(0, True, step_timer=False)) for _ in range(100)]
+    self.assertTrue(results[0])
+    self.assertFalse(results[-1])
 
 
 class TestRivianIgnition(unittest.TestCase):
