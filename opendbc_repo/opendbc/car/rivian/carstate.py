@@ -18,6 +18,9 @@ class CarState(CarStateBase, CarStateExt):
     self.acm_lka_hba_cmd: dict | None = None
     self.sccm_wheel_touch: dict | None = None
     self.vdm_adas_status: list[dict] | None = None
+    self.hands_on_level = 0
+    self.eac_status = 0
+    self.eac_error_code = 0
 
   def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
     cp = can_parsers[Bus.pt]
@@ -48,6 +51,16 @@ class CarState(CarStateBase, CarStateExt):
     # EPAS_HandsOnLevel: 1 = normal/hands-on; any other value is a car-reported hands-off fault
     hands_on_level = cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"]
     ret.steerFaultTemporary = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiFlt"] != 0 or hands_on_level != 1
+
+    if self.CP.flags & RivianFlags.ANGLE_HARNESS:
+      # angle-harness EAC fault semantics (xnor rx-dev): the stock ACM shows EAC errors while
+      # inactive, so only fault while the EAC is actively steering. Gated on the harness flag
+      # pending validation that stock trucks never report EacStatus 4 / error 12.
+      eac_status = cp.vl["EPAS_AdasStatus"]["EPAS_EacStatus"]
+      ret.steerFaultPermanent = eac_status == 4
+      ret.steerFaultTemporary = eac_status == 2 and cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"] != 0
+      # EPAS reports a dedicated error when the driver overrides the angle steering request
+      ret.steeringDisengage = eac_status == 2 and cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"] == 12  # EPAS_Hands_On_Detn_Err
 
     # Cruise state
     speed = min(int(cp_adas.vl["ACM_tsrCmd"]["ACM_tsrSpdDisClsMain"]), 85)
@@ -100,6 +113,9 @@ class CarState(CarStateBase, CarStateExt):
     # This message can lag and send two messages at once, make sure we forward all of them
     adas_status_msgs = cp.vl_all["VDM_AdasSts"]
     self.vdm_adas_status = [dict(zip(adas_status_msgs, vals, strict=True)) for vals in zip(*adas_status_msgs.values(), strict=True)]
+    self.eac_error_code = int(cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"])
+    self.eac_status = int(cp.vl["EPAS_AdasStatus"]["EPAS_EacStatus"])
+    self.hands_on_level = int(cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"])
 
     CarStateExt.update(self, ret, can_parsers)
 
