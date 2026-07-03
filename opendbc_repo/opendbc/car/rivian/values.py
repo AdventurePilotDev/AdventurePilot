@@ -42,10 +42,16 @@ class RivianPlatformConfig(PlatformConfig):
 
 class RivianFlags(IntFlag):
   GEN2 = 1
+  # angle-capable lateral hardware present (xnor extreme box 0x1310, or dual-intercept ext panda)
+  ANGLE_HARNESS = 2
 
 
 class RivianSafetyFlags(IntFlag):
   LONG_CONTROL = 1
+  # ext intercept panda: only allow 0x110 angle + 0x100 ACM_Status TX (dual-intercept mirror)
+  SECONDARY_TX = 2
+  # unlock the angle channel on the primary panda (0x110/0x100 TX + VM angle checks)
+  ANGLE_CONTROL = 4
 
 
 class CAR(Platforms):

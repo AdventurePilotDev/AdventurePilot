@@ -32,6 +32,7 @@ class CarStateExt:
     self.decrease_counter = 0
     self.vdm_user_adas_request = 0
     self._lkas_pending = False
+    # lazy openpilot imports: opendbc must stay importable standalone (safety test suite)
     from openpilot.common.params import Params
     from openpilot.sunnypilot.mads.helpers import read_steering_mode_param
     self.steering_mode_on_brake = read_steering_mode_param(CP, CP_SP, Params())
@@ -46,7 +47,6 @@ class CarStateExt:
     self._frames_since_acc_on: int = 0
 
   def update_stalk_controls(self, ret: structs.CarState, can_parsers: dict[StrEnum, CANParser]) -> list:
-    from openpilot.sunnypilot.mads.helpers import MadsSteeringModeOnBrake
     cp = can_parsers[Bus.pt]
     vdm = int(cp.vl["VDM_AdasSts"]["VDM_UserAdasRequest"])
 
@@ -64,6 +64,7 @@ class CarStateExt:
     # In DISENGAGE mode with ACC active, suppress: UP_1 cancels Rivian ACC natively
     # and pcmDisable is stripped by mads.update_events(), leaving MADS in Mode B.
     # Generating lkas here would also fire manualSteeringRequired and kill MADS.
+    from openpilot.sunnypilot.mads.helpers import MadsSteeringModeOnBrake
     if vdm == 1 and self.vdm_user_adas_request not in (1, 2):
       if not (self.steering_mode_on_brake == MadsSteeringModeOnBrake.DISENGAGE and ret.cruiseState.enabled):
         self._lkas_pending = True

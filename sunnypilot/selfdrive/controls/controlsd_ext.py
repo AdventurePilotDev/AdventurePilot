@@ -47,29 +47,6 @@ class ControlsExt(ModelStateBase):
     else:
       return lac
 
-  def initialize_secondary_lateral_control(self, CI, dt) -> None:
-    # opt-in: a CarInterface may define build_secondary_lateral_controller (Rivian angle mode runs a
-    # cooperative torque controller alongside the primary angle controller). None otherwise.
-    builder = getattr(CI, 'build_secondary_lateral_controller', None)
-    self.LaC_secondary = builder(self.CP_SP, dt) if builder is not None else None
-
-  def update_secondary_lateral_control(self, CC, actuators, lp, lat_delay, curvature_limited) -> None:
-    if getattr(self, 'LaC_secondary', None) is None:
-      return
-    sm = self.sm
-    if sm.all_checks(['liveTorqueParameters']) and sm['liveTorqueParameters'].useParams:
-      ltp = sm['liveTorqueParameters']
-      self.LaC_secondary.update_live_torque_params(ltp.latAccelFactorFiltered,
-                                                   ltp.latAccelOffsetFiltered,
-                                                   ltp.frictionCoefficientFiltered)
-    if not CC.latActive:
-      self.LaC_secondary.reset()
-      return
-    steer, _, _ = self.LaC_secondary.update(CC.latActive, sm['carState'], self.VM, lp,
-                                            self.steer_limited_by_safety, self.desired_curvature,
-                                            self.calibrated_pose, curvature_limited, lat_delay)
-    actuators.torque = float(steer)
-
   def get_params_sp(self, sm: messaging.SubMaster) -> None:
     if time.monotonic() - self._param_update_time > PARAMS_UPDATE_PERIOD:
       self.blinker_pause_lateral.get_params()

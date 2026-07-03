@@ -12,11 +12,6 @@ class CarInterface(CarInterfaceBase):
   CarController = CarController
   RadarInterface = RadarInterface
 
-  def build_secondary_lateral_controller(self, CP_SP, dt):
-    # cooperative torque alongside the primary angle path (handoff / driver override)
-    from opendbc.car.rivian.ext_controller import build_torque_controller
-    return build_torque_controller(self.CP, CP_SP, self, dt)
-
   @staticmethod
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
     ret.brand = "rivian"
@@ -27,16 +22,24 @@ class CarInterface(CarInterfaceBase):
     if 0x321 not in fingerprint[0]:
       ret.flags |= RivianFlags.GEN2.value
 
-    # no angle upgrade installed
-    if 0x1310 not in fingerprint[1]:
+    # this branch requires the xnor extreme angle harness (announces 0x1310 on bus 1)
+    if 0x1310 in fingerprint[1]:
+      ret.flags |= RivianFlags.ANGLE_HARNESS.value
+    else:
       ret.dashcamOnly = True
 
-    ret.steerActuatorDelay = 0.3
-    ret.lateralSmoothSeconds = 0.4  # speed-scheduled lateral curvature low-pass (delay-compensated in modeld); off by 8 m/s
+    ret.steerActuatorDelay = 0.15
+    # angle control can hold the wheel at standstill; lateral is gated to drive gear in mads.py
     ret.steerAtStandstill = True
+    # speed-scheduled lateral curvature low-pass (delay-compensated in modeld); damps the
+    # angle plant's crawl-speed limit cycle, off by 8 m/s
+    ret.lateralSmoothSeconds = 0.4
     ret.steerLimitTimer = 0.4
+    CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 
-    ret.steerControlType = structs.CarParams.SteerControlType.angle
+    # torque is the primary channel (xnor inversion): ext_controller derives the angle
+    # from curvature and cooperative torque covers override/handoff
+    ret.steerControlType = structs.CarParams.SteerControlType.torque
     ret.radarUnavailable = True
 
     # TODO: pending finding/handling missing set speed
@@ -45,8 +48,9 @@ class CarInterface(CarInterfaceBase):
       ret.openpilotLongitudinalControl = True
       ret.safetyConfigs[0].safetyParam |= RivianSafetyFlags.LONG_CONTROL.value
 
-    # Long tuning: cmd->aEgo lag ~0.25s (route 00000028) -> 0.2 actuator delay tightens anticipation
-    # vs xnor's conservative 0.5, for AP's responsive feel.
+    # Measured command->aEgo lag ~0.25s (route 00000028, xcorr); was 0.1 = under-modeled, so the
+    # planner under-anticipates the VDM. 0.2 tightens anticipation (smoother) while staying well under
+    # xnor's conservative 0.5 to keep AP's responsive feel. Fall back to 0.15 if it feels laggy on lead-brake.
     ret.longitudinalActuatorDelay = 0.2
     ret.vEgoStopping = 0.25
     ret.stopAccel = -0.2

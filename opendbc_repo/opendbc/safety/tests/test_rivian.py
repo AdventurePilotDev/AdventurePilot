@@ -29,7 +29,7 @@ def checksum(msg):
 
 
 class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest, common.DriverTorqueSteeringSafetyTest,
-                           common.LongitudinalAccelSafetyTest):
+                           common.SteerRequestCutSafetyTest, common.LongitudinalAccelSafetyTest):
 
   TX_MSGS = [[0x100, 0], [0x110, 0], [0x120, 0], [0x321, 2], [0x162, 2]]
   RELAY_MALFUNCTION_ADDRS = {0: (0x100, 0x110, 0x120), 2: (0x321, 0x162)}
@@ -177,6 +177,24 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
         self.assertTrue(self._tx(self._angle_cmd_msg(self._can_to_deg(above_can) * sign, True)))
         self.assertFalse(self._tx(self._angle_cmd_msg(0, True)))
         self.assertTrue(self._tx(self._angle_cmd_msg(0, True)))
+
+  def test_toi_blip_freeze_resume(self):
+    """The carcontroller freezes its rate-limiter memory through the 2-frame TOI blip and
+    resumes at the pre-blip torque. The panda holds last torque through a tolerated
+    steer_req cut, so the instant resume must pass rate checks."""
+    self.safety.init_tests()
+    self.safety.set_timer(self.MIN_VALID_STEERING_RT_INTERVAL)
+    self.safety.set_controls_allowed(True)
+    self._set_prev_torque(self.MAX_TORQUE)
+    for _ in range(self.MIN_VALID_STEERING_FRAMES):
+      self.assertTrue(self._tx(self._torque_cmd_msg(self.MAX_TORQUE, steer_req=1)))
+
+    # blip: torque and TOI drop for the tolerated frames
+    for _ in range(self.MAX_INVALID_STEERING_FRAMES):
+      self.assertTrue(self._tx(self._torque_cmd_msg(0, steer_req=0)))
+
+    # instant resume at the pre-blip value
+    self.assertTrue(self._tx(self._torque_cmd_msg(self.MAX_TORQUE, steer_req=1)))
 
   def test_wheel_touch(self):
     # For hiding hold wheel alert on engage

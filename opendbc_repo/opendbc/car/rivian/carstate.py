@@ -52,12 +52,15 @@ class CarState(CarStateBase, CarStateExt):
     hands_on_level = cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"]
     ret.steerFaultTemporary = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiFlt"] != 0 or hands_on_level != 1
 
-    eac_status = cp.vl["EPAS_AdasStatus"]["EPAS_EacStatus"]
-    ret.steerFaultPermanent = eac_status == 4
-    # stock ACM shows EAC errors when inactive, only fault when EAC is active
-    ret.steerFaultTemporary = eac_status == 2 and ret.steerFaultTemporary
-    # EPAS reports a dedicated error when the driver overrides the angle steering request
-    ret.steeringDisengage = eac_status == 2 and cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"] == 12  # EPAS_Hands_On_Detn_Err
+    if self.CP.flags & RivianFlags.ANGLE_HARNESS:
+      # angle-harness EAC fault semantics (xnor rx-dev): the stock ACM shows EAC errors while
+      # inactive, so only fault while the EAC is actively steering. Gated on the harness flag
+      # pending validation that stock trucks never report EacStatus 4 / error 12.
+      eac_status = cp.vl["EPAS_AdasStatus"]["EPAS_EacStatus"]
+      ret.steerFaultPermanent = eac_status == 4
+      ret.steerFaultTemporary = eac_status == 2 and cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"] != 0
+      # EPAS reports a dedicated error when the driver overrides the angle steering request
+      ret.steeringDisengage = eac_status == 2 and cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"] == 12  # EPAS_Hands_On_Detn_Err
 
     # Cruise state
     speed = min(int(cp_adas.vl["ACM_tsrCmd"]["ACM_tsrSpdDisClsMain"]), 85)

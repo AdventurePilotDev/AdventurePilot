@@ -23,6 +23,8 @@ def create_lka_steering(packer, frame, acm_lka_hba_cmd, apply_torque, enabled, a
   values |= {
     "ACM_lkaHbaCmd_Counter": frame % 15,
     "ACM_lkaStrToqReq": apply_torque,
+    # TOI request from ext_controller: high only in cooperative-torque mode, blipped
+    # low at high angle so the EPAS does not latch ToiFlt
     "ACM_lkaActToi": active,
 
     "ACM_lkaLaneRecogState": 3 if mads.lka_icon_states else 0,
@@ -43,7 +45,7 @@ def create_lka_steering(packer, frame, acm_lka_hba_cmd, apply_torque, enabled, a
   return packer.make_can_msg("ACM_lkaHbaCmd", 0, values)
 
 
-def create_angle_steering(packer, frame, angle, active):
+def create_angle_steering(packer, frame, angle, active, bus=0):
   values = {
     "ACM_SteeringControl_Counter": frame % 15,
     "ACM_SteeringAngleRequest": angle,
@@ -51,11 +53,12 @@ def create_angle_steering(packer, frame, angle, active):
     "ACM_HapticRequired": 0
   }
 
-  data = packer.make_can_msg("ACM_SteeringControl", 0, values)[1]
+  data = packer.make_can_msg("ACM_SteeringControl", bus, values)[1]
   values["ACM_SteeringControl_Checksum"] = checksum(data[1:], 0x1D, 0x41)
-  return packer.make_can_msg("ACM_SteeringControl", 0, values)
+  return packer.make_can_msg("ACM_SteeringControl", bus, values)
 
-def create_acm_status(packer, frame, feature_status):
+
+def create_acm_status(packer, frame, feature_status, bus=0):
   values = {
     "ACM_Status_Counter": frame % 15,
     "ACM_FeatureStatus": feature_status,
@@ -64,9 +67,9 @@ def create_acm_status(packer, frame, feature_status):
     "ACM_Unkown1": 0,
   }
 
-  data = packer.make_can_msg("ACM_Status", 0, values)[1]
+  data = packer.make_can_msg("ACM_Status", bus, values)[1]
   values["ACM_Status_Checksum"] = checksum(data[1:], 0x1D, 0x5F)
-  return packer.make_can_msg("ACM_Status", 0, values)
+  return packer.make_can_msg("ACM_Status", bus, values)
 
 
 def create_wheel_touch(packer, sccm_wheel_touch, enabled):

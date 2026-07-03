@@ -1,13 +1,12 @@
 import math
 from collections import deque
-from types import SimpleNamespace
 import numpy as np
 
 from opendbc.car.lateral import (
-  apply_driver_steer_torque_limits,
+  apply_driver_steer_torque_limits, common_fault_avoidance,
   apply_steer_angle_limits_vm, get_max_angle_delta_vm,
 )
-from opendbc.car.rivian.values import CarControllerParams as CCP
+from opendbc.car.rivian.values import CarControllerParams as CCP, RivianFlags
 from opendbc.car.vehicle_model import VehicleModel
 
 # EPAS angle envelope (EPAS_High_Angle_Cmd_Err)
@@ -25,69 +24,19 @@ EPAS_FW_RATE_MARGIN  = 0.94
 PANDA_STEP_MARGIN = 0.9
 
 MIN_TORQUE_FRAMES = 50
-UNWIND_HANDOFF_DEG = 15.0   # stay in torque until |target - actual| < this when unwinding
-UNWIND_HANDOFF_RATE = 40.0  # don't hand off torque->angle while the wheel is slewing faster (deg/s)
+HANDOFF_EXIT_DEG = 15.0      # hand back to angle when the wheel is within this of the commanded angle
+UNWIND_HANDOFF_RATE = 40.0  # max wheel speed in deg/s to hand back to angle
+EAC_RECOVER_FRAMES = 15     # angle frames with the EPAS EAC not active before falling back to torque (~0.15s, normal activation is under 0.05s)
 
-# torque tuning defaults; LatControlTorque.update_live_torque_params overwrites these from torqued
-TORQUE_PARAMS_DEFAULTS = dict(latAccelFactor=2.8, latAccelOffset=0.0, friction=0.07, steeringAngleDeadzoneDeg=0.0)
+# blip the TOI request bit at high angle so the EPAS does not latch ToiFlt
+TOI_MAX_ANGLE_DEG = 90
+TOI_MAX_ANGLE_FRAMES = 89        # frames held high before a blip (~0.9s)
+TOI_BLIP_FRAMES = 2              # frames to release ACM_lkaActToi
 
-
-def build_torque_controller(CP, CP_SP, CI, dt):
-  """Build the cooperative LatControlTorque for cars whose CP.lateralTuning isn't 'torque'."""
-  from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
-
-  class CooperativeTorque(LatControlTorque):
-    # only applied during override or the hands-off torque->angle handoff. while angle control steers, this
-    # output is discarded: it runs open-loop and the integrator rails (error never unwinds). reset it until
-    # needed so it stays sane and enters each use clean.
-    def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, calibrated_pose, curvature_limited, lat_delay):
-      if active and not CS.steeringPressed:
-        angle = math.degrees(VM.get_steer_from_curvature(-desired_curvature, CS.vEgo, params.roll)) + params.angleOffsetDeg
-        if abs(angle - CS.steeringAngleDeg) < 6.:  # deg; angle control is handling it
-          self.reset()
-          self.pid.reset()
-          return 0., 0., None
-      return super().update(active, CS, VM, params, steer_limited_by_safety, desired_curvature, calibrated_pose, curvature_limited, lat_delay)
-
-  if CP.lateralTuning.which() == 'torque':
-    return CooperativeTorque(CP, CP_SP, CI, dt)
-  return CooperativeTorque(_with_torque_tuning(CP), CP_SP, CI, dt)
-
-
-def _with_torque_tuning(CP):
-  # wrap CP so .lateralTuning.torque exists with the default tuning
-  torque = SimpleNamespace(**TORQUE_PARAMS_DEFAULTS)
-  torque.as_builder = lambda: torque
-  fake_lateral = SimpleNamespace(torque=torque, which=lambda: 'torque')
-
-  class _CPWrap:
-    lateralTuning = fake_lateral
-    def __getattr__(self, name):
-      return getattr(CP, name)
-  return _CPWrap()
-
-
-class TorsionDetector:
-  # debounced torsion-bar input; accumulates faster the harder the driver pushes
-  def __init__(self, torque_threshold: float, min_count: int):
-    self.torque_threshold = torque_threshold
-    self.min_count = min_count
-    self.cnt = 0
-    self.sign = 0
-
-  def update(self, torque: float) -> bool:
-    abs_torque = abs(torque)
-    pressed = abs_torque > self.torque_threshold
-    sign = int(np.sign(torque))
-    # reset on sign flip, opposing torque applications shouldn't accumulate
-    if pressed and self.sign and sign != self.sign:
-      self.cnt = 0
-    else:
-      self.cnt += max(1, math.ceil(abs_torque / self.torque_threshold)) if pressed else -1
-      self.cnt = int(np.clip(self.cnt, 0, self.min_count * 2 + 1))
-    if pressed:
-      self.sign = sign
-    return self.cnt > self.min_count
+# Above this wheel angle the rack is saturated >75% of the time (route data); cap output so the
+# controller can recover from saturation faster when geometry eases
+HIGH_ANGLE_THRESHOLD_DEG = 90
+HIGH_ANGLE_CAP_FRAC = 0.95
 
 
 class _RateBudget:
@@ -113,34 +62,48 @@ def get_safety_CP():
 
 
 class ExternalController:
-  def __init__(self, CP, CP_SP):
+  def __init__(self, CP):
     self.CP = CP
     self.steer_ratio = CP.steerRatio
     self.wheelbase = CP.wheelbase
     self.VM = VehicleModel(get_safety_CP())
+    # without angle hardware this collapses to a plain torque controller: torque_active
+    # is pinned while lateral is active and the angle channel never engages
+    self.angle_supported = bool(CP.flags & RivianFlags.ANGLE_HARNESS)
+    self.gen2 = bool(CP.flags & RivianFlags.GEN2)
 
     # hands-on
     self.wheel_touch_cnt = 0
-    self.torsion = TorsionDetector(4.0, 9)
+    self.torsion_cnt = 0
+    self.torsion_sign = 0
     self.hands_on = False
 
     # cooperative torque mode
     self.torque_active = False
     self.torque_active_frames = 0
     self.lat_active_last = False
+    self.eac_dead_frames = 0
 
     # angle command
     self.apply_angle_last = 0.0
     self.angle_active = False
     self.rate_budget = _RateBudget()
+    # liveParameters, pushed in from card each frame
+    self.roll = 0.0
+    self.angle_offset_deg = 0.0
 
-    # cooperative torque (from controlsd's LatControlTorque via actuators.torque)
-    self.apply_torque_last = 0
+    # cooperative torque
+    self.apply_torque_last = 0   # rate-limiter memory; frozen through a blip
+    self.torque_cmd = 0          # what actually goes on the wire (0 during a blip)
+    # decoupled from torque_active so a blip does not flip angle or feature mode
+    self.toi_angle_limit_counter = 0
+    self.toi_act_cmd = False     # sent into ACM_lkaActToi, low for 2 frames during a blip
 
   def update(self, CS, lat_active: bool, actuators):
     self._update_hands_on(CS)
-    self._update_torque_active(CS, lat_active, actuators)
-    self._update_angle(CS, lat_active, actuators)
+    desired_angle = math.degrees(self.VM.get_steer_from_curvature(-float(actuators.curvature), CS.out.vEgo, self.roll)) + self.angle_offset_deg
+    self._update_torque_active(CS, lat_active, desired_angle)
+    self._update_angle(CS, lat_active, desired_angle)
     self._update_torque(CS, actuators)
 
   def _update_wheel_touched(self, wheel_touched, wheel_touched_min_count):
@@ -148,47 +111,81 @@ class ExternalController:
     self.wheel_touch_cnt = int(np.clip(self.wheel_touch_cnt, 0, wheel_touched_min_count * 2 + 1))
     return self.wheel_touch_cnt > wheel_touched_min_count
 
+  def _update_torsion(self, torque, torque_threshold, torsion_min_count):
+    abs_torque = abs(torque)
+    pressed = abs_torque > torque_threshold
+    sign = int(np.sign(torque))
+    # reset on sign flip, opposing torque applications shouldn't accumulate
+    if pressed and self.torsion_sign and sign != self.torsion_sign:
+      self.torsion_cnt = 0
+    else:
+      self.torsion_cnt += max(1, math.ceil(abs_torque / torque_threshold)) if pressed else -1
+      self.torsion_cnt = int(np.clip(self.torsion_cnt, 0, torsion_min_count * 2 + 1))
+    if pressed:
+      self.torsion_sign = sign
+    return self.torsion_cnt > torsion_min_count
+
   def _update_hands_on(self, CS):
     # hands-on if any of: capacitive sensor, EPAS-side level, or torsion bar
-    calibration = CS.sccm_wheel_touch["SETME_X52"]
-    wheel_touch = self._update_wheel_touched(CS.sccm_wheel_touch["SCCM_WheelTouch_CapacitiveValue"] > calibration * 0.9, 25)
-    torsion = self.torsion.update(CS.out.steeringTorque)
+    # GEN2 (2025+) has no SCCM_WheelTouch on the bus (carstate leaves it None)
+    if not self.gen2 and CS.sccm_wheel_touch is not None:
+      calibration = CS.sccm_wheel_touch["SETME_X52"]
+      wheel_touch = self._update_wheel_touched(CS.sccm_wheel_touch["SCCM_WheelTouch_CapacitiveValue"] > calibration * 0.9, 25)
+    else:
+      wheel_touch = False
+    torsion = self._update_torsion(CS.out.steeringTorque, 4.0, 9)
     self.hands_on = wheel_touch or torsion or CS.hands_on_level > 1
 
-  def _update_torque_active(self, CS, lat_active: bool, actuators):
+  def _update_torque_active(self, CS, lat_active: bool, desired_angle: float):
     self.torque_active_frames = self.torque_active_frames + 1 if self.torque_active else 0
+
+    # torque-only hardware: torque is the only lateral channel, never hand off to angle
+    if not self.angle_supported:
+      self.torque_active = lat_active
+      self.lat_active_last = lat_active
+      return
 
     # EPAS available and no published EacErrorCode
     epas_ready = CS.eac_status == 1 and CS.eac_error_code == 0
+    # is the EPAS actually steering on angle
+    eac_active = CS.eac_status == 2
+    # how far the wheel is from the angle openpilot wants
+    gap = abs(desired_angle - CS.out.steeringAngleDeg)
 
     if not lat_active:
       self.torque_active = False
-    # driver override -> cooperative torque (forced on, matches xnor rx; no disengage-on-torque toggle)
+    # enter torque the moment the driver touches the wheel, which is when the EPAS drops angle control
     elif self.hands_on and CS.out.steeringPressed:
       self.torque_active = True
-    # fresh re-engage while EPAS isn't ready
+    # EPAS lost angle and won't recover, torque re-arms it
+    elif self.eac_dead_frames >= EAC_RECOVER_FRAMES:
+      self.torque_active = True
+    # fresh engage while EPAS is not ready yet
     elif not self.lat_active_last and not epas_ready:
       self.torque_active = True
-
-    # exit torque only when wheel is settled; on unwind also wait for the gap to shrink first
+    # hand back to angle once hands off and the wheel is settled near the commanded angle
     elif self.torque_active and self.torque_active_frames >= MIN_TORQUE_FRAMES and not self.hands_on and epas_ready:
       fw_max = float(np.interp(CS.out.vEgoRaw, EPAS_FW_MAX_ANGLE_BP, EPAS_FW_MAX_ANGLE_V)) * EPAS_FW_ANGLE_MARGIN
       in_envelope = abs(CS.out.steeringAngleDeg) < fw_max
-      # hand back to angle only once the wheel's recent motion fits the EPAS 0.16s rate budget
+      # only once the wheel motion fits the EPAS rate budget
       thr_dps = float(np.interp(CS.out.vEgoRaw, EPAS_FW_RATE_BP, EPAS_FW_RATE_V)) * 100.0
       lo, hi = self.rate_budget.bounds(thr_dps, EPAS_FW_RATE_MARGIN)
       rate_settled = lo <= CS.out.steeringAngleDeg <= hi and abs(CS.out.steeringRateDeg) < UNWIND_HANDOFF_RATE
-      unwinding = abs(actuators.steeringAngleDeg) < abs(CS.out.steeringAngleDeg)
-      gap = abs(actuators.steeringAngleDeg - CS.out.steeringAngleDeg)
-      if in_envelope and rate_settled and (not unwinding or gap < UNWIND_HANDOFF_DEG):
+      if in_envelope and rate_settled and gap < HANDOFF_EXIT_DEG:
         self.torque_active = False
+
+    # count consecutive frames we are trying to steer on angle but the EPAS EAC is not active
+    if lat_active and not self.torque_active and not eac_active:
+      self.eac_dead_frames += 1
+    else:
+      self.eac_dead_frames = 0
 
     self.lat_active_last = lat_active
 
-  def _update_angle(self, CS, lat_active: bool, actuators):
+  def _update_angle(self, CS, lat_active: bool, desired_angle: float):
     self.angle_active = lat_active and not self.torque_active
 
-    apply_angle = actuators.steeringAngleDeg
+    apply_angle = desired_angle
 
     # use future v_ego so the jerk limit ramps the angle down before the lat-accel envelope shrinks
     v_lookahead = max(CS.out.vEgoRaw + max(CS.out.aEgo, 0.0), 1.0)
@@ -215,10 +212,31 @@ class ExternalController:
   def _update_torque(self, CS, actuators):
     if not self.torque_active:
       self.apply_torque_last = 0
+      self.torque_cmd = 0
+      self.toi_act_cmd = False
+      self.toi_angle_limit_counter = 0
       return
 
     v_ego = CS.out.vEgoRaw
     steer_max = round(float(np.interp(v_ego, CCP.STEER_MAX_LOOKUP[0], CCP.STEER_MAX_LOOKUP[1])))
     new_torque = int(round(float(actuators.torque) * steer_max))
-    self.apply_torque_last = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last,
-                                                              CS.out.steeringTorque, CCP, steer_max)
+    apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last,
+                                                    CS.out.steeringTorque, CCP, steer_max)
+
+    if abs(CS.out.steeringAngleDeg) > HIGH_ANGLE_THRESHOLD_DEG:
+      cap = int(round(steer_max * HIGH_ANGLE_CAP_FRAC))
+      apply_torque = max(-cap, min(cap, apply_torque))
+
+    # blip the TOI request when held at high angle so the EPAS does not latch ToiFlt.
+    # apply_torque_last is FROZEN through the blip so torque resumes at the pre-blip value
+    # (no assist sawtooth); the panda holds last torque for its rate limit through a
+    # tolerated steer_req cut, so the resume passes safety (dev-shipped behavior).
+    self.toi_angle_limit_counter, toi_act = common_fault_avoidance(
+      abs(CS.out.steeringAngleDeg) >= TOI_MAX_ANGLE_DEG, self.torque_active,
+      self.toi_angle_limit_counter, TOI_MAX_ANGLE_FRAMES, TOI_BLIP_FRAMES)
+    self.toi_act_cmd = toi_act
+    if toi_act:
+      self.apply_torque_last = apply_torque
+      self.torque_cmd = apply_torque
+    else:
+      self.torque_cmd = 0

@@ -8,6 +8,10 @@ from opendbc.car.rivian.values import CarControllerParams, RivianFlags
 
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
 
+# single-panda xnor-box branch: angle stream on the car-side bus only. (The dual-intercept
+# variant mirrors these on bus 4 for the EPAS 2-of-2 voter — see archive/unified-4h.)
+ANGLE_TX_BUSES = (0,)
+
 
 class CarController(CarControllerBase, MadsCarController):
   def __init__(self, dbc_names, CP, CP_SP):
@@ -15,29 +19,42 @@ class CarController(CarControllerBase, MadsCarController):
     MadsCarController.__init__(self)
     self.apply_torque_last = 0
     self.packer = CANPacker(dbc_names[Bus.pt])
-
     self.cancel_frames = 0
-    self.erc = ExternalController(CP, CP_SP)
+    self.erc = ExternalController(CP)
+    self.angle_harness = bool(CP.flags & RivianFlags.ANGLE_HARNESS)
+
+  def update_live_params(self, roll, angle_offset_deg):
+    self.erc.roll = roll
+    self.erc.angle_offset_deg = angle_offset_deg
 
   def update(self, CC, CC_SP, CS, now_nanos):
     MadsCarController.update(self, CC, CC_SP, CS)
     actuators = CC.actuators
     can_sends = []
 
-    apply_torque = 0
     steer_max = round(float(np.interp(CS.out.vEgoRaw, CarControllerParams.STEER_MAX_LOOKUP[0],
                                       CarControllerParams.STEER_MAX_LOOKUP[1])))
 
     self.erc.update(CS, self.mads.lat_active, actuators)
-    apply_torque = self.erc.apply_torque_last
+    apply_torque = self.erc.torque_cmd
 
-    # send steering command
+    # send steering command; torque is 0 and toi_act_cmd low during a ToiFlt-avoidance blip
+    # (erc freezes its rate-limiter memory through the blip so assist resumes instantly)
     self.apply_torque_last = apply_torque
-    can_sends.append(create_lka_steering(self.packer, self.frame, CS.acm_lka_hba_cmd, apply_torque, CC.enabled, self.erc.torque_active, self.mads))
+    can_sends.append(create_lka_steering(self.packer, self.frame, CS.acm_lka_hba_cmd, apply_torque, CC.enabled, self.erc.toi_act_cmd, self.mads))
 
-    can_sends.append(create_angle_steering(self.packer, self.frame, self.erc.apply_angle_last, self.erc.angle_active))
-    feature_status = (1 if self.erc.torque_active else 2) if self.mads.lat_active else 0
-    can_sends.append(create_acm_status(self.packer, self.frame, feature_status))
+    if self.angle_harness:
+      # 0x110 angle stream + 0x100 status: streamed continuously — the harness cuts the stock
+      # ACM's copies, so ours replace them; EacEnabled/Hwp only flip while actively steering,
+      # otherwise 0x100 mirrors the stock cruise state. Without angle hardware these MUST NOT
+      # be sent: the live stock ACM still broadcasts them (counter/checksum collision).
+      if self.mads.lat_active:
+        feature_status = 1 if self.erc.torque_active else 2  # 1=Acc, 2=Hwp unlocks external 0x110
+      else:
+        feature_status = 1 if CS.out.cruiseState.enabled else 0  # mirror stock cruise state
+      for bus in ANGLE_TX_BUSES:
+        can_sends.append(create_angle_steering(self.packer, self.frame, self.erc.apply_angle_last, self.erc.angle_active, bus))
+        can_sends.append(create_acm_status(self.packer, self.frame, feature_status, bus))
 
     if self.frame % 5 == 0 and not (self.CP.flags & RivianFlags.GEN2):
       can_sends.append(create_wheel_touch(self.packer, CS.sccm_wheel_touch, self.mads.lat_active))
