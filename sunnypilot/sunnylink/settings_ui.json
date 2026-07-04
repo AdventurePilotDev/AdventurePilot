@@ -192,6 +192,30 @@
                       "type": "offroad_only"
                     }
                   ]
+                },
+                {
+                  "key": "MadsMinEngageSpeed",
+                  "widget": "option",
+                  "needs_onroad_cycle": true,
+                  "title": "Minimum Speed to Engage MADS",
+                  "description": "Minimum vehicle speed required to (re-)engage MADS lateral control. 0 = no minimum.",
+                  "min": 0,
+                  "max": 20,
+                  "step": 1,
+                  "unit": {
+                    "metric": "km/h",
+                    "imperial": "mph"
+                  },
+                  "enablement": [
+                    {
+                      "type": "offroad_only"
+                    },
+                    {
+                      "type": "capability",
+                      "field": "brand",
+                      "equals": "rivian"
+                    }
+                  ]
                 }
               ]
             }
