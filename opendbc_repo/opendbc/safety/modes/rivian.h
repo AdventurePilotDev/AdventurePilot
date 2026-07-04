@@ -85,7 +85,14 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
       // UP_1 (value 1) is the MADS toggle gesture. Drive mads_button_press so
       // the panda MADS state machine can grant controls_allowed_lateral for Mode B
       // without requiring ACC to be active.
-      mads_button_press = (user_adas_request == 1U) ? MADS_BUTTON_PRESSED : MADS_BUTTON_NOT_PRESSED;
+      // Only count it when stock ACC is NOT engaged: with ACC active python treats UP_1
+      // as cancel-only (no MADS toggle), so counting it here desyncs the two MADS state
+      // machines (panda-ON/python-OFF), and once the heartbeat-mismatch exit fires, the
+      // next real engage can be revoked mid-stream — the rejected 0x110 frames put
+      // counter gaps on the bus and the EPAS faults with AngleControlCntr (route
+      // c17ea97dc5472650/00000006 seg 3). While ACC is engaged, lateral is already
+      // granted via op_controls_allowed, so no capability is lost.
+      mads_button_press = ((user_adas_request == 1U) && !cruise_engaged_prev) ? MADS_BUTTON_PRESSED : MADS_BUTTON_NOT_PRESSED;
 
       // UP_2 (value 2, past detent): do not force-disengage here. Python suppresses
       // pcmEnable via altButton2 to prevent unintended MADS engagement from disengaged.
