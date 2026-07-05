@@ -34,8 +34,12 @@ class CarStateExt:
     self._lkas_pending = False
     # lazy openpilot imports: opendbc must stay importable standalone (safety test suite)
     from openpilot.common.params import Params
-    from openpilot.sunnypilot.mads.helpers import read_steering_mode_param
-    self.steering_mode_on_brake = read_steering_mode_param(CP, CP_SP, Params())
+    from openpilot.sunnypilot.mads.helpers import MadsSteeringModeOnBrake, read_steering_mode_param
+    params = Params()
+    if not params.get_bool("RivianMadsSteeringModeDefaulted"):
+      params.put("MadsSteeringMode", MadsSteeringModeOnBrake.DISENGAGE, block=True)
+      params.put_bool("RivianMadsSteeringModeDefaulted", True, block=True)
+    self.steering_mode_on_brake = read_steering_mode_param(CP, CP_SP, params)
 
     self._resume_enabled: bool = Params().get_bool("RivianResumeEnabled")
     self.last_active_set_speed: float | None = None
