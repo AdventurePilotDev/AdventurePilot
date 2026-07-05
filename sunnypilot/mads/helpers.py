@@ -71,7 +71,5 @@ def set_car_specific_params(CP: structs.CarParams, CP_SP: structs.CarParamsSP, p
   if CP.brand in MADS_NO_ACC_MAIN_BUTTON:
     if CP.brand == "rivian":
       params.put_bool("MadsMainCruiseAllowed", False)
-      if params.get("MadsSteeringMode") is None:
-        params.put("MadsSteeringMode", MadsSteeringModeOnBrake.DISENGAGE, block=True)
     else:
       params.remove("MadsMainCruiseAllowed")
