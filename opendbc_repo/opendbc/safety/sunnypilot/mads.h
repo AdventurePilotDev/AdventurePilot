@@ -173,8 +173,8 @@ inline void mads_exit_controls(const DisengageReason reason) {
     controls_allowed_lateral = false;
   }
   // A heartbeat-mismatch exit leaves the counter saturated. Without a reset, a re-engage
-  // that lands between 1Hz ticks is killed on the very next tick — before the heartbeat
-  // flag can catch up — and the TX rejections that follow put counter gaps on the bus
+  // that lands between 1Hz ticks is killed on the very next tick, before the heartbeat
+  // flag can catch up, and the TX rejections that follow put counter gaps on the bus
   // (observed on Rivian: EPAS AngleControlCntr fault -> EAC fault + ToiFlt latch).
   heartbeat_engaged_mads_mismatches = 0U;
 }

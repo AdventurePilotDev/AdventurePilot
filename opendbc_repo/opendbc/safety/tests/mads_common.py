@@ -408,6 +408,29 @@ class MadsSafetyTestBase(unittest.TestCase):
     self.assertTrue(self.safety.get_controls_allowed_lateral(),
                     "Counter should have reset; 2 mismatches after reset should not disengage")
 
+  def test_heartbeat_engaged_mads_reengage_after_mismatch(self):
+    """A heartbeat-mismatch exit must reset the mismatch counter, so a re-engage that lands
+    before the heartbeat flag catches up gets a fresh 3-tick grace window instead of an
+    instant revoke on its first tick."""
+    self.safety.set_mads_params(True, False, False)
+
+    # Engage lateral, then force a mismatch-triggered exit (3 mismatches).
+    self.safety.set_controls_allowed_lateral(True)
+    self.safety.set_heartbeat_engaged_mads(False)
+    for _ in range(3):
+      self.safety.mads_heartbeat_engaged_check()
+    self.assertFalse(self.safety.get_controls_allowed_lateral(),
+                     "Should disengage after 3 mismatches")
+
+    # Re-engage while the heartbeat flag is still lagging (false).
+    self.safety.set_controls_allowed_lateral(True)
+
+    # One tick with heartbeat still false must NOT instantly revoke: the counter must have
+    # been reset on the previous exit, giving a fresh grace window.
+    self.safety.mads_heartbeat_engaged_check()
+    self.assertTrue(self.safety.get_controls_allowed_lateral(),
+                    "Re-engage revoked on first tick; stale mismatch counter not reset on exit")
+
   def test_mads_button_not_engaged_without_press(self):
     """Test that MADS button in idle state does not engage lateral control"""
     try:
