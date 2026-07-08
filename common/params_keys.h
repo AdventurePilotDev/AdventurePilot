@@ -190,6 +190,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"MadsMainCruiseAllowed", {PERSISTENT | BACKUP, BOOL, "1"}},
     {"MadsSteeringMode", {PERSISTENT | BACKUP, INT, "0"}},
     {"MadsUnifiedEngagementMode", {PERSISTENT | BACKUP, BOOL, "1"}},
+    {"MadsMinEngageSpeed", {PERSISTENT | BACKUP, INT, "5"}},  // always stored in mph; 0 = disabled
 
     // Model Manager params
     {"ModelManager_ActiveBundle", {PERSISTENT, JSON}},
