@@ -174,6 +174,9 @@ class CarStateExt:
 
       if self._resume_acc_counter == 50 and self.last_active_set_speed is not None:
         self.set_speed = self.last_active_set_speed
+        # Forget the remembered speed so a later DOWN_2 hold in the same ACC session cannot
+        # re-resume to a stale value; only a fresh ACC deactivation re-stashes a set speed.
+        self.last_active_set_speed = None
         self._resume_eligible = False
         self._resume_acc_counter = 0
 
