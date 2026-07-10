@@ -346,3 +346,25 @@ class AltitudeElement(GpsInfoElement):
 
     value = f"{altitude:.1f}" if gps_accuracy != 0.0 else "-"
     return UiElement(value, "ALT.", self.unit, rl.WHITE)
+
+
+class VisionCoastElement:
+  def __init__(self):
+    self.unit = ""
+
+  def update(self, sm, is_metric: bool) -> UiElement:
+    if not sm.valid['radarStateSP']:
+      return UiElement("-", "COAST", self.unit, rl.WHITE)
+    rs = sm['radarStateSP']
+    one, two = rs.leadOneCoasting, rs.leadTwoCoasting
+    if one and two:
+      value = "L1+L2"
+    elif one:
+      value = "L1"
+    elif two:
+      value = "L2"
+    else:
+      value = "-"
+    active = one or two
+    color = rl.Color(86, 199, 214, 255) if active else rl.WHITE   # muted cyan when coasting
+    return UiElement(value, "COAST", self.unit, color)

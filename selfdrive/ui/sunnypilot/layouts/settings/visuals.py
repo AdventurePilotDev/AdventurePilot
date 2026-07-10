@@ -93,6 +93,12 @@ class VisualsLayout(Widget):
            "This displays what the car is currently doing, not what the planner is requesting."),
         None,
       ),
+      "ShowVisionCoastOnChevron": (
+        lambda: tr("Show Vision-Coast on Chevron"),
+        tr("Tint the lead chevron while sunnypilot is holding a lead through a sudden radar phantom (Tier-3 vision-coast). " +
+           "Debug aid; has no effect unless Radar Lead Tracking is set to Stable + Vision Coast."),
+        None,
+      ),
     }
     self._toggles = {}
     for param, (title, desc, callback) in self._toggle_defs.items():

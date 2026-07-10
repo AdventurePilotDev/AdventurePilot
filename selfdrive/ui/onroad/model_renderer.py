@@ -314,12 +314,14 @@ class ModelRenderer(Widget, ChevronMetrics, ModelRendererSP):
       draw_polygon(self._rect, self._path.projected_points, gradient=gradient)
 
   def _draw_lead_indicator(self):
-    # Draw lead vehicles if available
-    for lead in self._lead_vehicles:
+    # Draw lead vehicles if available. The glow color comes from a per-lead hook
+    # (ModelRendererSP._lead_glow_color) so sunnypilot can tint a chevron while Tier-3
+    # vision-coast is holding that lead; default is the stock gold.
+    for i, lead in enumerate(self._lead_vehicles):
       if not lead.glow or not lead.chevron:
         continue
 
-      rl.draw_triangle_fan(lead.glow, len(lead.glow), rl.Color(218, 202, 37, 255))
+      rl.draw_triangle_fan(lead.glow, len(lead.glow), self._lead_glow_color(i))
       rl.draw_triangle_fan(lead.chevron, len(lead.chevron), rl.Color(201, 34, 49, lead.fill_alpha))
 
   @staticmethod
