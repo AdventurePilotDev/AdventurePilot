@@ -173,6 +173,34 @@ class TestExternalController(unittest.TestCase):
     self.assertFalse(erc.torque_active)
     self.assertTrue(erc.angle_active)
 
+  def test_force_torque_pins_torque(self):
+    # driver forced full-time torque: even with the EPAS ready and actively steering on angle,
+    # stay pinned to torque and never engage the angle channel (reuses the torque-only path)
+    erc = ExternalController(_get_cp(xnor_box=True))
+    erc.force_torque = True
+    for _ in range(MIN_TORQUE_FRAMES * 2):
+      erc.update(_cs_frame(eac_status=2), True, _actuators())
+    self.assertTrue(erc.torque_active)
+    self.assertFalse(erc.angle_active)
+
+  def test_force_torque_release_returns_to_angle(self):
+    # clearing the toggle mid-drive returns to normal cooperative behavior: hands back to angle
+    # once hands-off, EPAS ready and the wheel is settled
+    erc = ExternalController(_get_cp(xnor_box=True))
+    erc.force_torque = True
+    for _ in range(MIN_TORQUE_FRAMES):
+      erc.update(_cs_frame(eac_status=2), True, _actuators())
+    self.assertTrue(erc.torque_active)
+    erc.force_torque = False
+    handed_back = False
+    for _ in range(MIN_TORQUE_FRAMES * 3):
+      erc.update(_cs_frame(eac_status=1), True, _actuators())
+      if not erc.torque_active:
+        handed_back = True
+        break
+    self.assertTrue(handed_back)
+    self.assertTrue(erc.angle_active)
+
   def test_eac_dead_falls_back_to_torque(self):
     # EPAS never activates the EAC -> torque re-arms it after EAC_RECOVER_FRAMES
     erc = ExternalController(_get_cp(xnor_box=True))

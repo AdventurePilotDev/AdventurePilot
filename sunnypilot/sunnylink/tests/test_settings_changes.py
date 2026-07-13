@@ -131,6 +131,13 @@ class TestMadsBrandGates:
     assert item is not None
     assert _references_capability_field(item.get("enablement"), "brand")
 
+  def test_rivian_enable_angle_steering_has_rivian_gate(self, schema):
+    """RivianEnableAngleSteering must be a Rivian-only toggle."""
+    item = _find_item(schema, "RivianEnableAngleSteering")
+    assert item is not None
+    assert item.get("widget") == "toggle"
+    assert _references_capability_field(item.get("enablement"), "brand")
+
 
 class TestTestManeuversSection:
   def test_lateral_maneuver_mode_in_test_maneuvers(self, schema):
