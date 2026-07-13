@@ -181,5 +181,5 @@ class MadsSettingsLayout(Widget):
       if self._get_brand() == "rivian":
         self._min_engage_speed.action_item.set_enabled(True)
       else:
-        ui_state.params.put("MadsMinEngageSpeed", "0")
+        ui_state.params.put("MadsMinEngageSpeed", 0)
         self._min_engage_speed.action_item.set_enabled(False)
