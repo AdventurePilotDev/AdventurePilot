@@ -247,4 +247,72 @@ EVENTS_SP: dict[int, dict[str, Alert | AlertCallbackType]] = {
       AlertStatus.normal, AlertSize.none,
       Priority.MID, VisualAlert.none, AudibleAlert.prompt, 3.),
   },
+
+  # Rivian angle-steering hold-to-confirm toggle. Phase is driven by CarController via a param and
+  # mapped to these events in car_specific.py: pending phases are re-emitted every frame; transient
+  # phases are emitted once on the edge (their duration controls display). All ET.PERMANENT so they
+  # show through any MADS state.
+  EventNameSP.rivianAngleDeactivated: {
+    ET.PERMANENT: Alert(
+      "Angle steering deactivated.",
+      "Using only torque steering.",
+      AlertStatus.normal, AlertSize.mid,
+      Priority.LOW, VisualAlert.none, AudibleAlert.none, 3.),
+  },
+
+  EventNameSP.rivianAngleReactivated: {
+    ET.PERMANENT: Alert(
+      "Angle steering reactivated",
+      "",
+      AlertStatus.normal, AlertSize.small,
+      Priority.LOW, VisualAlert.none, AudibleAlert.none, 1.5),
+  },
+
+  EventNameSP.rivianHoldToDeactivate: {
+    ET.PERMANENT: Alert(
+      "Hold wheel to deactivate angle steering",
+      "",
+      AlertStatus.userPrompt, AlertSize.mid,
+      Priority.MID, VisualAlert.none, AudibleAlert.none, .3),
+  },
+
+  EventNameSP.rivianHoldToReactivate: {
+    ET.PERMANENT: Alert(
+      "Hold wheel to reactivate angle steering",
+      "",
+      AlertStatus.userPrompt, AlertSize.mid,
+      Priority.MID, VisualAlert.none, AudibleAlert.none, .3),
+  },
+
+  EventNameSP.rivianDeactivateTimeout: {
+    ET.PERMANENT: Alert(
+      "Angle steering not deactivated - timeout",
+      "",
+      AlertStatus.userPrompt, AlertSize.mid,
+      Priority.MID, VisualAlert.none, AudibleAlert.refuse, 3.),
+  },
+
+  EventNameSP.rivianActivateTimeout: {
+    ET.PERMANENT: Alert(
+      "Angle steering not activated - timeout",
+      "",
+      AlertStatus.userPrompt, AlertSize.mid,
+      Priority.MID, VisualAlert.none, AudibleAlert.refuse, 3.),
+  },
+
+  EventNameSP.rivianDeactivateCanceled: {
+    ET.PERMANENT: Alert(
+      "Angle steering deactivation canceled",
+      "",
+      AlertStatus.normal, AlertSize.small,
+      Priority.LOW, VisualAlert.none, AudibleAlert.none, 2.),
+  },
+
+  EventNameSP.rivianActivateCanceled: {
+    ET.PERMANENT: Alert(
+      "Angle steering reactivation canceled",
+      "",
+      AlertStatus.normal, AlertSize.small,
+      Priority.LOW, VisualAlert.none, AudibleAlert.none, 2.),
+  },
 }

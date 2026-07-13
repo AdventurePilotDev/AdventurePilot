@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from enum import StrEnum, IntFlag
+from enum import StrEnum, IntFlag, IntEnum
 
 from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs, uds, ACCELERATION_DUE_TO_GRAVITY
 from opendbc.car.docs_definitions import CarHarness, CarDocs, CarParts
@@ -44,6 +44,20 @@ class RivianFlags(IntFlag):
   GEN2 = 1
   # angle-capable lateral hardware present (xnor extreme box 0x1310, or dual-intercept ext panda)
   ANGLE_HARNESS = 2
+
+
+class RivianAngleSteerPhase(IntEnum):
+  # UI phase for the angle-steering hold-to-confirm toggle. Written by CarController (card),
+  # read by CarSpecificEventsSP (selfdrived) to emit the matching on-screen message.
+  QUIET = 0                 # steady state (angle or forced-torque), no message
+  HOLD_TO_DEACTIVATE = 1    # waiting for the driver to hold the wheel to switch to torque
+  HOLD_TO_REACTIVATE = 2    # waiting for the driver to hold the wheel to re-enable angle
+  DEACTIVATED = 3           # torque locked in ("using only torque steering")
+  REACTIVATED = 4           # angle re-armed
+  DEACTIVATE_TIMEOUT = 5    # no hold within 5s (chime)
+  ACTIVATE_TIMEOUT = 6      # no hold within 5s (chime)
+  DEACTIVATE_CANCELED = 7   # second tap aborted the pending deactivate
+  ACTIVATE_CANCELED = 8     # second tap aborted the pending reactivate
 
 
 class RivianSafetyFlags(IntFlag):

@@ -9,6 +9,7 @@ from cereal import log, custom
 from opendbc.car import structs
 
 from opendbc.car.chrysler.values import RAM_DT
+from opendbc.car.rivian.values import RivianAngleSteerPhase, RivianFlags
 from openpilot.common.constants import CV
 from openpilot.common.params import Params
 from openpilot.selfdrive.selfdrived.events import Events
@@ -19,6 +20,21 @@ EventName = log.OnroadEvent.EventName
 EventNameSP = custom.OnroadEventSP.EventName
 ButtonType = structs.CarState.ButtonEvent.Type
 GearShifter = structs.CarState.GearShifter
+
+# Rivian angle-steering toggle: CarController writes RivianAngleSteerPhase; we map it to an on-screen
+# message. Pending (hold-prompt) phases are re-emitted every frame; the rest are one-shot (emit on the
+# edge and let the alert duration handle display).
+_RIVIAN_PHASE_EVENTS = {
+  RivianAngleSteerPhase.HOLD_TO_DEACTIVATE: EventNameSP.rivianHoldToDeactivate,
+  RivianAngleSteerPhase.HOLD_TO_REACTIVATE: EventNameSP.rivianHoldToReactivate,
+  RivianAngleSteerPhase.DEACTIVATED: EventNameSP.rivianAngleDeactivated,
+  RivianAngleSteerPhase.REACTIVATED: EventNameSP.rivianAngleReactivated,
+  RivianAngleSteerPhase.DEACTIVATE_TIMEOUT: EventNameSP.rivianDeactivateTimeout,
+  RivianAngleSteerPhase.ACTIVATE_TIMEOUT: EventNameSP.rivianActivateTimeout,
+  RivianAngleSteerPhase.DEACTIVATE_CANCELED: EventNameSP.rivianDeactivateCanceled,
+  RivianAngleSteerPhase.ACTIVATE_CANCELED: EventNameSP.rivianActivateCanceled,
+}
+_RIVIAN_PENDING_PHASES = {RivianAngleSteerPhase.HOLD_TO_DEACTIVATE, RivianAngleSteerPhase.HOLD_TO_REACTIVATE}
 
 
 class CarSpecificEventsSP:
@@ -33,8 +49,14 @@ class CarSpecificEventsSP:
     self._rivian_prev_in_reverse = False
     self._rivian_reverse_disable_pending = False
     if self.CP.brand == 'rivian':
+      self._params = Params()
       self._rivian_steering_mode_on_brake = read_steering_mode_param(CP, CP_SP, Params())
       self._rivian_min_engage_speed_ms = int(Params().get("MadsMinEngageSpeed", return_default=True)) * CV.MPH_TO_MS  # stored in mph
+      # angle-steering toggle message phase (CarController owns the state machine; we just render it).
+      # Only angle-harness cars use it; poll at ~20Hz to keep the selfdrived loop light.
+      self._rivian_angle_harness = bool(CP.flags & RivianFlags.ANGLE_HARNESS)
+      self._angle_phase_prev = RivianAngleSteerPhase.QUIET
+      self._angle_frame = 0
 
   def update(self, CS: structs.CarState, events: Events):
     events_sp = EventsSP()
@@ -126,5 +148,18 @@ class CarSpecificEventsSP:
       selfdrive_enable_events = events.has(EventName.pcmEnable) or events.has(EventName.buttonEnable)
       if self._rivian_min_engage_speed_ms > 0 and not selfdrive_enable_events and CS.vEgo < self._rivian_min_engage_speed_ms:
         events_sp.add(EventNameSP.belowMadsMinEngageSpeed)
+
+      # Angle-steering toggle: render the message phase written by CarController. Pending (hold) phases
+      # show continuously; the rest are one-shot on the rising edge (alert duration handles display).
+      # Angle-harness only, polled at ~20Hz: alert durations (>=0.3s) and CarController's transient hold
+      # (15 frames) both exceed the 5-frame poll, so no message is missed.
+      if self._rivian_angle_harness:
+        self._angle_frame += 1
+        if self._angle_frame % 5 == 0:
+          phase = RivianAngleSteerPhase(int(self._params.get("RivianAngleSteerPhase", return_default=True)))
+          event = _RIVIAN_PHASE_EVENTS.get(phase)
+          if event is not None and (phase in _RIVIAN_PENDING_PHASES or phase != self._angle_phase_prev):
+            events_sp.add(event)
+          self._angle_phase_prev = phase
 
     return events_sp
