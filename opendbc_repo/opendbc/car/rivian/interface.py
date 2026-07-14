@@ -54,6 +54,15 @@ class CarInterface(CarInterfaceBase):
     ret.longitudinalActuatorDelay = 0.2
     ret.vEgoStopping = 0.25
     ret.stopAccel = -0.2
+    # Rivian's VDM over-delivers on ACM_AccelerationRequest: measured aEgo (== dv/dt) runs ~10-20%
+    # more decel than commanded (route 00000007 seg41, cmd_accel vs dv/dt). With kp=0 the long loop was
+    # feedforward-only, so nothing corrected the overshoot -> braking felt harder than commanded,
+    # worst on aggressive personality + experimental (e2e) mode. A modest proportional term on
+    # (a_target - aEgo) closes the loop symmetrically: trims the command when the VDM over-brakes,
+    # adds when it lags on onset. Kept conservative to avoid oscillation with the ~0.25s actuator lag;
+    # ki=0.2 still cleans up steady-state residual. Reduce toward 0.3 if any brake pumping appears.
+    ret.longitudinalTuning.kpBP = [0.]
+    ret.longitudinalTuning.kpV = [0.5]
     ret.longitudinalTuning.kiBP = [0.]
     ret.longitudinalTuning.kiV = [0.2]
 
