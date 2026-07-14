@@ -36,7 +36,10 @@ T_IDXS = np.array(ModelConstants.T_IDXS)  # 33-pt model horizon, 0..10 s (quadra
 # 00000006 showed 2.0 over-slows vs the human's ~4 m/s^2; split the difference (governor still backstops the peak).
 A_LAT_MAX = 2.2         # m/s^2
 A_DECEL = 1.8           # m/s^2, comfortable decel for the backward pass (braking starts early)
-A_ACCEL = 1.2           # m/s^2, comfortable accel-out cap (display a_target only; the MPC does the real tracking)
+# NOT display-only: the winning source's a_target is assigned into the planner's `a_desired` continuity state.
+# The planner clamps it to never exceed the incoming state, so this only ever bounds the accel-out we ASK for;
+# the MPC still does the real tracking. Do not reintroduce a positive a_target path that bypasses that clamp.
+A_ACCEL = 1.2           # m/s^2, comfortable accel-out cap
 V_TARGET_FLOOR = 2.0    # m/s, never command a crawl below this
 KAPPA_FLOOR = 1e-4      # 1/m, ignore curvature below this (treat as straight)
 
