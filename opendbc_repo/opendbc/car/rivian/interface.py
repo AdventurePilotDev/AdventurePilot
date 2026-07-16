@@ -48,10 +48,11 @@ class CarInterface(CarInterfaceBase):
       ret.openpilotLongitudinalControl = True
       ret.safetyConfigs[0].safetyParam |= RivianSafetyFlags.LONG_CONTROL.value
 
-    # Measured command->aEgo lag ~0.25s (route 00000028, xcorr); was 0.1 = under-modeled, so the
-    # planner under-anticipates the VDM. 0.2 tightens anticipation (smoother) while staying well under
-    # xnor's conservative 0.5 to keep AP's responsive feel. Fall back to 0.15 if it feels laggy on lead-brake.
-    ret.longitudinalActuatorDelay = 0.2
+    # Measured command->aEgo lag = 0.26-0.38 s (xcorr across routes c17ea97d 0000000b/00000002, corr 0.98;
+    # tools plant_tracking.py). 0.2 was UNDER the plant delay, so the planner under-anticipated the VDM ->
+    # commands land ~0.1 s late, which reads as "slow to react" on lead-brake and sluggish on resume. Set to
+    # 0.3 to match the measured lag so the command leads the plant correctly. Drop toward 0.25 if it overshoots.
+    ret.longitudinalActuatorDelay = 0.3
     ret.vEgoStopping = 0.25
     ret.stopAccel = -0.2
     # kp intentionally left at default (0): a proportional term on (a_target - aEgo) amplifies the noisy
