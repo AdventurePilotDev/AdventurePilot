@@ -159,6 +159,16 @@ class CarControllerParams:
   ACCEL_MIN = -3.5  # m/s^2
   ACCEL_MAX = 2.0  # m/s^2
 
+  # Feedforward accel offset that cancels the Rivian VDM's uncompensated regen/creep drag. Measured
+  # aEgo - commanded accel on steady frames (routes c17ea97d 0000000b/00000002, ~17k frames) is a
+  # consistent -0.10..-0.18 m/s^2 across regimes -> the truck brakes ~0.17 harder than asked and
+  # accelerates ~0.15 weaker than asked, worst below ~10 m/s. Adding it back at the actuator flattens
+  # the tracking bias (less over-braking, more willing accel) deterministically, without the noise a
+  # feedback kp injects. Speed breakpoints (m/s) -> added accel (m/s^2); gated to 0 at/near standstill
+  # so we still hold the brake at a stop, and only applied when longitudinally active.
+  ACCEL_FF_DRAG_BP = [0.8, 3.0, 8.0, 13.0, 20.0, 30.0]
+  ACCEL_FF_DRAG_V = [0.0, 0.17, 0.17, 0.12, 0.10, 0.08]
+
   def __init__(self, CP):
     pass
 

@@ -61,7 +61,13 @@ class CarController(CarControllerBase, MadsCarController):
 
     # Longitudinal control
     if self.CP.openpilotLongitudinalControl:
-      accel = float(np.clip(actuators.accel, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX))
+      accel = actuators.accel
+      if CC.longActive:
+        # Cancel the VDM's uncompensated regen/creep drag so the truck delivers the accel we ask for
+        # (less over-braking, more willing accel). Speed-scheduled, ramps from 0 at standstill so we
+        # still hold the brake at a stop. See CarControllerParams.ACCEL_FF_DRAG_*.
+        accel += float(np.interp(CS.out.vEgo, CarControllerParams.ACCEL_FF_DRAG_BP, CarControllerParams.ACCEL_FF_DRAG_V))
+      accel = float(np.clip(accel, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX))
       can_sends.append(create_longitudinal(self.packer, self.frame, accel, CC.enabled))
     else:
       interface_status = None
