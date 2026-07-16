@@ -39,10 +39,9 @@ class HudRendererSP(HudRenderer):
     return self.blind_spot_indicators.detected
 
   def _torque_toggle_ctx(self) -> bool:
-    # Mirror of ExpButton._torque_toggle_ctx (duplicated so the big-UI path stays untouched):
-    # Experimental off, angle-harness Rivian, master switch on, and MADS actively steering.
-    if ui_state.sm["selfdriveState"].experimentalMode:
-      return False
+    # C4 wheel is display-only for Experimental (no shared ExpButton), so unlike the big-UI path
+    # the tap is NOT gated on Experimental mode. Allow whenever: angle-harness Rivian, master
+    # switch on, and MADS actively steering.
     cp = ui_state.CP
     if cp is None or cp.brand != "rivian" or not (cp.flags & RivianFlags.ANGLE_HARNESS):
       return False
