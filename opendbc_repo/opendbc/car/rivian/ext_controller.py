@@ -83,6 +83,8 @@ class ExternalController:
     self.torque_active_frames = 0
     self.lat_active_last = False
     self.eac_dead_frames = 0
+    # when set (torque-primary user selection), pin lateral to the torque channel and never hand off to angle
+    self.force_torque = False
 
     # angle command
     self.apply_angle_last = 0.0
@@ -139,8 +141,9 @@ class ExternalController:
   def _update_torque_active(self, CS, lat_active: bool, desired_angle: float):
     self.torque_active_frames = self.torque_active_frames + 1 if self.torque_active else 0
 
-    # torque-only hardware: torque is the only lateral channel, never hand off to angle
-    if not self.angle_supported:
+    # torque-only hardware, or the user selected torque-primary: torque is the only lateral channel,
+    # never hand off to angle
+    if not self.angle_supported or self.force_torque:
       self.torque_active = lat_active
       self.lat_active_last = lat_active
       return

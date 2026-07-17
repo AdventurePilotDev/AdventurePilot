@@ -230,6 +230,25 @@ sections:
         label: v0.0
       enablement:
       - $ref: '#/macros/offroad'
+- id: rivian_steering
+  title: Rivian Steering
+  description: Angle-primary (hands-off) vs torque-primary steering
+  visibility:
+  - type: capability
+    field: angle_harness
+    equals: true
+  items:
+  - key: RivianAnglePrimary
+    widget: toggle
+    title: 'Rivian: Angle Steering (off = torque only)'
+    description: 'On: hands-off lateral control via the Rivian angle-steering harness. Off: steering uses torque
+      only (LKA), with no hands-off angle hold. Takes effect after changing from OffRoad to OnRoad.'
+    needs_onroad_cycle: true
+    enablement:
+    - $ref: '#/macros/offroad'
+    - type: capability
+      field: angle_harness
+      equals: true
 - id: lane_change
   title: Lane Change
   description: Automatic lane change timing and behavior

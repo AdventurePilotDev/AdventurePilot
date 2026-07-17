@@ -269,6 +269,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     // Rivian
     {"RivianResumeEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"RivianMadsSteeringModeDefaulted", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"RivianAnglePrimary", {PERSISTENT | BACKUP, BOOL, "1"}},  // 1 = angle primary (hands-off derived angle); 0 = torque primary (torque-only LKA)
 
     // Smart Cruise Control
     {"MapTargetVelocities", {CLEAR_ON_ONROAD_TRANSITION, STRING}},

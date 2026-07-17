@@ -7,6 +7,8 @@ See the LICENSE.md file in the root directory for more details.
 from cereal import car
 from enum import IntEnum
 
+from opendbc.car.rivian.values import RivianFlags
+
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.sunnypilot.widgets.list_view import toggle_item_sp, simple_button_item_sp, option_item_sp, LineSeparatorSP
@@ -96,6 +98,15 @@ class SteeringLayout(Widget):
       title=lambda: tr("Neural Network Lateral Control (NNLC)"),
       description=""
     )
+    self._angle_primary_base_desc = tr("On: hands-off lateral control via the Rivian angle-steering harness. "
+                                       "Off: steering uses torque only (LKA), with no hands-off angle hold. "
+                                       "Takes effect after changing from OffRoad to OnRoad.")
+    self._angle_primary_offroad_only = tr("Turn the vehicle off to change this setting.")
+    self._angle_primary_toggle = toggle_item_sp(
+      param="RivianAnglePrimary",
+      title=lambda: tr("Rivian: Angle Steering (off = torque only)"),
+      description=self._angle_primary_base_desc,
+    )
 
     items = [
       self._mads_toggle,
@@ -111,6 +122,7 @@ class SteeringLayout(Widget):
       self._torque_customization_button,
       LineSeparatorSP(40),
       self._nnlc_toggle,
+      self._angle_primary_toggle,
     ]
     return items
 
@@ -142,6 +154,16 @@ class SteeringLayout(Widget):
     self._nnlc_toggle.action_item.set_enabled(ui_state.is_offroad() and torque_allowed and not enforce_torque_enabled)
     self._torque_control_toggle.action_item.set_enabled(ui_state.is_offroad() and torque_allowed and not nnlc_enabled)
     self._torque_customization_button.action_item.set_enabled(self._torque_control_toggle.action_item.get_state())
+
+    # Rivian angle/torque-primary selection: only meaningful on an angle-harness truck; editable offroad only
+    angle_avail = ui_state.CP is not None and ui_state.CP.brand == "rivian" and bool(ui_state.CP.flags & RivianFlags.ANGLE_HARNESS)
+    self._angle_primary_toggle.set_visible(angle_avail)
+    if angle_avail:
+      is_offroad = ui_state.is_offroad()
+      self._angle_primary_toggle.action_item.set_enabled(is_offroad)
+      desc = self._angle_primary_base_desc if is_offroad else \
+        f"<b>{self._angle_primary_offroad_only}</b><br>{self._angle_primary_base_desc}"
+      self._angle_primary_toggle.set_description(desc)
 
   def _render(self, rect):
     if self._current_panel == PanelType.LANE_CHANGE:

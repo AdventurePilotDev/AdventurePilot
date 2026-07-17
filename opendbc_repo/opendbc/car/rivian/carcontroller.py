@@ -22,6 +22,14 @@ class CarController(CarControllerBase, MadsCarController):
     self.cancel_frames = 0
     self.erc = ExternalController(CP)
     self.angle_harness = bool(CP.flags & RivianFlags.ANGLE_HARNESS)
+    try:
+      from openpilot.common.params import Params  # lazy: keep opendbc importable standalone (safety tests)
+      self._params = Params()
+    except Exception:
+      self._params = None
+    # user steering-primary selection (angle-harness trucks only): 1 = angle primary (hands-off derived
+    # angle, default), 0 = torque primary (torque-only LKA). Re-polled in update().
+    self._angle_primary = True
 
   def update_live_params(self, roll, angle_offset_deg):
     self.erc.roll = roll
@@ -34,6 +42,12 @@ class CarController(CarControllerBase, MadsCarController):
 
     steer_max = round(float(np.interp(CS.out.vEgoRaw, CarControllerParams.STEER_MAX_LOOKUP[0],
                                       CarControllerParams.STEER_MAX_LOOKUP[1])))
+
+    # angle/torque-primary selection: pin ext_controller to the torque channel when the user picked
+    # torque primary (angle-harness trucks only; a non-angle truck is already torque-only in ext_controller)
+    if self.angle_harness and self._params is not None and self.frame % 50 == 0:
+      self._angle_primary = self._params.get_bool("RivianAnglePrimary")
+    self.erc.force_torque = self.angle_harness and not self._angle_primary
 
     self.erc.update(CS, self.mads.lat_active, actuators)
     apply_torque = self.erc.torque_cmd

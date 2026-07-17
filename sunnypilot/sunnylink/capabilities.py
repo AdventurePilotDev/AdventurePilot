@@ -8,6 +8,7 @@ import json
 
 from cereal import car, custom, messaging
 from opendbc.car.hyundai.values import CAR as HYUNDAI_CAR, UNSUPPORTED_LONGITUDINAL_CAR
+from opendbc.car.rivian.values import RivianFlags
 from opendbc.car.subaru.values import CAR as SUBARU_CAR, SubaruFlags
 from opendbc.sunnypilot.car.tesla.values import TeslaFlagsSP
 from openpilot.common.params import Params
@@ -41,6 +42,7 @@ CAPABILITY_FIELDS = (
   "device_type",
   "subaru_has_sng",
   "hyundai_alpha_long_available",
+  "angle_harness",
 )
 
 CAPABILITY_LABELS: dict[str, str] = {
@@ -63,6 +65,7 @@ CAPABILITY_LABELS: dict[str, str] = {
   "device_type": "Device type",
   "subaru_has_sng": "Subaru Stop-and-Go available",
   "hyundai_alpha_long_available": "Hyundai Alpha Longitudinal available",
+  "angle_harness": "Rivian angle-steering harness",
 }
 
 # Explicit defaults for non-boolean capability fields
@@ -159,6 +162,7 @@ def generate_capabilities(params: Params | None = None) -> dict:
         caps["brand"] = str(CP.brand)
       caps["pcm_cruise"] = bool(CP.pcmCruise)
       caps["enable_bsm"] = bool(CP.enableBsm)
+      caps["angle_harness"] = bool(str(CP.brand) == "rivian" and (CP.flags & RivianFlags.ANGLE_HARNESS))
       # Generic SnG fallback. Brand-specific opaque flags below override.
       caps["has_stop_and_go"] = bool(CP.openpilotLongitudinalControl)
     except Exception:
