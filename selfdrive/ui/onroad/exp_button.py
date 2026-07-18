@@ -1,5 +1,6 @@
 import time
 import pyray as rl
+from opendbc.car.rivian.values import RivianFlags
 from openpilot.common.params import Params
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app
@@ -35,13 +36,33 @@ class ExpButton(Widget):
 
   def _handle_mouse_release(self, _):
     super()._handle_mouse_release(_)
-    if self._is_toggle_allowed():
+    # while MADS is actively steering an angle-capable Rivian with Experimental off, the wheel tap
+    # toggles angle/torque steering instead of Experimental mode. We flip the request bool; CarController
+    # reads the edge and runs the hold-to-confirm state machine (+ on-screen messages via the phase param).
+    # When RivianAnglePrimary (torque primary) the tap is a no-op (already torque-only).
+    if self._torque_toggle_ctx():
+      self._params.put_bool("RivianForceTorqueSteerReq", not self._params.get_bool("RivianForceTorqueSteerReq"))
+    elif self._is_toggle_allowed():
       new_mode = not self._experimental_mode
       self._params.put_bool("ExperimentalMode", new_mode)
 
       # Hold new state temporarily
       self._held_mode = new_mode
       self._hold_end_time = time.monotonic() + self._hold_duration
+
+  def _torque_toggle_ctx(self) -> bool:
+    # Experimental on keeps the tap bound to Experimental mode (v1 shares one icon)
+    if self._experimental_mode:
+      return False
+    cp = ui_state.CP
+    if cp is None or cp.brand != "rivian" or not (cp.flags & RivianFlags.ANGLE_HARNESS):
+      return False
+    # master switch off (torque primary) => torque-only, tap is a no-op
+    if not self._params.get_bool("RivianAnglePrimary"):
+      return False
+    # only while MADS is actively steering (fresh carControl with lateral active)
+    sm = ui_state.sm
+    return sm.recv_frame["carControl"] >= ui_state.started_frame and sm["carControl"].latActive
 
   def _render(self, rect: rl.Rectangle) -> None:
     center_x = int(self._rect.x + self._rect.width // 2)

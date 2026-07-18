@@ -365,6 +365,14 @@ struct OnroadEventSP @0xda96579883444c35 {
     speedLimitPending @22;
     e2eChime @23;
     belowMadsMinEngageSpeed @24;
+    rivianAngleDeactivated @25;
+    rivianAngleReactivated @26;
+    rivianHoldToDeactivate @27;
+    rivianHoldToReactivate @28;
+    rivianDeactivateTimeout @29;
+    rivianActivateTimeout @30;
+    rivianDeactivateCanceled @31;
+    rivianActivateCanceled @32;
   }
 }
 

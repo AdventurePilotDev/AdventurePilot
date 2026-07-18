@@ -2,6 +2,7 @@ import numpy as np
 from opendbc.can import CANPacker
 from opendbc.car import Bus
 from opendbc.car.interfaces import CarControllerBase
+from opendbc.car.rivian.angle_toggle import AngleSteerToggle
 from opendbc.car.rivian.ext_controller import ExternalController, get_safety_CP  # noqa: F401
 from opendbc.car.rivian.riviancan import create_angle_steering, create_lka_steering, create_longitudinal, create_wheel_touch, create_adas_status, create_acm_status
 from opendbc.car.rivian.values import CarControllerParams, RivianFlags
@@ -28,8 +29,15 @@ class CarController(CarControllerBase, MadsCarController):
     except Exception:
       self._params = None
     # user steering-primary selection (angle-harness trucks only): 1 = angle primary (hands-off derived
-    # angle, default), 0 = torque primary (torque-only LKA). Re-polled in update().
+    # angle, default), 0 = torque primary (torque-only LKA). Serves as the toggle's master switch.
     self._angle_primary = True
+    if self._params is not None:
+      self._angle_primary = self._params.get_bool("RivianAnglePrimary")
+    # onroad wheel-tap hold-to-confirm toggle (angle hardware only)
+    self._angle_toggle = AngleSteerToggle()
+    self._angle_req_last = False
+    self._angle_tap = False
+    self._angle_phase_last = 0
 
   def update_live_params(self, roll, angle_offset_deg):
     self.erc.roll = roll
@@ -43,11 +51,28 @@ class CarController(CarControllerBase, MadsCarController):
     steer_max = round(float(np.interp(CS.out.vEgoRaw, CarControllerParams.STEER_MAX_LOOKUP[0],
                                       CarControllerParams.STEER_MAX_LOOKUP[1])))
 
-    # angle/torque-primary selection: pin ext_controller to the torque channel when the user picked
-    # torque primary (angle-harness trucks only; a non-angle truck is already torque-only in ext_controller)
-    if self.angle_harness and self._params is not None and self.frame % 50 == 0:
-      self._angle_primary = self._params.get_bool("RivianAnglePrimary")
-    self.erc.force_torque = self.angle_harness and not self._angle_primary
+    # Rivian angle-steering hold-to-confirm toggle (angle hardware only). The state machine reads the
+    # capacitive-touch hands-on signal + current channel from the ExternalController (prior frame), sets
+    # force_torque for this frame, and publishes the UI message phase via a param. RivianAnglePrimary is
+    # the persistent master (torque primary -> master off -> pinned torque, tap inert).
+    if self.angle_harness:
+      if self._params is not None:
+        if self.frame % 10 == 0:
+          req = self._params.get_bool("RivianForceTorqueSteerReq")
+          if req != self._angle_req_last:
+            self._angle_tap = True  # a tap flips the request bool; consumed as a one-frame edge below
+          self._angle_req_last = req
+        if self.frame % 50 == 0:
+          self._angle_primary = self._params.get_bool("RivianAnglePrimary")
+      tap = self._angle_tap
+      self._angle_tap = False
+      self.erc.force_torque = self._angle_toggle.update(tap, self.erc.hands_on, self.erc.torque_active,
+                                                        self.mads.lat_active, self._angle_primary)
+      if self._params is not None:
+        phase = int(self._angle_toggle.phase)
+        if phase != self._angle_phase_last:
+          self._params.put("RivianAngleSteerPhase", phase)  # INT param: must be an int, not str
+          self._angle_phase_last = phase
 
     self.erc.update(CS, self.mads.lat_active, actuators)
     apply_torque = self.erc.torque_cmd

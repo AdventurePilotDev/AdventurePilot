@@ -125,12 +125,18 @@ class HudRenderer(Widget):
     self._wheel_alpha_filter = FirstOrderFilter(0, 0.05, 1 / gui_app.target_fps)
     self._wheel_y_filter = FirstOrderFilter(0, 0.1, 1 / gui_app.target_fps)
     self.wheel_tint: rl.Color | None = None  # optional RGB tint for the non-critical wheel
+    self._wheel_hit_rect: rl.Rectangle | None = None  # padded tap target, set while drawing the wheel
 
     self._set_speed_alpha_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
 
   def set_wheel_critical_icon(self, critical: bool):
     """Set the wheel icon to critical or normal state."""
     self._show_wheel_critical = critical
+
+  def angle_tap_consumed(self) -> bool:
+    # Generic hook: did a wheel tap get consumed this frame (so the road view should not also
+    # navigate home)? Base has no tap handling; the sunnypilot mici hud overrides this.
+    return False
 
   def set_can_draw_top_icons(self, can_draw_top_icons: bool):
     """Set whether to draw the top part of the HUD."""
@@ -200,6 +206,11 @@ class HudRenderer(Widget):
     pos_x = int(rect.x + 21 + wheel_txt.width / 2)
     pos_y = int(rect.y + rect.height - 14 - wheel_txt.height / 2 + self._wheel_y_filter.x)
     rotation = -ui_state.sm['carState'].steeringAngleDeg
+
+    # padded tap target around the wheel, for the sunnypilot angle/torque toggle
+    tap_pad = 25
+    self._wheel_hit_rect = rl.Rectangle(pos_x - wheel_txt.width / 2 - tap_pad, pos_y - wheel_txt.height / 2 - tap_pad,
+                                        wheel_txt.width + 2 * tap_pad, wheel_txt.height + 2 * tap_pad)
 
     turn_intent_margin = 25
     self._turn_intent.render(rl.Rectangle(
