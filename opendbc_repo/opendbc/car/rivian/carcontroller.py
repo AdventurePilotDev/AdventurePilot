@@ -122,7 +122,9 @@ class CarController(CarControllerBase, MadsCarController):
         can_sends.append(create_adas_status(self.packer, msg, interface_status))
 
     new_actuators = actuators.as_builder()
-    new_actuators.torque = apply_torque / steer_max
+    # on angle the torque channel is idle, not limited; echo the request so
+    # steer_limited_by_safety stays false and the saturation warning keeps working
+    new_actuators.torque = apply_torque / steer_max if self.erc.torque_active else float(actuators.torque)
     new_actuators.torqueOutputCan = apply_torque
     new_actuators.steeringAngleDeg = self.erc.apply_angle_last
 

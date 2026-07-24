@@ -37,8 +37,8 @@ class LateralMode:
       self.mode = None
       return
 
-    # Rivian commands no torque while it steers on its angle channel
-    if sm["carOutput"].actuatorsOutput.torque == 0:
+    # Rivian sends no CAN torque while it steers on its angle channel
+    if sm["carOutput"].actuatorsOutput.torqueOutputCan == 0:
       self.zero_torque_cnt = min(self.zero_torque_cnt + 1, ZERO_TORQUE_HOLD)
     else:
       self.zero_torque_cnt = 0
