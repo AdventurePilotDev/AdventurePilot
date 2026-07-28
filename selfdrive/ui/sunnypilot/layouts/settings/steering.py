@@ -66,19 +66,6 @@ class SteeringLayout(Widget):
       description=ENABLE_ANGLE_STEERING_DESC,
       param="RivianEnableAngleSteering",
     )
-    self._angle_min_speed = option_item_sp(
-      param="RivianAngleSteerMinSpeed",
-      title=lambda: tr("Rivian: Always-Torque Below Speed"),
-      min_value=0,
-      max_value=40,
-      value_change_step=1,
-      description=lambda: (tr("Below this speed, steering always uses torque even when angle steering is enabled. 0 = no minimum. ")
-                           + tr("This is true vehicle speed; the dash may read about 1 mph higher. ")
-                           + tr("Steering returns to angle mode only once about 3 mph above this speed. ")
-                           + tr("Value is in mph; shown in km/h when metric is active. ")
-                           + tr("Takes effect after changing from OffRoad to OnRoad.")),
-      label_callback=lambda speed: f'{round(speed * 1.60934)} km/h' if ui_state.is_metric else f'{speed} mph',
-    )
     self._lane_change_settings_button = simple_button_item_sp(
       button_text=lambda: tr("Customize Lane Change"),
       button_width=800,
@@ -127,7 +114,6 @@ class SteeringLayout(Widget):
       self._mads_toggle,
       self._mads_settings_button,
       self._enable_angle_steering,
-      self._angle_min_speed,
       LineSeparatorSP(40),
       self._lane_change_settings_button,
       LineSeparatorSP(40),
@@ -167,8 +153,6 @@ class SteeringLayout(Widget):
       self._enable_angle_steering.action_item.set_enabled(is_offroad)
       desc = ENABLE_ANGLE_STEERING_DESC if is_offroad else "<b>" + ANGLE_STEERING_OFFROAD_ONLY + "</b><br>" + ENABLE_ANGLE_STEERING_DESC
       self._enable_angle_steering.set_description(desc)
-    # "always torque below speed" is only relevant when angle steering is available and enabled
-    self._angle_min_speed.set_visible(angle_avail and self._enable_angle_steering.action_item.get_state())
     self._blinker_control_options.set_visible(self._blinker_control_toggle.action_item.get_state())
     self._blinker_reengage_delay.set_visible(self._blinker_control_toggle.action_item.get_state())
 

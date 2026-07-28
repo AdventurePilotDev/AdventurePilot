@@ -10,8 +10,7 @@ from types import SimpleNamespace
 
 from opendbc.can import CANPacker
 from opendbc.car import Bus, structs
-from opendbc.car.common.conversions import Conversions as CV
-from opendbc.car.rivian.carcontroller import CarController, LOW_SPEED_TORQUE_HYST_MS
+from opendbc.car.rivian.carcontroller import CarController
 from opendbc.car.rivian.ext_controller import ExternalController, EAC_RECOVER_FRAMES, MIN_TORQUE_FRAMES, TOI_MAX_ANGLE_FRAMES, TOI_BLIP_FRAMES
 from opendbc.car.rivian.interface import CarInterface
 from opendbc.car.rivian.values import CAR, RivianFlags, RivianSafetyFlags
@@ -202,34 +201,6 @@ class TestExternalController(unittest.TestCase):
     self.assertTrue(handed_back)
     self.assertTrue(erc.angle_active)
 
-  def test_low_speed_force_pins_torque(self):
-    # "always torque below speed": low_speed_force pins torque even with the EPAS ready and actively
-    # steering on angle (reuses the torque-only path, like force_torque)
-    erc = ExternalController(_get_cp(xnor_box=True))
-    erc.low_speed_force = True
-    for _ in range(MIN_TORQUE_FRAMES * 2):
-      erc.update(_cs_frame(eac_status=2), True, _actuators())
-    self.assertTrue(erc.torque_active)
-    self.assertFalse(erc.angle_active)
-
-  def test_low_speed_force_release_returns_to_angle(self):
-    # rising above the speed clears low_speed_force and normal cooperative behavior resumes: hands
-    # back to angle once hands-off, EPAS ready and the wheel is settled
-    erc = ExternalController(_get_cp(xnor_box=True))
-    erc.low_speed_force = True
-    for _ in range(MIN_TORQUE_FRAMES):
-      erc.update(_cs_frame(eac_status=2), True, _actuators())
-    self.assertTrue(erc.torque_active)
-    erc.low_speed_force = False
-    handed_back = False
-    for _ in range(MIN_TORQUE_FRAMES * 3):
-      erc.update(_cs_frame(eac_status=1), True, _actuators())
-      if not erc.torque_active:
-        handed_back = True
-        break
-    self.assertTrue(handed_back)
-    self.assertTrue(erc.angle_active)
-
   def test_eac_dead_falls_back_to_torque(self):
     # EPAS never activates the EAC -> torque re-arms it after EAC_RECOVER_FRAMES
     erc = ExternalController(_get_cp(xnor_box=True))
@@ -292,69 +263,6 @@ class TestExternalController(unittest.TestCase):
     for _ in range(10):
       erc.update(_cs_frame(gen2=True, eac_status=2), True, _actuators())
     self.assertTrue(erc.angle_active)
-
-
-class TestLowSpeedTorqueLatch(unittest.TestCase):
-  """CarController-level "always torque below speed" latch: single-sided hysteresis driven by
-  vEgo — enter torque immediately below the set speed, release only once LOW_SPEED_TORQUE_HYST_MS
-  (3 mph) above it, no dwell. Holds its last state inside the band from either direction."""
-
-  T_MPH = 10.0
-  HYST_MPH = LOW_SPEED_TORQUE_HYST_MS / CV.MPH_TO_MS
-
-  def setUp(self):
-    self.cp = _get_cp(xnor_box=True)
-
-  def _make(self):
-    controller = CarController({Bus.pt: "rivian_primary_actuator"}, self.cp, structs.CarParamsSP())
-    # the macOS venv has no openpilot Params, so the frame%50 threshold re-read is skipped and a
-    # manually-set _angle_min_speed_ms survives; assert that assumption before relying on it.
-    self.assertIsNone(controller._params)
-    controller._angle_min_speed_ms = self.T_MPH * CV.MPH_TO_MS
-    return controller
-
-  def _step(self, controller, v_mph):
-    cc = structs.CarControl()
-    cc.latActive = True
-    cc.enabled = True
-    cc = cc.as_reader()
-    cc_sp = structs.CarControlSP()
-    cs = _mock_cs(self.cp)
-    cs.out.vEgo = v_mph * CV.MPH_TO_MS
-    controller.update(cc, cc_sp, cs, 0)
-    # the latch state is mirrored onto the ExternalController every frame
-    self.assertEqual(controller.erc.low_speed_force, controller._low_speed_torque)
-    return controller._low_speed_torque
-
-  def test_enters_torque_immediately_below_set_speed(self):
-    controller = self._make()
-    self.assertFalse(controller._low_speed_torque)  # starts released
-    self.assertTrue(self._step(controller, self.T_MPH - 2.0))  # one frame below T -> latched
-
-  def test_releases_only_above_band(self):
-    controller = self._make()
-    self._step(controller, self.T_MPH - 2.0)
-    self.assertTrue(controller._low_speed_torque)
-    # inside the band it holds torque; only clearly above T + hyst does it release
-    self.assertTrue(self._step(controller, self.T_MPH + self.HYST_MPH - 0.5))
-    self.assertFalse(self._step(controller, self.T_MPH + self.HYST_MPH + 2.0))
-
-  def test_band_holds_torque_when_rising_from_below(self):
-    controller = self._make()
-    self._step(controller, self.T_MPH - 2.0)  # latched True
-    self.assertTrue(self._step(controller, self.T_MPH + self.HYST_MPH / 2.0))  # in band -> holds True
-
-  def test_band_holds_released_when_coming_from_above(self):
-    controller = self._make()
-    self.assertFalse(self._step(controller, self.T_MPH + self.HYST_MPH + 2.0))  # above -> released
-    self.assertFalse(self._step(controller, self.T_MPH + self.HYST_MPH / 2.0))  # in band -> holds False
-
-  def test_feature_off_forces_release(self):
-    controller = self._make()
-    self._step(controller, self.T_MPH - 2.0)
-    self.assertTrue(controller._low_speed_torque)
-    controller._angle_min_speed_ms = 0.0  # setting turned off mid-drive
-    self.assertFalse(self._step(controller, self.T_MPH - 2.0))  # forced released despite low speed
 
 
 class TestMadsGearGate(unittest.TestCase):
