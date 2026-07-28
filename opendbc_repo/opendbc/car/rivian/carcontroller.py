@@ -1,6 +1,7 @@
 import numpy as np
 from opendbc.can import CANPacker
 from opendbc.car import Bus
+from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.rivian.angle_toggle import AngleSteerToggle
 from opendbc.car.rivian.ext_controller import ExternalController, get_safety_CP  # noqa: F401
@@ -12,6 +13,11 @@ from opendbc.sunnypilot.car.rivian.mads import MadsCarController
 # single-panda xnor-box branch: angle stream on the car-side bus only. (The dual-intercept
 # variant mirrors these on bus 4 for the EPAS 2-of-2 voter — see archive/unified-4h.)
 ANGLE_TX_BUSES = (0,)
+
+# single-sided hysteresis on the "always torque below speed" threshold: enter torque immediately
+# below the set speed (the guarantee the feature exists for), release only once 3 mph above it so
+# cruise ripple at min-speed ~= set speed cannot chatter the tint / forced-torque channel.
+LOW_SPEED_TORQUE_HYST_MS = 3 * CV.MPH_TO_MS
 
 
 class CarController(CarControllerBase, MadsCarController):
@@ -39,8 +45,12 @@ class CarController(CarControllerBase, MadsCarController):
     self._angle_master_on = True
     self._angle_eff_last = False
     self._angle_phase_last = 0
+    # "always torque below speed" setting (mph param -> m/s, 0 = off) and its latched state
+    self._angle_min_speed_ms = 0.0
+    self._low_speed_torque = False
     if self._params is not None:
       self._angle_master_on = self._params.get_bool("RivianEnableAngleSteering")
+      self._angle_min_speed_ms = int(self._params.get("RivianAngleSteerMinSpeed", return_default=True)) * CV.MPH_TO_MS
 
   def update_live_params(self, roll, angle_offset_deg):
     self.erc.roll = roll
@@ -66,14 +76,33 @@ class CarController(CarControllerBase, MadsCarController):
           self._angle_req_last = req
         if self.frame % 50 == 0:
           self._angle_master_on = self._params.get_bool("RivianEnableAngleSteering")
-      tap = self._angle_tap
+          self._angle_min_speed_ms = int(self._params.get("RivianAngleSteerMinSpeed", return_default=True)) * CV.MPH_TO_MS
+      # below the configured speed, pin torque even in angle mode (0 = off). Latched with a small
+      # single-sided hysteresis band; pushed to the ExternalController before erc.update() so the channel sees it now.
+      if self._angle_min_speed_ms > 0.0:
+        # deliberately vEgo (filtered actual speed), unlike steer_max / the ext_controller firmware
+        # envelopes which stay on vEgoRaw (those model EPAS/panda behaviour keyed to raw wheel speed).
+        # vEgo matches the "true speed" display, is immune to cluster offset, and is correct on
+        # branches with no wheel-speed correction. Do not "harmonize" back to vEgoRaw.
+        if CS.out.vEgo < self._angle_min_speed_ms:
+          self._low_speed_torque = True
+        elif CS.out.vEgo > self._angle_min_speed_ms + LOW_SPEED_TORQUE_HYST_MS:
+          self._low_speed_torque = False
+      else:
+        self._low_speed_torque = False
+      self.erc.low_speed_force = self._low_speed_torque
+      # suppress wheel-tap toggling below the speed: steering is torque there regardless, and feeding a
+      # tap while torque_active is pinned would skip the hold-to-confirm (angle_toggle.py IDLE_ANGLE path).
+      tap = self._angle_tap and not self._low_speed_torque
       self._angle_tap = False
       self.erc.force_torque = self._angle_toggle.update(tap, self.erc.hands_on, self.erc.torque_active,
                                                         self.mads.lat_active, self._angle_master_on)
       if self._params is not None:
-        if self.erc.force_torque != self._angle_eff_last:
-          self._params.put_bool("RivianForceTorqueSteer", self.erc.force_torque)  # effective, for the wheel tint
-          self._angle_eff_last = self.erc.force_torque
+        # effective torque state for the wheel tint: driver toggle OR the low-speed override
+        effective_force_torque = self.erc.force_torque or self._low_speed_torque
+        if effective_force_torque != self._angle_eff_last:
+          self._params.put_bool("RivianForceTorqueSteer", effective_force_torque)
+          self._angle_eff_last = effective_force_torque
         phase = int(self._angle_toggle.phase)
         if phase != self._angle_phase_last:
           self._params.put("RivianAngleSteerPhase", phase)  # INT param: must be an int, not str
