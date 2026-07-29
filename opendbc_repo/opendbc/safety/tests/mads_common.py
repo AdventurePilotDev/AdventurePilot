@@ -431,6 +431,37 @@ class MadsSafetyTestBase(unittest.TestCase):
     self.assertTrue(self.safety.get_controls_allowed_lateral(),
                     "Re-engage revoked on first tick; stale mismatch counter not reset on exit")
 
+  def test_heartbeat_engaged_mads_reengage_before_mismatch_exit(self):
+    """A real re-engage that lands while the mismatch counter is already partly saturated must
+    get a fresh 3-tick grace window. Otherwise the pending tick revokes the brand new engage and
+    nothing can re-request it, leaving panda lateral-off while openpilot MADS is on (which
+    openpilot punishes with a 2s Controls Mismatch: Lateral immediate disable)."""
+    self.safety.set_mads_params(True, False, False)
+
+    # Engage via the MADS button, then disengage on the openpilot side only (heartbeat goes false
+    # while panda still has lateral granted) -- this is what a stalk-based disengage looks like.
+    self.safety.set_mads_button_press(1)
+    self._rx(self._speed_msg(0))
+    self.assertTrue(self.safety.get_controls_allowed_lateral())
+    self.safety.set_mads_button_press(0)
+    self._rx(self._speed_msg(0))
+
+    self.safety.set_heartbeat_engaged_mads(False)
+    for _ in range(2):
+      self.safety.mads_heartbeat_engaged_check()
+    self.assertTrue(self.safety.get_controls_allowed_lateral(),
+                    "Should still be engaged after 2 mismatches")
+
+    # Driver presses the MADS button again before the 3rd tick. The request is real, but lateral is
+    # still granted (no grant edge to consume it) and the heartbeat flag has not caught up yet.
+    self.safety.set_mads_button_press(1)
+    self._rx(self._speed_msg(0))
+    self.assertTrue(self.safety.get_controls_allowed_lateral())
+
+    self.safety.mads_heartbeat_engaged_check()
+    self.assertTrue(self.safety.get_controls_allowed_lateral(),
+                    "Fresh engage revoked by a stale mismatch counter; counter not reset on request")
+
   def test_mads_button_not_engaged_without_press(self):
     """Test that MADS button in idle state does not engage lateral control"""
     try:

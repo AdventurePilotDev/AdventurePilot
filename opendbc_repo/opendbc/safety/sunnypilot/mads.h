@@ -88,6 +88,16 @@ inline void m_update_control_state(void) {
       (m_mads_state.mads_button.transition == MADS_EDGE_RISING) ||
       (m_mads_state.op_controls_allowed.transition == MADS_EDGE_RISING)) {
     m_mads_state.controls_requested_lateral = true;
+    // A fresh engage request means any heartbeat mismatch accumulated against the *previous*
+    // engage is stale, so give this one a full grace window. Mirrors the rising-edge reset of
+    // controls_allowed in safety.h. Without this, a disengage followed by a re-engage inside the
+    // 3-tick heartbeat window is killed by the pending mismatch tick: controls_allowed_lateral is
+    // still set when the request arrives (so the grant below does not consume it), then
+    // mads_exit_controls() drops both controls_allowed_lateral and the pending request. Nothing
+    // can re-request after that, so panda sits lateral-off while openpilot MADS is enabled, until
+    // openpilot's own 2s watchdog fires "Controls Mismatch: Lateral"
+    // (route 4440a486580ed7c6/00000059 seg 0).
+    heartbeat_engaged_mads_mismatches = 0U;
   }
 
   // Primary control blockers - these prevent any further control processing
