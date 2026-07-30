@@ -13,6 +13,18 @@ class CarInterface(CarInterfaceBase):
   RadarInterface = RadarInterface
 
   @staticmethod
+  def _apply_angle_caps(ret: structs.CarParams) -> None:
+    # idempotent, additive: every angle-specific cap lives here so a base/torque truck (Tier A)
+    # matches dev exactly. Called only when the xnor extreme angle box (0x1310) is present.
+    ret.flags |= RivianFlags.ANGLE_HARNESS.value
+    # angle control can hold the wheel at standstill; lateral is gated to drive gear in mads.py
+    ret.steerAtStandstill = True
+    # speed-scheduled lateral curvature low-pass (delay-compensated in modeld); damps the
+    # angle plant's crawl-speed limit cycle, off by 8 m/s
+    ret.lateralSmoothSeconds = 0.4
+    ret.safetyConfigs[0].safetyParam |= RivianSafetyFlags.ANGLE_CONTROL.value
+
+  @staticmethod
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
     ret.brand = "rivian"
 
@@ -22,18 +34,13 @@ class CarInterface(CarInterfaceBase):
     if 0x321 not in fingerprint[0]:
       ret.flags |= RivianFlags.GEN2.value
 
-    # this branch requires the xnor extreme angle harness (announces 0x1310 on bus 1)
+    # angle-capable lateral hardware present (xnor extreme box, 0x1310 on bus 1). A base harness
+    # is a valid torque-only config, never dashcam; the angle channel + its standstill/smoothing
+    # caps are gated to the box (see _apply_angle_caps).
     if 0x1310 in fingerprint[1]:
-      ret.flags |= RivianFlags.ANGLE_HARNESS.value
-    else:
-      ret.dashcamOnly = True
+      CarInterface._apply_angle_caps(ret)
 
     ret.steerActuatorDelay = 0.15
-    # angle control can hold the wheel at standstill; lateral is gated to drive gear in mads.py
-    ret.steerAtStandstill = True
-    # speed-scheduled lateral curvature low-pass (delay-compensated in modeld); damps the
-    # angle plant's crawl-speed limit cycle, off by 8 m/s
-    ret.lateralSmoothSeconds = 0.4
     ret.steerLimitTimer = 0.4
     CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 

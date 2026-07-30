@@ -212,13 +212,21 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
   return tx;
 }
 
+// Base torque channel present on every tier; the angle fragment (0x100/0x110) is added on the
+// angle tiers (xnor extreme angle box present). Fragment names differ from the array names below so an
+// object-like macro never expands inside its own declarator (cf. ford.h FORD_COMMON_TX_MSGS).
+#define RIVIAN_BASE_TX_FRAGMENT  {0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}
+#define RIVIAN_ANGLE_TX_FRAGMENT {0x100, 0, 8, .check_relay = true}, {0x110, 0, 8, .check_relay = true}
+
 static safety_config rivian_init(uint16_t param) {
   // SCCM_WheelTouch: for hiding hold wheel alert
   // VDM_AdasSts: for canceling stock ACC
-  // 0x100 = ACM_Status, 0x110 = ACM_SteeringControl, 0x120 = ACM_lkaHbaCmd, 0x321 = SCCM_WheelTouch, 0x162 = VDM_AdasSts
-  static const CanMsg RIVIAN_TX_MSGS[] = {{0x100, 0, 8, .check_relay = true}, {0x110, 0, 8, .check_relay = true}, {0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x162, 2, 8, .check_relay = true}};
-  // 0x160 = ACM_longitudinalRequest
-  static const CanMsg RIVIAN_LONG_TX_MSGS[] = {{0x100, 0, 8, .check_relay = true}, {0x110, 0, 8, .check_relay = true}, {0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x160, 0, 5, .check_relay = true}};
+  // 0x100 = ACM_Status, 0x110 = ACM_SteeringControl (angle channel, tier C only), 0x120 = ACM_lkaHbaCmd,
+  // 0x321 = SCCM_WheelTouch, 0x162 = VDM_AdasSts (stock ACC cancel), 0x160 = ACM_longitudinalRequest (op long)
+  static const CanMsg RIVIAN_TX_MSGS[]            = {RIVIAN_BASE_TX_FRAGMENT, {0x162, 2, 8, .check_relay = true}};
+  static const CanMsg RIVIAN_LONG_TX_MSGS[]       = {RIVIAN_BASE_TX_FRAGMENT, {0x160, 0, 5, .check_relay = true}};
+  static const CanMsg RIVIAN_ANGLE_TX_MSGS[]      = {RIVIAN_ANGLE_TX_FRAGMENT, RIVIAN_BASE_TX_FRAGMENT, {0x162, 2, 8, .check_relay = true}};
+  static const CanMsg RIVIAN_ANGLE_LONG_TX_MSGS[] = {RIVIAN_ANGLE_TX_FRAGMENT, RIVIAN_BASE_TX_FRAGMENT, {0x160, 0, 5, .check_relay = true}};
 
   static RxCheck rivian_rx_checks[] = {
     {.msg = {{0x208, 0, 8, 50U, .max_counter = 14U}, { 0 }, { 0 }}},                                                             // ESP_Status (speed)
@@ -232,18 +240,28 @@ static safety_config rivian_init(uint16_t param) {
 
   bool rivian_longitudinal = false;
 
-  SAFETY_UNUSED(param);
   rivian_prev_user_adas_request = 0U;
   #ifdef ALLOW_DEBUG
     const int FLAG_RIVIAN_LONG_CONTROL = 1;
     rivian_longitudinal = GET_FLAG(param, FLAG_RIVIAN_LONG_CONTROL);
   #endif
+  // read outside ALLOW_DEBUG so the angle channel survives a release panda build (cf. ford CANFD)
+  const uint16_t FLAG_RIVIAN_ANGLE_CONTROL = 4U;  // RivianSafetyFlags.ANGLE_CONTROL (mask 4)
+  const bool rivian_angle = GET_FLAG(param, FLAG_RIVIAN_ANGLE_CONTROL);
 
   // FIXME: cppcheck thinks that rivian_longitudinal is always false. This is not true
   // if ALLOW_DEBUG is defined but cppcheck is run without ALLOW_DEBUG
-  // cppcheck-suppress knownConditionTrueFalse
-  return rivian_longitudinal ? BUILD_SAFETY_CFG(rivian_rx_checks, RIVIAN_LONG_TX_MSGS) : \
-                               BUILD_SAFETY_CFG(rivian_rx_checks, RIVIAN_TX_MSGS);
+  safety_config ret;
+  if (rivian_angle) {
+    // cppcheck-suppress knownConditionTrueFalse
+    ret = rivian_longitudinal ? BUILD_SAFETY_CFG(rivian_rx_checks, RIVIAN_ANGLE_LONG_TX_MSGS) : \
+                                BUILD_SAFETY_CFG(rivian_rx_checks, RIVIAN_ANGLE_TX_MSGS);
+  } else {
+    // cppcheck-suppress knownConditionTrueFalse
+    ret = rivian_longitudinal ? BUILD_SAFETY_CFG(rivian_rx_checks, RIVIAN_LONG_TX_MSGS) : \
+                                BUILD_SAFETY_CFG(rivian_rx_checks, RIVIAN_TX_MSGS);
+  }
+  return ret;
 }
 
 const safety_hooks rivian_hooks = {

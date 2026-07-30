@@ -30,12 +30,17 @@ def checksum(msg):
   return addr, ret, bus
 
 
-class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest, common.DriverTorqueSteeringSafetyTest,
+class TestRivianSafetyBase(common.CarSafetyTest, common.VehicleSpeedSafetyTest, common.DriverTorqueSteeringSafetyTest,
                            common.SteerRequestCutSafetyTest, common.LongitudinalAccelSafetyTest):
+  # Tier A / base comma Rivian harness: torque lateral only. No 0x100/0x110 (those are the angle
+  # channel, tier C); the stock ACM's copies forward 2->0 untouched, matching dev.
+  TX_MSGS = [[0x120, 0], [0x321, 2], [0x162, 2]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x120,), 2: (0x321, 0x162)}
+  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: [0x120]}
 
-  TX_MSGS = [[0x100, 0], [0x110, 0], [0x120, 0], [0x321, 2], [0x162, 2]]
-  RELAY_MALFUNCTION_ADDRS = {0: (0x100, 0x110, 0x120), 2: (0x321, 0x162)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: [0x100, 0x110, 0x120]}
+  # panda safety param each concrete tier boots with
+  SAFETY_PARAM = 0
+  LONGITUDINAL = False
 
   # Torque limits (cooperative override torque; matches dev's AP envelope + the software 385 tune)
   MAX_TORQUE_LOOKUP = [9, 25, 27], [385, 295, 275]
@@ -48,21 +53,17 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
   MIN_VALID_STEERING_FRAMES = 89
   MAX_INVALID_STEERING_FRAMES = 2
 
-  # Angle limits (VM-based, no simple breakpoint rates)
-  STEER_ANGLE_MAX = 360
-  DEG_TO_CAN = 10
-  ANGLE_RATE_BP = None
-  ANGLE_RATE_UP = None
-  ANGLE_RATE_DOWN = None
-  LATERAL_FREQUENCY = 100
-
   cnt_speed = 0
   cnt_speed_2 = 0
-  cnt_angle_cmd = 0
   cnt_adas = 0
+  cnt_stalk = 0
 
-  def _get_steer_cmd_angle_max(self, speed):
-    return get_max_angle_vm(max(speed, 1), self.VM, CarControllerParams)
+  def setUp(self):
+    self.VM = VehicleModel(get_safety_CP())
+    self.packer = CANPackerSafety("rivian_primary_actuator")
+    self.safety = libsafety_py.libsafety
+    self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, self.SAFETY_PARAM)
+    self.safety.init_tests()
 
   def _torque_driver_msg(self, torque):
     values = {"EPAS_TorsionBarTorque": torque / 100.0}
@@ -71,17 +72,6 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
   def _torque_cmd_msg(self, torque, steer_req=1):
     values = {"ACM_lkaStrToqReq": torque, "ACM_lkaActToi": steer_req}
     return self.packer.make_can_msg_safety("ACM_lkaHbaCmd", 0, values)
-
-  def _angle_cmd_msg(self, angle: float, enabled: bool, increment_timer: bool = True):
-    values = {"ACM_SteeringAngleRequest": angle, "ACM_EacEnabled": enabled}
-    if increment_timer:
-      self.safety.set_timer(self.cnt_angle_cmd * int(1e6 / self.LATERAL_FREQUENCY))
-      self.__class__.cnt_angle_cmd += 1
-    return self.packer.make_can_msg_safety("ACM_SteeringControl", 0, values)
-
-  def _angle_meas_msg(self, angle: float):
-    values = {"EPAS_InternalSas": angle}
-    return self.packer.make_can_msg_safety("EPAS_AdasStatus", 0, values)
 
   def _speed_msg(self, speed, quality_flag=True):
     values = {"ESP_Vehicle_Speed": speed * 3.6, "ESP_Status_Counter": self.cnt_speed % 15,
@@ -117,6 +107,114 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
   def _accel_msg(self, accel: float):
     values = {"ACM_AccelerationRequest": accel}
     return self.packer.make_can_msg_safety("ACM_longitudinalRequest", 0, values)
+
+  def _stalk_msg(self, req):
+    values = {"VDM_UserAdasRequest": req, "VDM_AdasSts_Counter": self.cnt_stalk % 15}
+    self.__class__.cnt_stalk += 1
+    return self.packer.make_can_msg_safety("VDM_AdasSts", 0, values, fix_checksum=checksum)
+
+  def test_mads_button_gated_on_cruise(self):
+    """UP_1 counts as the MADS button only while stock ACC is NOT engaged: with ACC active
+    python treats UP_1 as cancel-only, and counting it in the panda desyncs the two MADS
+    state machines (root cause of the EPAS AngleControlCntr fault, route c17ea97d.../6 seg 3)."""
+    for cruise in (False, True):
+      self._rx(self._pcm_status_msg(1 if cruise else 0))
+      self._rx(self._stalk_msg(1))
+      expected = 0 if cruise else 1  # MADS_BUTTON_NOT_PRESSED / MADS_BUTTON_PRESSED
+      self.assertEqual(self.safety.get_mads_button_press(), expected, f"cruise={cruise}")
+      self._rx(self._stalk_msg(0))
+
+  def test_toi_blip_freeze_resume(self):
+    """The carcontroller freezes its rate-limiter memory through the 2-frame TOI blip and
+    resumes at the pre-blip torque. The panda holds last torque through a tolerated
+    steer_req cut, so the instant resume must pass rate checks."""
+    self.safety.init_tests()
+    self.safety.set_timer(self.MIN_VALID_STEERING_RT_INTERVAL)
+    self.safety.set_controls_allowed(True)
+    self._set_prev_torque(self.MAX_TORQUE)
+    for _ in range(self.MIN_VALID_STEERING_FRAMES):
+      self.assertTrue(self._tx(self._torque_cmd_msg(self.MAX_TORQUE, steer_req=1)))
+
+    # blip: torque and TOI drop for the tolerated frames
+    for _ in range(self.MAX_INVALID_STEERING_FRAMES):
+      self.assertTrue(self._tx(self._torque_cmd_msg(0, steer_req=0)))
+
+    # instant resume at the pre-blip value
+    self.assertTrue(self._tx(self._torque_cmd_msg(self.MAX_TORQUE, steer_req=1)))
+
+  def test_wheel_touch(self):
+    # For hiding hold wheel alert on engage
+    for controls_allowed in (True, False):
+      self.safety.set_controls_allowed(controls_allowed)
+      values = {
+        "SCCM_WheelTouch_HandsOn": 1 if controls_allowed else 0,
+        "SCCM_WheelTouch_CapacitiveValue": 100 if controls_allowed else 0,
+        "SETME_X52": 100,
+      }
+      self.assertTrue(self._tx(self.packer.make_can_msg_safety("SCCM_WheelTouch", 2, values)))
+
+  def test_adas_status(self):
+    # For canceling stock ACC. 0x162 is only a TX addr on the non-op-long tiers (op long
+    # replaces it with 0x160), so skip when longitudinal.
+    if self.LONGITUDINAL:
+      self.skipTest("0x162 is not a TX addr with openpilot longitudinal")
+    for controls_allowed in (True, False):
+      self.safety.set_controls_allowed(controls_allowed)
+      for interface_status in range(4):
+        values = {"VDM_AdasInterfaceStatus": interface_status}
+        self.assertTrue(self._tx(self.packer.make_can_msg_safety("VDM_AdasSts", 2, values)))
+
+  def test_rx_hook(self):
+    # checksum, counter, and quality flag checks
+    for quality_flag in (True, False):
+      for msg_type in ("speed", "speed_2"):
+        self.safety.set_controls_allowed(True)
+        # send multiple times to verify counter checks
+        for _ in range(10):
+          if msg_type == "speed":
+            msg = self._speed_msg(0, quality_flag=quality_flag)
+          elif msg_type == "speed_2":
+            msg = self._speed_msg_2(0, quality_flag=quality_flag)
+
+          self.assertEqual(quality_flag, self._rx(msg))
+          self.assertEqual(quality_flag, self.safety.get_controls_allowed())
+
+        # Mess with checksum to make it fail
+        msg[0].data[0] = 0xff
+        self.assertFalse(self._rx(msg))
+        self.assertFalse(self.safety.get_controls_allowed())
+
+
+class TestRivianAngleSafetyBase(TestRivianSafetyBase, common.AngleSteeringSafetyTest):
+  # Tier C: A + xnor extreme angle box. Adds the 0x100/0x110 angle channel; the harness relay
+  # cuts the stock ACM's copies so ours replace them.
+  TX_MSGS = [[0x100, 0], [0x110, 0], [0x120, 0], [0x321, 2], [0x162, 2]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x100, 0x110, 0x120), 2: (0x321, 0x162)}
+  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: [0x100, 0x110, 0x120]}
+
+  # Angle limits (VM-based, no simple breakpoint rates)
+  STEER_ANGLE_MAX = 360
+  DEG_TO_CAN = 10
+  ANGLE_RATE_BP = None
+  ANGLE_RATE_UP = None
+  ANGLE_RATE_DOWN = None
+  LATERAL_FREQUENCY = 100
+
+  cnt_angle_cmd = 0
+
+  def _get_steer_cmd_angle_max(self, speed):
+    return get_max_angle_vm(max(speed, 1), self.VM, CarControllerParams)
+
+  def _angle_cmd_msg(self, angle: float, enabled: bool, increment_timer: bool = True):
+    values = {"ACM_SteeringAngleRequest": angle, "ACM_EacEnabled": enabled}
+    if increment_timer:
+      self.safety.set_timer(self.cnt_angle_cmd * int(1e6 / self.LATERAL_FREQUENCY))
+      self.__class__.cnt_angle_cmd += 1
+    return self.packer.make_can_msg_safety("ACM_SteeringControl", 0, values)
+
+  def _angle_meas_msg(self, angle: float):
+    values = {"EPAS_InternalSas": angle}
+    return self.packer.make_can_msg_safety("EPAS_AdasStatus", 0, values)
 
   def test_angle_cmd_when_enabled(self):
     # VM-based limits tested in test_lateral_accel_limit and test_lateral_jerk_limit
@@ -180,106 +278,33 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
         self.assertFalse(self._tx(self._angle_cmd_msg(0, True)))
         self.assertTrue(self._tx(self._angle_cmd_msg(0, True)))
 
-  cnt_stalk = 0
 
-  def _stalk_msg(self, req):
-    values = {"VDM_UserAdasRequest": req, "VDM_AdasSts_Counter": self.cnt_stalk % 15}
-    self.__class__.cnt_stalk += 1
-    return self.packer.make_can_msg_safety("VDM_AdasSts", 0, values, fix_checksum=checksum)
-
-  def test_mads_button_gated_on_cruise(self):
-    """UP_1 counts as the MADS button only while stock ACC is NOT engaged: with ACC active
-    python treats UP_1 as cancel-only, and counting it in the panda desyncs the two MADS
-    state machines (root cause of the EPAS AngleControlCntr fault, route c17ea97d.../6 seg 3)."""
-    for cruise in (False, True):
-      self._rx(self._pcm_status_msg(1 if cruise else 0))
-      self._rx(self._stalk_msg(1))
-      expected = 0 if cruise else 1  # MADS_BUTTON_NOT_PRESSED / MADS_BUTTON_PRESSED
-      self.assertEqual(self.safety.get_mads_button_press(), expected, f"cruise={cruise}")
-      self._rx(self._stalk_msg(0))
-
-  def test_toi_blip_freeze_resume(self):
-    """The carcontroller freezes its rate-limiter memory through the 2-frame TOI blip and
-    resumes at the pre-blip torque. The panda holds last torque through a tolerated
-    steer_req cut, so the instant resume must pass rate checks."""
-    self.safety.init_tests()
-    self.safety.set_timer(self.MIN_VALID_STEERING_RT_INTERVAL)
-    self.safety.set_controls_allowed(True)
-    self._set_prev_torque(self.MAX_TORQUE)
-    for _ in range(self.MIN_VALID_STEERING_FRAMES):
-      self.assertTrue(self._tx(self._torque_cmd_msg(self.MAX_TORQUE, steer_req=1)))
-
-    # blip: torque and TOI drop for the tolerated frames
-    for _ in range(self.MAX_INVALID_STEERING_FRAMES):
-      self.assertTrue(self._tx(self._torque_cmd_msg(0, steer_req=0)))
-
-    # instant resume at the pre-blip value
-    self.assertTrue(self._tx(self._torque_cmd_msg(self.MAX_TORQUE, steer_req=1)))
-
-  def test_wheel_touch(self):
-    # For hiding hold wheel alert on engage
-    for controls_allowed in (True, False):
-      self.safety.set_controls_allowed(controls_allowed)
-      values = {
-        "SCCM_WheelTouch_HandsOn": 1 if controls_allowed else 0,
-        "SCCM_WheelTouch_CapacitiveValue": 100 if controls_allowed else 0,
-        "SETME_X52": 100,
-      }
-      self.assertTrue(self._tx(self.packer.make_can_msg_safety("SCCM_WheelTouch", 2, values)))
-
-  def test_rx_hook(self):
-    # checksum, counter, and quality flag checks
-    for quality_flag in (True, False):
-      for msg_type in ("speed", "speed_2"):
-        self.safety.set_controls_allowed(True)
-        # send multiple times to verify counter checks
-        for _ in range(10):
-          if msg_type == "speed":
-            msg = self._speed_msg(0, quality_flag=quality_flag)
-          elif msg_type == "speed_2":
-            msg = self._speed_msg_2(0, quality_flag=quality_flag)
-
-          self.assertEqual(quality_flag, self._rx(msg))
-          self.assertEqual(quality_flag, self.safety.get_controls_allowed())
-
-        # Mess with checksum to make it fail
-        msg[0].data[0] = 0xff
-        self.assertFalse(self._rx(msg))
-        self.assertFalse(self.safety.get_controls_allowed())
-
+# ---- concrete tiers: base torque, +op-long, +angle, +angle+op-long ----
 
 class TestRivianStockSafety(TestRivianSafetyBase):
-
+  SAFETY_PARAM = 0
   LONGITUDINAL = False
 
-  def setUp(self):
-    self.VM = VehicleModel(get_safety_CP())
-    self.packer = CANPackerSafety("rivian_primary_actuator")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, 0)
-    self.safety.init_tests()
 
-  def test_adas_status(self):
-    # For canceling stock ACC
-    for controls_allowed in (True, False):
-      self.safety.set_controls_allowed(controls_allowed)
-      for interface_status in range(4):
-        values = {"VDM_AdasInterfaceStatus": interface_status}
-        self.assertTrue(self._tx(self.packer.make_can_msg_safety("VDM_AdasSts", 2, values)))
+class TestRivianLongSafety(TestRivianSafetyBase):
+  TX_MSGS = [[0x120, 0], [0x321, 2], [0x160, 0]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x120, 0x160), 2: (0x321,)}
+  FWD_BLACKLISTED_ADDRS = {0: [0x321], 2: [0x120, 0x160]}
+  SAFETY_PARAM = RivianSafetyFlags.LONG_CONTROL
+  LONGITUDINAL = True
 
 
-class TestRivianLongitudinalSafety(TestRivianSafetyBase):
+class TestRivianAngleSafety(TestRivianAngleSafetyBase):
+  SAFETY_PARAM = RivianSafetyFlags.ANGLE_CONTROL
+  LONGITUDINAL = False
 
+
+class TestRivianAngleLongSafety(TestRivianAngleSafetyBase):
   TX_MSGS = [[0x100, 0], [0x110, 0], [0x120, 0], [0x321, 2], [0x160, 0]]
   RELAY_MALFUNCTION_ADDRS = {0: (0x100, 0x110, 0x120, 0x160), 2: (0x321,)}
   FWD_BLACKLISTED_ADDRS = {0: [0x321], 2: [0x100, 0x110, 0x120, 0x160]}
-
-  def setUp(self):
-    self.VM = VehicleModel(get_safety_CP())
-    self.packer = CANPackerSafety("rivian_primary_actuator")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, RivianSafetyFlags.LONG_CONTROL)
-    self.safety.init_tests()
+  SAFETY_PARAM = RivianSafetyFlags.ANGLE_CONTROL | RivianSafetyFlags.LONG_CONTROL
+  LONGITUDINAL = True
 
 
 class TestRivianIgnition(unittest.TestCase):

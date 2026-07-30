@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""stg-a inversion branch harness tests.
+"""Rivian harness-tier tests.
 
-This branch requires the xnor extreme angle harness (0x1310): without it the car is
-dashcamOnly. Torque is the primary control type (xnor inversion); the angle channel
-is derived from curvature in ext_controller. Single panda, angle TX on bus 0 only.
+Torque is the primary control type on every tier (xnor inversion). A base comma Rivian
+harness is a valid torque-only config; the xnor extreme angle box (0x1310) additionally
+unlocks the angle channel (derived from curvature in ext_controller, TX on bus 0 only).
 """
 import unittest
 from types import SimpleNamespace
@@ -40,12 +40,18 @@ def _get_cp(**kwargs):
 
 
 class TestHarnessDetection(unittest.TestCase):
-  def test_no_angle_harness_is_dashcam(self):
+  def test_base_harness_is_torque_not_dashcam(self):
+    # a base comma Rivian harness is a valid torque-only config, never dashcam (Tier A)
     for cfg in (dict(), dict(long_kit=True), dict(gen2=True)):
       with self.subTest(cfg=cfg):
         cp = _get_cp(**cfg)
-        self.assertTrue(cp.dashcamOnly)
+        self.assertFalse(cp.dashcamOnly)
+        self.assertEqual(cp.steerControlType, structs.CarParams.SteerControlType.torque)
         self.assertFalse(cp.flags & RivianFlags.ANGLE_HARNESS)
+        self.assertFalse(cp.safetyConfigs[0].safetyParam & RivianSafetyFlags.ANGLE_CONTROL)
+        # angle-only caps must be off on a base truck (must match dev)
+        self.assertFalse(cp.steerAtStandstill)
+        self.assertEqual(cp.lateralSmoothSeconds, 0.0)
 
   def test_xnor_box_unlocks_angle(self):
     for cfg in (dict(xnor_box=True), dict(gen2=True, xnor_box=True)):
@@ -55,6 +61,7 @@ class TestHarnessDetection(unittest.TestCase):
         # torque stays the primary control type (xnor inversion)
         self.assertEqual(cp.steerControlType, structs.CarParams.SteerControlType.torque)
         self.assertTrue(cp.flags & RivianFlags.ANGLE_HARNESS)
+        self.assertTrue(cp.safetyConfigs[0].safetyParam & RivianSafetyFlags.ANGLE_CONTROL)
         self.assertTrue(cp.steerAtStandstill)
         self.assertAlmostEqual(cp.lateralSmoothSeconds, 0.4, places=5)
 
@@ -129,6 +136,14 @@ class TestCarControllerTxMatrix(unittest.TestCase):
   def test_gen1_wheel_touch_spoof(self):
     sent = self._run_one_frame(_get_cp(xnor_box=True))
     self.assertIn((0x321, 2), sent)
+
+  def test_base_config_no_angle_tx(self):
+    # a base harness (no xnor box) must NOT emit 0x110/0x100: the stock ACM still broadcasts
+    # them and our copies would collide on counter/checksum
+    sent = self._run_one_frame(_get_cp())
+    for addr in ANGLE_TX_ADDRS:
+      self.assertNotIn((addr, 0), sent)
+    self.assertIn((0x120, 0), sent)  # torque LKA still goes out
 
 
 def _cs_frame(angle=0.0, rate=0.0, torque=0.0, pressed=False, v_ego=10.0, eac_status=1, hands_on_level=1, gen2=False):
