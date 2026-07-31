@@ -150,9 +150,13 @@ class CarController(CarControllerBase, MadsCarController):
         can_sends.append(create_adas_status(self.packer, msg, interface_status))
 
     new_actuators = actuators.as_builder()
-    # on angle the torque channel is idle, not limited; echo the request so
-    # steer_limited_by_safety stays false and the saturation warning keeps working
-    new_actuators.torque = apply_torque / steer_max if self.erc.torque_active else float(actuators.torque)
+    # Report the ACTUAL applied torque, never the request. In angle mode the torque channel is idle
+    # (apply_torque stays 0) while the angle channel steers, so this reports 0, which keeps
+    # steer_limited_by_safety true and therefore freezes the lateral PID integrator. Echoing the
+    # request instead (to restore the angle-mode saturation warning) makes that flag false and lets
+    # the integrator wind up against an output that is being discarded; it then dumps near full
+    # scale torque on the first handoff to torque mode and fights the driver.
+    new_actuators.torque = apply_torque / steer_max
     new_actuators.torqueOutputCan = apply_torque
     new_actuators.steeringAngleDeg = self.erc.apply_angle_last
 
