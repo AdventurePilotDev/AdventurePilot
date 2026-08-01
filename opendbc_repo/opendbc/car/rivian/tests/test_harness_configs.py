@@ -145,6 +145,31 @@ class TestCarControllerTxMatrix(unittest.TestCase):
       self.assertNotIn((addr, 0), sent)
     self.assertIn((0x120, 0), sent)  # torque LKA still goes out
 
+  def test_reported_torque_is_applied_not_requested(self):
+    # Regression for the angle-mode integrator "steering fight" (route 4440a486580ed7c6/...).
+    # Rivian is steerControlType=torque, so controlsd sets
+    #   steer_limited_by_safety = abs(CC.actuators.torque - CO.actuatorsOutput.torque) > 1e-2
+    # and latcontrol_torque freezes the PID integrator on that flag. In angle mode the torque
+    # channel is idle (apply_torque == 0) while the angle channel steers, so carOutput torque
+    # MUST report the applied 0 -- reporting the request instead makes the flag false, unfreezes
+    # the integrator against a discarded output, and it dumps near-full-scale torque on the first
+    # handoff to torque mode. Rivian-only invariant, so the fix never touches shared controls code.
+    cp = _get_cp(xnor_box=True)
+    controller = CarController({Bus.pt: "rivian_primary_actuator"}, cp, structs.CarParamsSP())
+    cc = structs.CarControl()
+    cc.latActive = True
+    cc.enabled = True
+    cc.actuators.torque = 1.0  # full-scale torque REQUEST that must not leak into the report
+    cc = cc.as_reader()
+    cc_sp = structs.CarControlSP()
+    cc_sp.mads.available = True
+    cs = _mock_cs(cp)  # eac_status=1 -> angle engages, torque channel idle
+    new_actuators, _ = controller.update(cc, cc_sp, cs, 0)
+    # nothing was applied on the torque channel...
+    self.assertEqual(new_actuators.torqueOutputCan, 0)
+    # ...so the reported torque must be the applied 0, never the 1.0 request
+    self.assertEqual(new_actuators.torque, 0.0)
+
 
 def _cs_frame(angle=0.0, rate=0.0, torque=0.0, pressed=False, v_ego=10.0, eac_status=1, hands_on_level=1, gen2=False):
   out = structs.CarState()
