@@ -4,7 +4,7 @@ import numpy as np
 
 from opendbc.car.lateral import (
   apply_driver_steer_torque_limits, common_fault_avoidance,
-  apply_steer_angle_limits_vm, get_max_angle_delta_vm,
+  apply_steer_angle_limits_vm, get_max_angle_delta_vm, get_max_angle_vm,
 )
 from opendbc.car.rivian.values import CarControllerParams as CCP, RivianFlags
 from opendbc.car.vehicle_model import VehicleModel
@@ -37,6 +37,13 @@ TOI_BLIP_FRAMES = 2              # frames to release ACM_lkaActToi
 # controller can recover from saturation faster when geometry eases
 HIGH_ANGLE_THRESHOLD_DEG = 90
 HIGH_ANGLE_CAP_FRAC = 0.95
+
+# angle-channel saturation warning: sustained frames where the model's commanded angle exceeds the
+# deliverable envelope (tighter of the EPAS absolute limit and the VM lateral-accel limit) while
+# genuinely turning -> the stock "Take Control / Turn Exceeds Steering Limit" alert. The torque
+# controller's own saturation is discarded in angle mode, so the angle channel must judge this itself.
+ANGLE_SAT_MIN_LAT_ACCEL = 1.0   # m/s^2, the "turning" gate (matches selfdrived)
+ANGLE_SAT_FRAMES = 30           # ~0.3 s sustained before warning (100 Hz loop)
 
 
 class _RateBudget:
@@ -89,6 +96,8 @@ class ExternalController:
     # angle command
     self.apply_angle_last = 0.0
     self.angle_active = False
+    self.angle_saturated = False
+    self.angle_sat_frames = 0
     self.rate_budget = _RateBudget()
     # liveParameters, pushed in from card each frame
     self.roll = 0.0
@@ -105,7 +114,8 @@ class ExternalController:
     self._update_hands_on(CS)
     desired_angle = math.degrees(self.VM.get_steer_from_curvature(-float(actuators.curvature), CS.out.vEgo, self.roll)) + self.angle_offset_deg
     self._update_torque_active(CS, lat_active, desired_angle)
-    self._update_angle(CS, lat_active, desired_angle)
+    desired_lat_accel = float(actuators.curvature) * CS.out.vEgo ** 2
+    self._update_angle(CS, lat_active, desired_angle, desired_lat_accel)
     self._update_torque(CS, actuators)
 
   def _update_wheel_touched(self, wheel_touched, wheel_touched_min_count):
@@ -185,10 +195,11 @@ class ExternalController:
 
     self.lat_active_last = lat_active
 
-  def _update_angle(self, CS, lat_active: bool, desired_angle: float):
+  def _update_angle(self, CS, lat_active: bool, desired_angle: float, desired_lat_accel: float):
     self.angle_active = lat_active and not self.torque_active
 
     apply_angle = desired_angle
+    saturated = False
 
     # use future v_ego so the jerk limit ramps the angle down before the lat-accel envelope shrinks
     v_lookahead = max(CS.out.vEgoRaw + max(CS.out.aEgo, 0.0), 1.0)
@@ -198,6 +209,12 @@ class ExternalController:
     if self.angle_active:
       # EPAS absolute envelope
       fw_max = float(np.interp(CS.out.vEgoRaw, EPAS_FW_MAX_ANGLE_BP, EPAS_FW_MAX_ANGLE_V)) * EPAS_FW_ANGLE_MARGIN
+      # deliverable steady-state angle is the tighter of the EPAS absolute limit and the VM lateral-
+      # accel limit (the latter binds above ~8 m/s and is what the panda enforces). Commanding past it
+      # while genuinely turning means the wheel can't reach the model's line -> saturation.
+      angle_max = min(fw_max, get_max_angle_vm(max(CS.out.vEgoRaw, 1.0), self.VM, CCP))
+      turning = abs(desired_lat_accel) > ANGLE_SAT_MIN_LAT_ACCEL
+      saturated = turning and abs(desired_angle) > angle_max
       apply_angle = float(np.clip(apply_angle, -fw_max, fw_max))
 
       # EPAS windowed rate budget
@@ -208,6 +225,11 @@ class ExternalController:
       # panda's per-frame jerk limit
       step = get_max_angle_delta_vm(max(CS.out.vEgoRaw, 1.0), self.VM, CCP) * PANDA_STEP_MARGIN
       apply_angle = float(np.clip(apply_angle, self.apply_angle_last - step, self.apply_angle_last + step))
+
+    # debounce so a transient clamp/slew doesn't warn; counter resets whenever not saturated
+    # (includes angle inactive and a handoff to the torque channel)
+    self.angle_sat_frames = self.angle_sat_frames + 1 if saturated else 0
+    self.angle_saturated = self.angle_sat_frames >= ANGLE_SAT_FRAMES
 
     self.apply_angle_last = apply_angle
     self.rate_budget.push(apply_angle)

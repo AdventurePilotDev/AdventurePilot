@@ -38,6 +38,8 @@ class CarController(CarControllerBase, MadsCarController):
     self._angle_req_last = False
     self._angle_tap = False
     self._angle_phase_last = 0
+    self._angle_sat_last = None  # None sentinel: first frame always writes, seeding the param so a
+                                 # stale True from a prior boot cannot latch the warning on
 
   def update_live_params(self, roll, angle_offset_deg):
     self.erc.roll = roll
@@ -94,6 +96,12 @@ class CarController(CarControllerBase, MadsCarController):
       for bus in ANGLE_TX_BUSES:
         can_sends.append(create_angle_steering(self.packer, self.frame, self.erc.apply_angle_last, self.erc.angle_active, bus))
         can_sends.append(create_acm_status(self.packer, self.frame, feature_status, bus))
+
+      # angle channel can't reach the commanded angle -> steerSaturated (read in CarSpecificEventsSP).
+      # Edge-write like the phase param; the None sentinel forces a first-frame write (seed).
+      if self._params is not None and self.erc.angle_saturated != self._angle_sat_last:
+        self._params.put_bool("RivianAngleSaturated", self.erc.angle_saturated)
+        self._angle_sat_last = self.erc.angle_saturated
 
     if self.frame % 5 == 0 and not (self.CP.flags & RivianFlags.GEN2):
       can_sends.append(create_wheel_touch(self.packer, CS.sccm_wheel_touch, self.mads.lat_active))
