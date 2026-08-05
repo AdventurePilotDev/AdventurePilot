@@ -270,7 +270,9 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"RivianResumeEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"RivianMadsSteeringModeDefaulted", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"RivianAnglePrimary", {PERSISTENT | BACKUP, BOOL, "1"}},  // 1 = angle primary (hands-off derived angle); 0 = torque primary (torque-only LKA)
+    {"RivianAngleSteerMinSpeed", {PERSISTENT | BACKUP, INT, "0"}},  // mph; below this, steering is pinned to torque (0 = off)
     {"RivianForceTorqueSteerReq", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL, "0"}},  // UI wheel-tap edge -> carcontroller
+    {"RivianForceTorqueSteer", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL, "0"}},  // effective torque-pinned state -> UI wheel tint
     {"RivianAngleSteerPhase", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, INT, "0"}},  // carcontroller hold-to-confirm phase -> selfdrived
     {"RivianAngleSaturated", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL, "0"}},  // angle channel can't reach commanded angle -> steerSaturated
 

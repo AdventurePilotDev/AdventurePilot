@@ -37,6 +37,14 @@ class LateralMode:
       self.mode = None
       return
 
+    # torque is pinned (driver toggle or the always-torque-below-speed override): lock the indicator
+    # to torque (stable blue) so the state reads unambiguously, rather than inferring from applied
+    # torque, which sits at 0 for long stretches on a straight road at low speed
+    if ui_state.params.get_bool("RivianForceTorqueSteer"):
+      self.zero_torque_cnt = 0
+      self.mode = "torque"
+      return
+
     # Rivian sends no CAN torque while it steers on its angle channel
     if sm["carOutput"].actuatorsOutput.torqueOutputCan == 0:
       self.zero_torque_cnt = min(self.zero_torque_cnt + 1, ZERO_TORQUE_HOLD)

@@ -8,13 +8,18 @@ unlocks the angle channel (derived from curvature in ext_controller, TX on bus 0
 import unittest
 from types import SimpleNamespace
 
+import numpy as np
+
 from opendbc.can import CANPacker
 from opendbc.car import Bus, structs
-from opendbc.car.rivian.carcontroller import CarController
+from opendbc.car.common.conversions import Conversions as CV
+from opendbc.car.rivian.carcontroller import CarController, LOW_SPEED_TORQUE_HYST_MS
 from opendbc.car.rivian.ext_controller import (ExternalController, EAC_RECOVER_FRAMES, MIN_TORQUE_FRAMES,
                                                TOI_MAX_ANGLE_FRAMES, TOI_BLIP_FRAMES, ANGLE_SAT_FRAMES)
+from opendbc.car.rivian.ext_controller import (TORQUE_PREARM_ABORT_LOCKOUT, TORQUE_PREARM_EXIT_FRAC, TORQUE_PREARM_MAX_FRAMES,
+                                               TORQUE_PREARM_MIN_HOLD)
 from opendbc.car.rivian.interface import CarInterface
-from opendbc.car.rivian.values import CAR, RivianFlags, RivianSafetyFlags
+from opendbc.car.rivian.values import CAR, CarControllerParams, RivianFlags, RivianSafetyFlags
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
 from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
 
@@ -343,6 +348,248 @@ class TestExternalController(unittest.TestCase):
     erc.update(_cs_frame(v_ego=15, eac_status=2), True, _actuators(curvature=0.001))
     self.assertFalse(erc.angle_saturated)  # one in-envelope frame resets the debounce
 
+  def test_low_speed_force_pins_torque(self):
+    # "always torque below speed": low_speed_force pins torque even with the EPAS ready and actively
+    # steering on angle (reuses the torque-only path, like force_torque)
+    erc = ExternalController(_get_cp(xnor_box=True))
+    erc.low_speed_force = True
+    for _ in range(MIN_TORQUE_FRAMES * 2):
+      erc.update(_cs_frame(eac_status=2), True, _actuators())
+    self.assertTrue(erc.torque_active)
+    self.assertFalse(erc.angle_active)
+
+  def test_low_speed_force_release_returns_to_angle(self):
+    # rising above the speed clears low_speed_force and normal cooperative behavior resumes: hands
+    # back to angle once hands-off, EPAS ready and the wheel is settled
+    erc = ExternalController(_get_cp(xnor_box=True))
+    erc.low_speed_force = True
+    for _ in range(MIN_TORQUE_FRAMES):
+      erc.update(_cs_frame(eac_status=2), True, _actuators())
+    self.assertTrue(erc.torque_active)
+    erc.low_speed_force = False
+    handed_back = False
+    for _ in range(MIN_TORQUE_FRAMES * 3):
+      erc.update(_cs_frame(eac_status=1), True, _actuators())
+      if not erc.torque_active:
+        handed_back = True
+
+
+class TestLowSpeedTorqueLatch(unittest.TestCase):
+  """CarController-level "always torque below speed" latch: single-sided hysteresis driven by
+  vEgo — enter torque immediately below the set speed, release only once LOW_SPEED_TORQUE_HYST_MS
+  (3 mph) above it, no dwell. Holds its last state inside the band from either direction."""
+
+  T_MPH = 10.0
+  HYST_MPH = LOW_SPEED_TORQUE_HYST_MS / CV.MPH_TO_MS
+
+  def setUp(self):
+    self.cp = _get_cp(xnor_box=True)
+
+  def _make(self):
+    controller = CarController({Bus.pt: "rivian_primary_actuator"}, self.cp, structs.CarParamsSP())
+    # the macOS venv has no openpilot Params, so the frame%50 threshold re-read is skipped and a
+    # manually-set _angle_min_speed_ms survives; assert that assumption before relying on it.
+    self.assertIsNone(controller._params)
+    controller._angle_min_speed_ms = self.T_MPH * CV.MPH_TO_MS
+    return controller
+
+  def _step(self, controller, v_mph):
+    cc = structs.CarControl()
+    cc.latActive = True
+    cc.enabled = True
+    cc = cc.as_reader()
+    cc_sp = structs.CarControlSP()
+    cs = _mock_cs(self.cp)
+    cs.out.vEgo = v_mph * CV.MPH_TO_MS
+    controller.update(cc, cc_sp, cs, 0)
+    # the latch state is mirrored onto the ExternalController every frame
+    self.assertEqual(controller.erc.low_speed_force, controller._low_speed_torque)
+    return controller._low_speed_torque
+
+  def test_enters_torque_immediately_below_set_speed(self):
+    controller = self._make()
+    self.assertFalse(controller._low_speed_torque)  # starts released
+    self.assertTrue(self._step(controller, self.T_MPH - 2.0))  # one frame below T -> latched
+
+  def test_releases_only_above_band(self):
+    controller = self._make()
+    self._step(controller, self.T_MPH - 2.0)
+    self.assertTrue(controller._low_speed_torque)
+    # inside the band it holds torque; only clearly above T + hyst does it release
+    self.assertTrue(self._step(controller, self.T_MPH + self.HYST_MPH - 0.5))
+    self.assertFalse(self._step(controller, self.T_MPH + self.HYST_MPH + 2.0))
+
+  def test_band_holds_torque_when_rising_from_below(self):
+    controller = self._make()
+    self._step(controller, self.T_MPH - 2.0)  # latched True
+    self.assertTrue(self._step(controller, self.T_MPH + self.HYST_MPH / 2.0))  # in band -> holds True
+
+  def test_band_holds_released_when_coming_from_above(self):
+    controller = self._make()
+    self.assertFalse(self._step(controller, self.T_MPH + self.HYST_MPH + 2.0))  # above -> released
+    self.assertFalse(self._step(controller, self.T_MPH + self.HYST_MPH / 2.0))  # in band -> holds False
+
+  def test_feature_off_forces_release(self):
+    controller = self._make()
+    self._step(controller, self.T_MPH - 2.0)
+    self.assertTrue(controller._low_speed_torque)
+    controller._angle_min_speed_ms = 0.0  # setting turned off mid-drive
+    self.assertFalse(self._step(controller, self.T_MPH - 2.0))  # forced released despite low speed
+
+
+class TestMakeBeforeBreakHandoff(unittest.TestCase):
+  """The forced angle->torque handoff (low-speed threshold or the force-torque toggle).
+
+  Torque ramps up underneath a still-active angle command and the angle servo is only released
+  once torque can carry the curve. Four road tests exercised the 'reached', 'hold < MIN_HOLD' and
+  'driver_took_over' exits; the stall -> abort-to-angle backstop is signed off here instead,
+  because on road it is pre-empted by driver_took_over in 5-27 frames and is only reachable when a
+  driver applies counter-torque that trips NEITHER hands-on detector (torsion below 4.0 AND no
+  capacitive touch). These tests reproduce exactly that gap.
+  """
+
+  V_EGO = 10.0
+  # STEER_MAX_LOOKUP interpolated at V_EGO, matching ext_controller's own steer_max
+  STEER_MAX = round(float(np.interp(V_EGO, CarControllerParams.STEER_MAX_LOOKUP[0],
+                                    CarControllerParams.STEER_MAX_LOOKUP[1])))
+  # counter-torque that zeroes the allowed torque via the driver limiter while staying below the
+  # 4.0 torsion threshold, so hands_on never latches: driver_max_torque <= 0 needs d <= -2.88
+  STALL_DRIVER_TORQUE = -3.0
+
+  def _erc(self):
+    erc = ExternalController(_get_cp(xnor_box=True))
+    erc.low_speed_force = True
+    return erc
+
+  def _hold(self, hold_target):
+    """actuators.torque that yields the requested hold_target"""
+    return _actuators(torque=hold_target / self.STEER_MAX)
+
+  def _run(self, erc, frames, hold_target=200, driver_torque=0.0, pressed=False,
+           eac_status=2, hands_on_level=1, angle=10.0):
+    """drive the controller and record the per-frame overlap state"""
+    trace = []
+    for _ in range(frames):
+      erc.update(_cs_frame(angle=angle, torque=driver_torque, pressed=pressed, v_ego=self.V_EGO,
+                           eac_status=eac_status, hands_on_level=hands_on_level),
+                 True, self._hold(hold_target))
+      trace.append(SimpleNamespace(prearm=erc.torque_prearm, torque_active=erc.torque_active,
+                                   angle_active=erc.angle_active, torque=erc.apply_torque_last,
+                                   toi=erc.toi_act_cmd, lockout=erc.prearm_abort_lockout))
+    return trace
+
+  def test_stalled_ramp_aborts_back_to_angle(self):
+    # THE ABORT PATH. Driver counter-torque below the torsion threshold with no capacitive touch:
+    # the driver limiter pins applied torque at 0, so the ramp never makes a new peak, and at the
+    # frame cap the handoff must ABORT back to angle rather than release into an under-torqued wheel.
+    erc = self._erc()
+    trace = self._run(erc, TORQUE_PREARM_MAX_FRAMES, driver_torque=self.STALL_DRIVER_TORQUE, pressed=True)
+
+    # hands_on must NOT have latched - that is what makes this the abort case and not driver_took_over
+    self.assertFalse(erc.hands_on, "torsion/capacitive tripped; this is no longer the stall case")
+    # the ramp really did stall
+    self.assertTrue(all(f.torque == 0 for f in trace), "driver limiter did not pin the ramp at 0")
+    # aborted, not released: back on angle, torque channel dropped, and the outcome recorded
+    self.assertEqual(erc.prearm_last_outcome, "abort")
+    self.assertFalse(erc.torque_active, "released into an under-torqued wheel instead of aborting")
+    self.assertFalse(erc.torque_prearm)
+    self.assertEqual(erc.prearm_abort_lockout, TORQUE_PREARM_ABORT_LOCKOUT)
+    # and the angle servo held the wheel for every frame of the attempt, including the abort frame
+    self.assertTrue(all(f.angle_active for f in trace), "wheel was left unsupported during the overlap")
+
+  def test_abort_holds_angle_through_lockout_then_reattempts(self):
+    # after aborting, stay on angle for the lockout before trying again; once the driver stops
+    # fighting, the retry completes normally
+    erc = self._erc()
+    self._run(erc, TORQUE_PREARM_MAX_FRAMES, driver_torque=self.STALL_DRIVER_TORQUE, pressed=True)
+    self.assertEqual(erc.prearm_last_outcome, "abort")
+
+    # lockout: still fighting, must stay on angle and must not start a new overlap
+    lockout = self._run(erc, TORQUE_PREARM_ABORT_LOCKOUT, driver_torque=self.STALL_DRIVER_TORQUE, pressed=True)
+    self.assertTrue(all(f.angle_active and not f.torque_active for f in lockout))
+    self.assertTrue(all(not f.prearm for f in lockout), "re-attempted the handoff inside the lockout")
+    self.assertEqual(erc.prearm_abort_lockout, 0)
+
+    # driver releases: the next attempt is a healthy ramp and completes
+    retry = self._run(erc, TORQUE_PREARM_MAX_FRAMES)
+    self.assertTrue(erc.torque_active, "never re-attempted the handoff after the lockout expired")
+    self.assertEqual(erc.prearm_last_outcome, "reached")
+    self.assertTrue(any(f.prearm for f in retry), "switched without a make-before-break overlap")
+
+  def test_steering_pressed_alone_is_not_driver_took_over(self):
+    # seg41 of route 00000004 sat in exactly this gap: steeringPressed true and real counter-torque,
+    # but 3.3 Nm is below the 4.0 torsion threshold, so only the capacitive sensor could catch it.
+    # With no capacitive touch the handoff must fall through to the stall/abort backstop, NOT switch.
+    erc = self._erc()
+    trace = self._run(erc, TORQUE_PREARM_MAX_FRAMES - 1, driver_torque=self.STALL_DRIVER_TORQUE, pressed=True)
+    self.assertTrue(all(f.prearm for f in trace[1:]), "steeringPressed alone ended the overlap early")
+    self.assertFalse(erc.torque_active)
+
+  def test_healthy_ramp_reaches_before_the_frame_cap(self):
+    # the design invariant the frame cap depends on: for every achievable hold_target, including the
+    # sharpest possible low-speed curve, the relative 0.85 exit fires strictly before the backstop.
+    # If this fails, the cap has been tuned into a curve-dependent limit (see the ext_controller note).
+    for hold_target in (TORQUE_PREARM_MIN_HOLD, 60, 120, 250, self.STEER_MAX):
+      with self.subTest(hold_target=hold_target):
+        erc = self._erc()
+        trace = self._run(erc, TORQUE_PREARM_MAX_FRAMES, hold_target=hold_target)
+        overlap = [i for i, f in enumerate(trace) if f.prearm]
+        self.assertEqual(erc.prearm_last_outcome, "reached")
+        self.assertTrue(erc.torque_active)
+        self.assertLess(erc.prearm_last_frames, TORQUE_PREARM_MAX_FRAMES,
+                        "healthy ramp hit the absolute backstop instead of the fractional exit")
+        # angle held for the whole overlap, and released the frame it ended
+        self.assertTrue(all(trace[i].angle_active for i in overlap))
+        self.assertFalse(trace[overlap[-1] + 1].angle_active)
+        # torque carried at least the exit fraction of the curve before angle let go
+        self.assertGreaterEqual(erc.prearm_last_peak, TORQUE_PREARM_EXIT_FRAC * hold_target)
+
+  def test_overlap_ramp_is_panda_legal(self):
+    # both channels are commanded at once during the overlap; the torque ramp underneath must still
+    # be the ordinary +STEER_DELTA_UP/frame engagement ramp that the panda torque limits allow
+    erc = self._erc()
+    trace = self._run(erc, TORQUE_PREARM_MAX_FRAMES, hold_target=self.STEER_MAX)
+    overlap = [f.torque for f in trace if f.prearm]
+    self.assertGreater(len(overlap), 1)
+    # trace samples after update(), so the first overlap frame already holds one step off zero
+    self.assertLessEqual(abs(overlap[0]), CarControllerParams.STEER_DELTA_UP,
+                         "torque channel warm-started instead of ramping from 0")
+    steps = np.diff(np.abs(np.array(overlap)))
+    self.assertLessEqual(steps.max(), CarControllerParams.STEER_DELTA_UP)
+
+  def test_near_straight_switches_immediately(self):
+    # nothing for the servo to hold: switch without an overlap
+    erc = self._erc()
+    trace = self._run(erc, 30, hold_target=TORQUE_PREARM_MIN_HOLD - 1)
+    self.assertTrue(erc.torque_active)
+    self.assertFalse(any(f.prearm for f in trace), "opened an overlap for a straight wheel")
+
+  def test_epas_not_holding_switches_immediately(self):
+    # EPAS is not actively steering, so there is no angle hold to preserve
+    erc = self._erc()
+    trace = self._run(erc, 30, eac_status=1)
+    self.assertTrue(erc.torque_active)
+    self.assertFalse(any(f.prearm for f in trace))
+
+  def test_driver_took_over_switches_immediately(self):
+    # hands_on (here via the EPAS hands-on level) + steeringPressed: the driver already has the
+    # wheel, so hand the channel over at once rather than holding the servo against them
+    erc = self._erc()
+    trace = self._run(erc, 30, pressed=True, hands_on_level=2)
+    self.assertTrue(erc.hands_on)
+    self.assertTrue(erc.torque_active)
+    self.assertFalse(any(f.prearm for f in trace))
+
+  def test_lat_inactive_drops_both_channels(self):
+    erc = self._erc()
+    self._run(erc, 5)
+    self.assertTrue(erc.torque_prearm or erc.torque_active)
+    for _ in range(5):
+      erc.update(_cs_frame(v_ego=self.V_EGO, eac_status=2), False, self._hold(200))
+    self.assertFalse(erc.torque_active)
+    self.assertFalse(erc.torque_prearm)
+    self.assertFalse(erc.angle_active)
+    self.assertEqual(erc.prearm_abort_lockout, 0)
 
 class TestMadsGearGate(unittest.TestCase):
   def test_lat_active_gated_to_drive(self):

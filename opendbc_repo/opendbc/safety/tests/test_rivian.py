@@ -4,6 +4,7 @@ import numpy as np
 
 from opendbc.car.lateral import get_max_angle_delta_vm, get_max_angle_vm
 from opendbc.car.rivian.carcontroller import get_safety_CP
+from opendbc.car.rivian.ext_controller import TORQUE_PREARM_ABORT_LOCKOUT, TORQUE_PREARM_MAX_FRAMES
 from opendbc.car.rivian.values import CarControllerParams, RivianSafetyFlags
 from opendbc.car.rivian.riviancan import checksum as _checksum
 from opendbc.car.structs import CarParams
@@ -278,6 +279,89 @@ class TestRivianAngleSafetyBase(TestRivianSafetyBase, common.AngleSteeringSafety
         self.assertFalse(self._tx(self._angle_cmd_msg(0, True)))
         self.assertTrue(self._tx(self._angle_cmd_msg(0, True)))
 
+
+  def _mbb_setup(self, speed=10.0, angle=20.0):
+    """settle the rx state and seed the angle command stream at the measured angle"""
+    self.safety.init_tests()
+    self.safety.set_controls_allowed(True)
+    for _ in range(10):
+      self._rx(self._speed_msg(speed))
+      self._rx(self._speed_msg_2(speed))
+      self._rx(self._angle_meas_msg(angle))
+      self._rx(self._torque_driver_msg(0))
+    self.safety.set_desired_angle_last(round(angle * self.DEG_TO_CAN))
+
+  def _mbb_rx(self, speed, angle):
+    self._rx(self._speed_msg(speed))
+    self._rx(self._speed_msg_2(speed))
+    self._rx(self._angle_meas_msg(angle))
+    self._rx(self._torque_driver_msg(0))
+
+  def test_make_before_break_overlap(self):
+    """The make-before-break handoff commands BOTH lateral channels at once: the angle command
+    stays live (EacEnabled) while torque ramps up underneath it. 0x110 and 0x120 are validated
+    independently with no cross-channel state, so the overlap must pass on both channels, and
+    the release (angle inactive, tracking measured) must pass too."""
+    speed, angle = 10.0, 20.0
+    self._mbb_setup(speed, angle)
+    torque = 0
+    for frame in range(TORQUE_PREARM_MAX_FRAMES):
+      self.assertTrue(self._tx(self._angle_cmd_msg(angle, True)), f"angle blocked during overlap, frame {frame}")
+      torque = min(torque + CarControllerParams.STEER_DELTA_UP, self.MAX_TORQUE)
+      self.assertTrue(self._tx(self._torque_cmd_msg(torque, steer_req=1)), f"torque {torque} blocked, frame {frame}")
+      self._mbb_rx(speed, angle)
+
+    # release: angle goes inactive tracking the measured angle while torque keeps carrying the curve
+    for frame in range(50):
+      self.assertTrue(self._tx(self._angle_cmd_msg(angle, False)), f"inactive angle blocked, frame {frame}")
+      self.assertTrue(self._tx(self._torque_cmd_msg(torque, steer_req=1)), f"torque blocked after release, frame {frame}")
+      self._mbb_rx(speed, angle)
+
+  def test_make_before_break_overlap_rate_limited(self):
+    """control for the test above: the torque limits stay live during the overlap"""
+    speed, angle = 10.0, 20.0
+    self._mbb_setup(speed, angle)
+    torque = 0
+    blocked = False
+    for _ in range(20):
+      self._tx(self._angle_cmd_msg(angle, True))
+      torque += CarControllerParams.STEER_DELTA_UP * 4  # illegal ramp
+      if not self._tx(self._torque_cmd_msg(torque, steer_req=1)):
+        blocked = True
+        break
+      self._mbb_rx(speed, angle)
+    self.assertTrue(blocked, "over-rate torque was allowed during the overlap")
+
+  def test_make_before_break_abort(self):
+    """A stalled ramp aborts back to angle: the torque channel drops to (0, steer_req=0) while the
+    angle command keeps steering, then re-arms from 0 after the lockout. Panda holds its last
+    torque through the cut, so the re-ramp must pass in either direction."""
+    speed, angle = 10.0, 20.0
+    self._mbb_setup(speed, angle)
+    torque = 0
+    for _ in range(60):
+      self._tx(self._angle_cmd_msg(angle, True))
+      torque = min(torque + CarControllerParams.STEER_DELTA_UP, 180)
+      self.assertTrue(self._tx(self._torque_cmd_msg(torque, steer_req=1)))
+      self._mbb_rx(speed, angle)
+
+    # abort: torque channel released, angle keeps holding the wheel for the lockout
+    for frame in range(TORQUE_PREARM_ABORT_LOCKOUT):
+      self.assertTrue(self._tx(self._angle_cmd_msg(angle, True)), f"angle blocked during abort, frame {frame}")
+      self.assertTrue(self._tx(self._torque_cmd_msg(0, steer_req=0)), f"torque release blocked, frame {frame}")
+      self._mbb_rx(speed, angle)
+
+    # re-attempt after the lockout, ramping from 0 in either direction
+    for sign in (1, -1):
+      torque = 0
+      for frame in range(40):
+        self.assertTrue(self._tx(self._angle_cmd_msg(angle, True)))
+        torque = sign * min(abs(torque) + CarControllerParams.STEER_DELTA_UP, 120)
+        self.assertTrue(self._tx(self._torque_cmd_msg(torque, steer_req=1)), f"re-ramp {torque} blocked, frame {frame}")
+        self._mbb_rx(speed, angle)
+      for _ in range(5):
+        self._tx(self._torque_cmd_msg(0, steer_req=0))
+        self._mbb_rx(speed, angle)
 
 # ---- concrete tiers: base torque, +op-long, +angle, +angle+op-long ----
 

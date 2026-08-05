@@ -107,6 +107,19 @@ class SteeringLayout(Widget):
       title=lambda: tr("Rivian: Angle Steering (off = torque only)"),
       description=self._angle_primary_base_desc,
     )
+    self._angle_min_speed = option_item_sp(
+      param="RivianAngleSteerMinSpeed",
+      title=lambda: tr("Rivian: Always-Torque Below Speed"),
+      min_value=0,
+      max_value=40,
+      value_change_step=1,
+      description=lambda: (tr("Below this speed, steering always uses torque even when angle steering is enabled. 0 = no minimum. ")
+                           + tr("This is true vehicle speed; the dash may read about 1 mph higher. ")
+                           + tr("Steering returns to angle mode only once about 3 mph above this speed. ")
+                           + tr("Value is in mph; shown in km/h when metric is active. ")
+                           + tr("Takes effect after changing from OffRoad to OnRoad.")),
+      label_callback=lambda speed: f'{round(speed * 1.60934)} km/h' if ui_state.is_metric else f'{speed} mph',
+    )
 
     items = [
       self._mads_toggle,
@@ -123,6 +136,7 @@ class SteeringLayout(Widget):
       LineSeparatorSP(40),
       self._nnlc_toggle,
       self._angle_primary_toggle,
+      self._angle_min_speed,
     ]
     return items
 
@@ -164,6 +178,8 @@ class SteeringLayout(Widget):
       desc = self._angle_primary_base_desc if is_offroad else \
         f"<b>{self._angle_primary_offroad_only}</b><br>{self._angle_primary_base_desc}"
       self._angle_primary_toggle.set_description(desc)
+    # "always torque below speed" is only relevant when angle steering is available and enabled
+    self._angle_min_speed.set_visible(angle_avail and self._angle_primary_toggle.action_item.get_state())
 
   def _render(self, rect):
     if self._current_panel == PanelType.LANE_CHANGE:
