@@ -274,6 +274,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"RivianForceTorqueSteer",          {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL, "0"}},
     {"RivianForceTorqueSteerReq",       {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL, "0"}},
     {"RivianAngleSteerPhase",           {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, INT,  "0"}},
+    {"RivianAngleSaturated",            {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL, "0"}},
 
     // Smart Cruise Control
     {"MapTargetVelocities", {CLEAR_ON_ONROAD_TRANSITION, STRING}},

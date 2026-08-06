@@ -161,5 +161,9 @@ class CarSpecificEventsSP:
           if event is not None and (phase in _RIVIAN_PENDING_PHASES or phase != self._angle_phase_prev):
             events_sp.add(event)
           self._angle_phase_prev = phase
+          # angle channel can't reach the commanded angle -> stock "Take Control" alert. Rivian-gated;
+          # the shared selfdrived path can't see angle-channel saturation (torque output is discarded).
+          if self._params.get_bool("RivianAngleSaturated"):
+            events.add(EventName.steerSaturated)
 
     return events_sp
