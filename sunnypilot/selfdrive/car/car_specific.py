@@ -9,6 +9,7 @@ from cereal import log, custom
 from opendbc.car import structs
 
 from opendbc.car.chrysler.values import RAM_DT
+from openpilot.common.constants import CV
 from openpilot.common.params import Params
 from openpilot.selfdrive.selfdrived.events import Events
 from openpilot.sunnypilot.mads.helpers import MadsSteeringModeOnBrake, read_steering_mode_param
@@ -33,6 +34,7 @@ class CarSpecificEventsSP:
     self._rivian_reverse_disable_pending = False
     if self.CP.brand == 'rivian':
       self._rivian_steering_mode_on_brake = read_steering_mode_param(CP, CP_SP, Params())
+      self._rivian_min_engage_speed_ms = int(Params().get("MadsMinEngageSpeed", return_default=True)) * CV.MPH_TO_MS  # stored in mph
 
   def update(self, CS: structs.CarState, events: Events):
     events_sp = EventsSP()
@@ -116,5 +118,13 @@ class CarSpecificEventsSP:
       # case (where pedalPressed event stops firing) and Mode A (ACC+MADS active).
       if CS.brakePressed and self._rivian_steering_mode_on_brake == MadsSteeringModeOnBrake.PAUSE:
         events_sp.add(EventNameSP.silentLkasDisable)
+
+      # Minimum speed to (re-)engage MADS lateral via the standalone MADS stalk.
+      # Cruise/UEM engagement (pcmEnable/buttonEnable present this frame) is exempt, so engaging
+      # ACC always brings lateral regardless of speed. Below threshold belowMadsMinEngageSpeed
+      # (ET.NO_ENTRY) blocks the standalone engagement.
+      selfdrive_enable_events = events.has(EventName.pcmEnable) or events.has(EventName.buttonEnable)
+      if self._rivian_min_engage_speed_ms > 0 and not selfdrive_enable_events and CS.vEgo < self._rivian_min_engage_speed_ms:
+        events_sp.add(EventNameSP.belowMadsMinEngageSpeed)
 
     return events_sp

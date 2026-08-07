@@ -14,7 +14,7 @@ from openpilot.system.ui.lib.multilang import tr, tr_noop
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.network import NavButton
 from openpilot.system.ui.widgets.scroller_tici import Scroller
-from openpilot.system.ui.sunnypilot.widgets.list_view import multiple_button_item_sp, toggle_item_sp
+from openpilot.system.ui.sunnypilot.widgets.list_view import multiple_button_item_sp, option_item_sp, toggle_item_sp
 
 MADS_STEERING_MODE_OPTIONS = [
   (tr("Remain Active"), tr_noop("Remain Active: ALC will remain active when the brake pedal is pressed.")),
@@ -68,10 +68,23 @@ class MadsSettingsLayout(Widget):
       callback=self._update_steering_mode_description,
     )
 
+    self._min_engage_speed = option_item_sp(
+      param="MadsMinEngageSpeed",
+      title=lambda: tr("Minimum Speed to Engage MADS"),
+      min_value=0,
+      max_value=20,
+      value_change_step=1,
+      description=lambda: tr("Minimum vehicle speed required to (re-)engage MADS lateral control. "
+                             "0 = no minimum. Value is in mph; shown in km/h when metric is active. "
+                             "Takes effect after changing from OffRoad to OnRoad."),
+      label_callback=lambda speed: f'{round(speed * 1.60934)} km/h' if ui_state.is_metric else f'{speed} mph',
+    )
+
     self.items = [
       self._main_cruise_toggle,
       self._unified_engagement_toggle,
       self._steering_mode,
+      self._min_engage_speed,
     ]
 
   def _update_state(self):
@@ -164,3 +177,9 @@ class MadsSettingsLayout(Widget):
       else:
         self._unified_engagement_toggle.action_item.set_enabled(True)
         self._unified_engagement_toggle.set_description(MADS_UNIFIED_ENGAGEMENT_MODE_BASE_DESC)
+
+      if self._get_brand() == "rivian":
+        self._min_engage_speed.action_item.set_enabled(True)
+      else:
+        ui_state.params.put("MadsMinEngageSpeed", 0)
+        self._min_engage_speed.action_item.set_enabled(False)

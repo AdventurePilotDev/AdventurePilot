@@ -125,6 +125,12 @@ class TestMadsBrandGates:
     assert _references_capability_field(item.get("enablement"), "brand")
     assert _references_capability_field(item.get("enablement"), "tesla_has_vehicle_bus")
 
+  def test_mads_min_engage_speed_has_rivian_gate(self, schema):
+    """MadsMinEngageSpeed must be gated to Rivian only (unlike the other MADS toggles)."""
+    item = _find_item(schema, "MadsMinEngageSpeed")
+    assert item is not None
+    assert _references_capability_field(item.get("enablement"), "brand")
+
 
 class TestTestManeuversSection:
   def test_lateral_maneuver_mode_in_test_maneuvers(self, schema):

@@ -58,6 +58,20 @@ sections:
         label: Disengage
       enablement:
       - $ref: '#/macros/offroad'
+    - key: MadsMinEngageSpeed
+      widget: option
+      title: Minimum Speed to Engage MADS
+      description: Minimum vehicle speed required to (re-)engage MADS lateral control. 0 = no minimum.
+      min: 0
+      max: 20
+      step: 1
+      unit:
+        metric: km/h
+        imperial: mph
+      needs_onroad_cycle: true
+      enablement:
+      - $ref: '#/macros/offroad'
+      - {type: capability, field: brand, equals: rivian}
 - id: blinker
   title: Blinker Control
   description: Lateral pause behavior during turn signals
