@@ -160,15 +160,21 @@ class CruiseLayout(Widget):
         self.dec_toggle.action_item.set_enabled(has_long)
         self.scc_v_toggle.action_item.set_enabled(True)
         self.scc_m_toggle.action_item.set_enabled(True)
+        # Curve Speed Control feeds the longitudinal planner, so it only does anything with openpilot
+        # longitudinal active -- gate it like the DEC toggle (and like the mici UI, which hides both on
+        # has_longitudinal_control) instead of leaving it always-on here.
+        self.curve_speed_toggle.action_item.set_enabled(has_long)
       else:
         ui_state.params.remove("CustomAccIncrementsEnabled")
         ui_state.params.remove("DynamicExperimentalControl")
         ui_state.params.remove("SmartCruiseControlVision")
         ui_state.params.remove("SmartCruiseControlMap")
+        ui_state.params.remove("CurveSpeedControl")
         self.custom_acc_toggle.action_item.set_enabled(False)
         self.dec_toggle.action_item.set_enabled(False)
         self.scc_v_toggle.action_item.set_enabled(False)
         self.scc_m_toggle.action_item.set_enabled(False)
+        self.curve_speed_toggle.action_item.set_enabled(False)
 
       is_rivian_long = ui_state.CP.brand == "rivian" and has_long
       self.rivian_resume_toggle.action_item.set_enabled(is_rivian_long and ui_state.is_offroad())

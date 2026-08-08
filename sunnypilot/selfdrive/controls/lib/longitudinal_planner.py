@@ -79,6 +79,19 @@ class LongitudinalPlannerSP:
     self.source = min(targets, key=lambda k: targets[k][0])
     self.output_v_target, self.output_a_target = targets[self.source]
 
+    # A source wins on the lowest SPEED target, but the a_target we hand back is assigned straight into the
+    # planner's `a_desired` - its acceleration continuity state, which seeds the MPC's initial state and is
+    # integrated into v_desired_filter. So a source that wins the speed contest while wanting to ACCELERATE
+    # (curve control holding a cap we're already below, because a lead is braking us under it) would inject an
+    # acceleration the car is not producing: v_desired_filter drifts above the true speed and the MPC then plans
+    # braking for a car going several m/s faster than it really is. Observed: +4.3 m/s of drift, over-braking to a
+    # standstill ~20 m short of the lead.
+    #
+    # These are speed-CAP controllers: they may only ever ask for less acceleration, never more. Clamping to the
+    # incoming state keeps every capping source able to slow us (curve control's own decel still passes through)
+    # while leaving the accelerate-out to the MPC, which is the only thing tracking the real vehicle.
+    self.output_a_target = min(self.output_a_target, a_ego)
+
     # Throttle-fade interlock: don't add throttle while the steering is near/at its lateral limit.
     if self.output_a_target > 0.0:
       self.output_a_target *= self.scc.governor.throttle_scale()
