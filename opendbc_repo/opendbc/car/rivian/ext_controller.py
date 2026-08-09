@@ -38,6 +38,28 @@ TOI_BLIP_FRAMES = 2              # frames to release ACM_lkaActToi
 HIGH_ANGLE_THRESHOLD_DEG = 90
 HIGH_ANGLE_CAP_FRAC = 0.95
 
+# make-before-break for a *predictable* forced angle->torque transition (low-speed threshold or the
+# driver's force-torque toggle). The torque channel is rate-limited up from 0 at STEER_DELTA_UP and
+# takes ~0.5s to reach the torque that holds the current curve; panda enforces the same limit, so we
+# cannot warm-start it. Instead keep the EPAS angle servo holding the wheel (angle stays active) while
+# torque ramps underneath it, then release angle once torque can carry the load. Without this the wheel
+# is unsupported for the whole ramp and unwinds, then the ramping torque overshoots (the lateral jerk).
+#
+# Exit is by TORQUE ACHIEVED, not wall-clock: release angle once |apply_torque| reaches
+# TORQUE_PREARM_EXIT_FRAC of the torque that holds the current curve. That fraction is relative, so it
+# scales with curve sharpness and speed automatically - a sharp low-speed bend needs more torque and is
+# allowed to ramp longer, a shallow one exits sooner. The frame cap is ONLY an absolute safety backstop
+# so a stalled ramp (driver countering, TOI angle-limit blip) cannot pin the angle servo forever; it is
+# sized to exceed the physical ramp time of the sharpest possible low-speed curve
+# (0.85 * max STEER_MAX(385) / STEER_DELTA_UP(3) ~= 109 frames) with margin, so under a healthy ramp the
+# fractional exit always fires first, on every curve. Do not tune the cap down to a curve-specific value
+# - that reintroduces the exact speed/curve dependence this design removes.
+TORQUE_PREARM_EXIT_FRAC = 0.85    # release angle once |apply_torque| >= this * |feedforward hold torque|
+TORQUE_PREARM_MIN_HOLD = 20       # below this |hold torque| there is nothing to hold; switch immediately
+TORQUE_PREARM_MAX_FRAMES = 150    # ~1.5s absolute backstop only; healthy ramps exit on EXIT_FRAC first
+TORQUE_PREARM_STALL_FRAMES = 12   # consecutive no-new-peak frames that mark the torque ramp as stalled
+TORQUE_PREARM_ABORT_LOCKOUT = 50  # frames to stay on angle after a stalled handoff before re-attempting
+
 
 class _RateBudget:
   # sliding-window budget for the EPAS rate limit; history is CAN-quantized to 0.1 deg
@@ -83,9 +105,23 @@ class ExternalController:
     self.torque_active_frames = 0
     self.lat_active_last = False
     self.eac_dead_frames = 0
+    # make-before-break: torque ramps up under a still-active angle command on a forced transition
+    self.torque_prearm = False
+    self.prearm_frames = 0
+    self.prearm_torque_peak = 0     # highest |apply_torque| reached this handoff; stall = no new peak
+    self.prearm_stall_frames = 0
+    self.prearm_abort_lockout = 0
+    # last-handoff telemetry for road-test triage (surface via logs / watch the rlog overlap)
+    self.prearm_last_outcome = ""   # "reached" | "backstop" | "abort"
+    self.prearm_last_hold = 0
+    self.prearm_last_frames = 0
+    self.prearm_last_peak = 0
     # driver-forced full-time torque: pin torque-only and never hand off to angle (set from a param
     # via CarController, resets each drive). Reuses the torque-only-hardware path, no new safety surface.
     self.force_torque = False
+    # below the configured min angle speed: pin torque-only this frame (set from a param via
+    # CarController). Same torque-only path as force_torque, no new safety surface.
+    self.low_speed_force = False
 
     # angle command
     self.apply_angle_last = 0.0
@@ -105,7 +141,7 @@ class ExternalController:
   def update(self, CS, lat_active: bool, actuators):
     self._update_hands_on(CS)
     desired_angle = math.degrees(self.VM.get_steer_from_curvature(-float(actuators.curvature), CS.out.vEgo, self.roll)) + self.angle_offset_deg
-    self._update_torque_active(CS, lat_active, desired_angle)
+    self._update_torque_active(CS, lat_active, desired_angle, actuators)
     self._update_angle(CS, lat_active, desired_angle)
     self._update_torque(CS, actuators)
 
@@ -139,16 +175,90 @@ class ExternalController:
     torsion = self._update_torsion(CS.out.steeringTorque, 4.0, 9)
     self.hands_on = wheel_touch or torsion or CS.hands_on_level > 1
 
-  def _update_torque_active(self, CS, lat_active: bool, desired_angle: float):
+  def _reset_prearm(self):
+    self.torque_prearm = False
+    self.prearm_frames = 0
+    self.prearm_torque_peak = 0
+    self.prearm_stall_frames = 0
+
+  def _end_prearm(self, outcome: str, hold_target: int):
+    # record why the overlap ended so a road test can be triaged from the log
+    self.prearm_last_outcome = outcome
+    self.prearm_last_hold = hold_target
+    self.prearm_last_frames = self.prearm_frames
+    self.prearm_last_peak = self.prearm_torque_peak
+    self._reset_prearm()
+
+  def _update_torque_active(self, CS, lat_active: bool, desired_angle: float, actuators):
     self.torque_active_frames = self.torque_active_frames + 1 if self.torque_active else 0
 
-    # torque-only hardware, or driver forced full-time torque: torque is the only lateral channel,
-    # never hand off to angle (eac_dead_frames reset so a stale count doesn't bite when the driver
-    # toggles back to the default mode mid-drive)
-    if not self.angle_supported or self.force_torque:
+    # torque-only hardware: no angle channel to fall back on, torque is the only lateral channel
+    if not self.angle_supported:
       self.torque_active = lat_active
+      self._reset_prearm()
+      self.prearm_abort_lockout = 0
       self.eac_dead_frames = 0
       self.lat_active_last = lat_active
+      return
+
+    # driver forced full-time torque, or below the configured min angle speed: pin torque, but make
+    # this a *make-before-break* handoff when the EPAS is actively holding an angle. Ramp torque up
+    # under the still-active angle command (see _update_torque / _update_angle) and only release angle
+    # once torque can carry the load, so the wheel is never left unsupported during the STEER_DELTA_UP
+    # ramp. eac_dead_frames reset so a stale count doesn't bite when toggling back mid-drive.
+    if self.force_torque or self.low_speed_force:
+      self.eac_dead_frames = 0
+      self.lat_active_last = lat_active
+      if not lat_active:
+        self.torque_active = False
+        self._reset_prearm()
+        self.prearm_abort_lockout = 0
+        return
+      if self.torque_active:
+        self._reset_prearm()
+        return
+      # currently on angle. after a stalled handoff, stay on angle for the lockout before re-attempting
+      if self.prearm_abort_lockout > 0:
+        self.prearm_abort_lockout -= 1
+        self._reset_prearm()
+        return
+      # decide whether to overlap (prearm) or switch immediately
+      epas_holding = CS.eac_status == 2
+      driver_took_over = self.hands_on and CS.out.steeringPressed
+      steer_max = round(float(np.interp(CS.out.vEgoRaw, CCP.STEER_MAX_LOOKUP[0], CCP.STEER_MAX_LOOKUP[1])))
+      hold_target = abs(int(round(float(actuators.torque) * steer_max)))
+      if not epas_holding or driver_took_over or hold_target < TORQUE_PREARM_MIN_HOLD:
+        # EPAS not holding (nothing to lose), driver already steering, or a near-straight wheel: switch now
+        self.torque_active = True
+        self._reset_prearm()
+        return
+      # overlap: torque ramps underneath the held angle
+      self.torque_prearm = True
+      self.prearm_frames += 1
+      # track ramp progress: a new torque peak clears the stall count; no new peak = the ramp is stuck
+      if abs(self.apply_torque_last) > self.prearm_torque_peak:
+        self.prearm_torque_peak = abs(self.apply_torque_last)
+        self.prearm_stall_frames = 0
+      else:
+        self.prearm_stall_frames += 1
+      reached = abs(self.apply_torque_last) >= TORQUE_PREARM_EXIT_FRAC * hold_target
+      stalled = self.prearm_stall_frames >= TORQUE_PREARM_STALL_FRAMES
+      if reached:
+        # bumpless: torque now carries the curve, release the angle servo. This is the exit on every
+        # healthy ramp regardless of curve sharpness (relative threshold), not the frame cap.
+        self.torque_active = True
+        self._end_prearm("reached", hold_target)
+      elif self.prearm_frames >= TORQUE_PREARM_MAX_FRAMES:
+        # absolute backstop (~1.5s): cannot hold both channels forever. If the ramp stalled below the
+        # hold torque, releasing angle now would reproduce the jerk, so ABORT back to angle (the servo
+        # keeps holding the wheel) and lock out re-entry briefly; otherwise complete the switch. A stall
+        # on a real curve should be rare (driver override is handled above).
+        if stalled:
+          self._end_prearm("abort", hold_target)
+          self.prearm_abort_lockout = TORQUE_PREARM_ABORT_LOCKOUT
+        else:
+          self.torque_active = True
+          self._end_prearm("backstop", hold_target)
       return
 
     # EPAS available and no published EacErrorCode
@@ -216,7 +326,7 @@ class ExternalController:
     self.rate_budget.push(apply_angle)
 
   def _update_torque(self, CS, actuators):
-    if not self.torque_active:
+    if not (self.torque_active or self.torque_prearm):
       self.apply_torque_last = 0
       self.torque_cmd = 0
       self.toi_act_cmd = False
@@ -238,7 +348,7 @@ class ExternalController:
     # (no assist sawtooth); the panda holds last torque for its rate limit through a
     # tolerated steer_req cut, so the resume passes safety (dev-shipped behavior).
     self.toi_angle_limit_counter, toi_act = common_fault_avoidance(
-      abs(CS.out.steeringAngleDeg) >= TOI_MAX_ANGLE_DEG, self.torque_active,
+      abs(CS.out.steeringAngleDeg) >= TOI_MAX_ANGLE_DEG, self.torque_active or self.torque_prearm,
       self.toi_angle_limit_counter, TOI_MAX_ANGLE_FRAMES, TOI_BLIP_FRAMES)
     self.toi_act_cmd = toi_act
     if toi_act:
