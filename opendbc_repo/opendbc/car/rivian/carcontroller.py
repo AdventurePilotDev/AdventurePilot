@@ -45,6 +45,8 @@ class CarController(CarControllerBase, MadsCarController):
     self._angle_master_on = True
     self._angle_eff_last = False
     self._angle_phase_last = 0
+    self._angle_sat_last = None  # None sentinel: first frame always writes, seeding the param so a
+                                 # stale True from a prior boot cannot latch the warning on
     # "always torque below speed" setting (mph param -> m/s, 0 = off) and its latched state
     self._angle_min_speed_ms = 0.0
     self._low_speed_torque = False
@@ -129,6 +131,12 @@ class CarController(CarControllerBase, MadsCarController):
         can_sends.append(create_angle_steering(self.packer, self.frame, self.erc.apply_angle_last, self.erc.angle_active, bus))
         can_sends.append(create_acm_status(self.packer, self.frame, feature_status, bus))
 
+      # angle channel can't reach the commanded angle -> steerSaturated (read in CarSpecificEventsSP).
+      # Edge-write like the phase param; the None sentinel forces a first-frame write (seed).
+      if self._params is not None and self.erc.angle_saturated != self._angle_sat_last:
+        self._params.put_bool("RivianAngleSaturated", self.erc.angle_saturated)
+        self._angle_sat_last = self.erc.angle_saturated
+
     if self.frame % 5 == 0 and not (self.CP.flags & RivianFlags.GEN2):
       can_sends.append(create_wheel_touch(self.packer, CS.sccm_wheel_touch, self.mads.lat_active))
 
@@ -150,6 +158,12 @@ class CarController(CarControllerBase, MadsCarController):
         can_sends.append(create_adas_status(self.packer, msg, interface_status))
 
     new_actuators = actuators.as_builder()
+    # Report the ACTUAL applied torque, never the request. In angle mode the torque channel is idle
+    # (apply_torque stays 0) while the angle channel steers, so this reports 0, which keeps
+    # steer_limited_by_safety true and therefore freezes the lateral PID integrator. Echoing the
+    # request instead (to restore the angle-mode saturation warning) makes that flag false and lets
+    # the integrator wind up against an output that is being discarded; it then dumps near full
+    # scale torque on the first handoff to torque mode and fights the driver.
     new_actuators.torque = apply_torque / steer_max
     new_actuators.torqueOutputCan = apply_torque
     new_actuators.steeringAngleDeg = self.erc.apply_angle_last

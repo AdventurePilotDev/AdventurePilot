@@ -166,7 +166,8 @@ class TorqueBar(Widget):
       return
 
     car_control = ui_state.sm['carControl']
-    applied_torque = ui_state.sm['carOutput'].actuatorsOutput.torque
+    actuators_output = ui_state.sm['carOutput'].actuatorsOutput
+    applied_torque = actuators_output.torque
 
     # torque line
     # angle controlled cars command no torque, and neither does Rivian while it steers on its angle
@@ -176,7 +177,7 @@ class TorqueBar(Widget):
     # at a zero crossing must keep its normal torque bar
     cp = ui_state.CP
     angle_capable = cp is not None and cp.brand == "rivian" and bool(cp.flags & RivianFlags.ANGLE_HARNESS)
-    if steering_by_angle or (angle_capable and car_control.latActive and abs(applied_torque) < 1e-3):
+    if steering_by_angle or (angle_capable and car_control.latActive and actuators_output.torqueOutputCan == 0):
       controls_state = ui_state.sm['controlsState']
       car_state = ui_state.sm['carState']
       live_parameters = ui_state.sm['liveParameters']

@@ -14,7 +14,8 @@ from opendbc.can import CANPacker
 from opendbc.car import Bus, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.rivian.carcontroller import CarController, LOW_SPEED_TORQUE_HYST_MS
-from opendbc.car.rivian.ext_controller import ExternalController, EAC_RECOVER_FRAMES, MIN_TORQUE_FRAMES, TOI_MAX_ANGLE_FRAMES, TOI_BLIP_FRAMES
+from opendbc.car.rivian.ext_controller import (ExternalController, EAC_RECOVER_FRAMES, MIN_TORQUE_FRAMES,
+                                               TOI_MAX_ANGLE_FRAMES, TOI_BLIP_FRAMES, ANGLE_SAT_FRAMES)
 from opendbc.car.rivian.ext_controller import (TORQUE_PREARM_ABORT_LOCKOUT, TORQUE_PREARM_EXIT_FRAC, TORQUE_PREARM_MAX_FRAMES,
                                                TORQUE_PREARM_MIN_HOLD)
 from opendbc.car.rivian.interface import CarInterface
@@ -79,11 +80,11 @@ class TestHarnessDetection(unittest.TestCase):
       self.assertEqual(cp.alphaLongitudinalAvailable, long_kit)
 
 
-def _mock_cs(cp, gen2=False):
+def _mock_cs(cp, gen2=False, v_ego=10.0, eac_status=1):
   out = structs.CarState()
   out.gearShifter = GearShifter.drive
-  out.vEgo = 10.0
-  out.vEgoRaw = 10.0
+  out.vEgo = v_ego
+  out.vEgoRaw = v_ego
   return SimpleNamespace(
     out=out,
     acm_lka_hba_cmd={"ACM_hbaSysState": 0, "ACM_hbaLamp": 0, "ACM_hbaOnOffState": 0, "ACM_slifOnOffState": 0},
@@ -91,7 +92,7 @@ def _mock_cs(cp, gen2=False):
                                         "SCCM_WheelTouch_CapacitiveValue": 0, "SETME_X52": 100},
     vdm_adas_status=[],
     hands_on_level=1,
-    eac_status=1,
+    eac_status=eac_status,
     eac_error_code=0,
   )
 
@@ -134,6 +135,67 @@ class TestCarControllerTxMatrix(unittest.TestCase):
   def test_gen1_wheel_touch_spoof(self):
     sent = self._run_one_frame(_get_cp(xnor_box=True))
     self.assertIn((0x321, 2), sent)
+
+  def test_base_config_no_angle_tx(self):
+    # a base harness (no xnor box) must NOT emit 0x110/0x100: the stock ACM still broadcasts
+    # them and our copies would collide on counter/checksum
+    sent = self._run_one_frame(_get_cp())
+    for addr in ANGLE_TX_ADDRS:
+      self.assertNotIn((addr, 0), sent)
+    self.assertIn((0x120, 0), sent)  # torque LKA still goes out
+
+  def test_reported_torque_is_applied_not_requested(self):
+    # Regression for the angle-mode integrator "steering fight" (route 4440a486580ed7c6/...).
+    # Rivian is steerControlType=torque, so controlsd sets
+    #   steer_limited_by_safety = abs(CC.actuators.torque - CO.actuatorsOutput.torque) > 1e-2
+    # and latcontrol_torque freezes the PID integrator on that flag. In angle mode the torque
+    # channel is idle (apply_torque == 0) while the angle channel steers, so carOutput torque
+    # MUST report the applied 0 -- reporting the request instead makes the flag false, unfreezes
+    # the integrator against a discarded output, and it dumps near-full-scale torque on the first
+    # handoff to torque mode. Rivian-only invariant, so the fix never touches shared controls code.
+    cp = _get_cp(xnor_box=True)
+    controller = CarController({Bus.pt: "rivian_primary_actuator"}, cp, structs.CarParamsSP())
+    cc = structs.CarControl()
+    cc.latActive = True
+    cc.enabled = True
+    cc.actuators.torque = 1.0  # full-scale torque REQUEST that must not leak into the report
+    cc = cc.as_reader()
+    cc_sp = structs.CarControlSP()
+    cc_sp.mads.available = True
+    cs = _mock_cs(cp)  # eac_status=1 -> angle engages, torque channel idle
+    new_actuators, _ = controller.update(cc, cc_sp, cs, 0)
+    # nothing was applied on the torque channel...
+    self.assertEqual(new_actuators.torqueOutputCan, 0)
+    # ...so the reported torque must be the applied 0, never the 1.0 request
+    self.assertEqual(new_actuators.torque, 0.0)
+
+  def test_saturation_param_written(self):
+    # bridge: erc.angle_saturated -> RivianAngleSaturated param (read by CarSpecificEventsSP).
+    # Params() is None in the opendbc test env, so inject a fake and drive real saturation.
+    cp = _get_cp(xnor_box=True)
+    controller = CarController({Bus.pt: "rivian_primary_actuator"}, cp, structs.CarParamsSP())
+    writes = {"RivianEnableAngleSteering": True}  # master switch on, so the angle channel stays live
+
+    class _FakeParams:
+      def get_bool(self, k): return bool(writes.get(k, False))
+      def put_bool(self, k, v): writes[k] = v
+      def get(self, k, return_default=False): return "0"
+      def put(self, k, v): writes[k] = v
+    controller._params = _FakeParams()
+    controller._angle_sat_last = None
+
+    cc = structs.CarControl()
+    cc.latActive = True
+    cc.enabled = True
+    cc.actuators.curvature = 0.05  # tight curve -> commanded angle exceeds the deliverable envelope
+    cc = cc.as_reader()
+    cc_sp = structs.CarControlSP()
+    cc_sp.mads.available = True
+
+    controller.update(cc, cc_sp, _mock_cs(cp, v_ego=15, eac_status=1), 0)  # engage on angle
+    for _ in range(ANGLE_SAT_FRAMES + 5):
+      controller.update(cc, cc_sp, _mock_cs(cp, v_ego=15, eac_status=2), 0)
+    self.assertTrue(writes.get("RivianAngleSaturated"))
 
 
 def _cs_frame(angle=0.0, rate=0.0, torque=0.0, pressed=False, v_ego=10.0, eac_status=1, hands_on_level=1, gen2=False):
@@ -297,10 +359,48 @@ class TestExternalController(unittest.TestCase):
       erc.update(_cs_frame(gen2=True, eac_status=2), True, _actuators())
     self.assertTrue(erc.angle_active)
 
+  def test_angle_saturation_sets_flag(self):
+    # a curve past the deliverable envelope while turning latches angle_saturated after the debounce
+    erc = ExternalController(_get_cp(xnor_box=True))
+    erc.update(_cs_frame(v_ego=15, eac_status=1), True, _actuators(curvature=0.05))  # engage on angle
+    flags = []
+    for _ in range(ANGLE_SAT_FRAMES + 5):
+      erc.update(_cs_frame(v_ego=15, eac_status=2), True, _actuators(curvature=0.05))
+      flags.append(erc.angle_saturated)
+    self.assertFalse(flags[0])         # debounce holds at first
+    self.assertTrue(flags[-1])         # latches once saturation is sustained
+    self.assertTrue(erc.angle_active)  # still on the angle channel, not handed to torque
+
+  def test_no_saturation_in_envelope(self):
+    # turning but reachable: never warns
+    erc = ExternalController(_get_cp(xnor_box=True))
+    erc.update(_cs_frame(v_ego=15, eac_status=1), True, _actuators(curvature=0.008))
+    for _ in range(ANGLE_SAT_FRAMES + 5):
+      erc.update(_cs_frame(v_ego=15, eac_status=2), True, _actuators(curvature=0.008))
+    self.assertFalse(erc.angle_saturated)
+
+  def test_no_saturation_at_parking_speed(self):
+    # steerAtStandstill keeps angle live at crawl; a big angle at 2 m/s is < 1 m/s^2 lateral accel,
+    # so it must NOT warn (matches the stock turning gate)
+    erc = ExternalController(_get_cp(xnor_box=True))
+    erc.update(_cs_frame(v_ego=2, eac_status=1), True, _actuators(curvature=0.2))
+    for _ in range(ANGLE_SAT_FRAMES + 5):
+      erc.update(_cs_frame(v_ego=2, eac_status=2), True, _actuators(curvature=0.2))
+    self.assertFalse(erc.angle_saturated)
+
+  def test_saturation_clears_back_in_envelope(self):
+    erc = ExternalController(_get_cp(xnor_box=True))
+    erc.update(_cs_frame(v_ego=15, eac_status=1), True, _actuators(curvature=0.05))
+    for _ in range(ANGLE_SAT_FRAMES + 5):
+      erc.update(_cs_frame(v_ego=15, eac_status=2), True, _actuators(curvature=0.05))
+    self.assertTrue(erc.angle_saturated)
+    erc.update(_cs_frame(v_ego=15, eac_status=2), True, _actuators(curvature=0.001))
+    self.assertFalse(erc.angle_saturated)  # one in-envelope frame resets the debounce
+
 
 class TestLowSpeedTorqueLatch(unittest.TestCase):
   """CarController-level "always torque below speed" latch: single-sided hysteresis driven by
-  vEgo — enter torque immediately below the set speed, release only once LOW_SPEED_TORQUE_HYST_MS
+  vEgo - enter torque immediately below the set speed, release only once LOW_SPEED_TORQUE_HYST_MS
   (3 mph) above it, no dwell. Holds its last state inside the band from either direction."""
 
   T_MPH = 10.0
