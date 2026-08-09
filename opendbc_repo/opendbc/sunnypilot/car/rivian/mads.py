@@ -24,7 +24,7 @@ class MadsCarController:
 
   def mads_status_update(self, CC: structs.CarControl, CC_SP: structs.CarControlSP, CS: CarStateBase) -> MadsDataSP:
     # Hard-gate lateral actuation to forward (drive) gear. steerAtStandstill holds the
-    # angle while stopped in drive, but it must NOT let lateral act in reverse/park/neutral —
+    # angle while stopped in drive, but it must NOT let lateral act in reverse/park/neutral -
     # otherwise the angle controller moves the wheel during the reverse-parking shuffle, even after
     # a brake disengage. The MADS reverse-pause only holds while gear is *actually* reverse; this
     # covers the shifting / drive-creep gaps where MADS re-arms (cruiseState.available edge).

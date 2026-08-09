@@ -347,7 +347,7 @@ class TestExternalController(unittest.TestCase):
     pre_blip = history[blip_idxs[0] - 1][1]
     post_blip = history[blip_idxs[-1] + 1][1]
     self.assertGreater(pre_blip, 0)
-    # instant resume from the frozen value (may continue ramping) — a ramp-from-0
+    # instant resume from the frozen value (may continue ramping) - a ramp-from-0
     # sawtooth would drop post_blip to ~DELTA_UP instead
     self.assertGreaterEqual(post_blip, pre_blip)
 
