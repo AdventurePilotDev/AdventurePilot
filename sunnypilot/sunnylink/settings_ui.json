@@ -25,6 +25,23 @@
                   "type": "offroad_only"
                 }
               ]
+            },
+            {
+              "key": "RivianEnableAngleSteering",
+              "widget": "toggle",
+              "needs_onroad_cycle": true,
+              "title": "Rivian: Enable angle steering",
+              "description": "When off, steering is exclusively using torque.",
+              "enablement": [
+                {
+                  "type": "offroad_only"
+                },
+                {
+                  "type": "capability",
+                  "field": "brand",
+                  "equals": "rivian"
+                }
+              ]
             }
           ],
           "sub_panels": [

@@ -83,6 +83,9 @@ class ExternalController:
     self.torque_active_frames = 0
     self.lat_active_last = False
     self.eac_dead_frames = 0
+    # driver-forced full-time torque: pin torque-only and never hand off to angle (set from a param
+    # via CarController, resets each drive). Reuses the torque-only-hardware path, no new safety surface.
+    self.force_torque = False
 
     # angle command
     self.apply_angle_last = 0.0
@@ -139,9 +142,12 @@ class ExternalController:
   def _update_torque_active(self, CS, lat_active: bool, desired_angle: float):
     self.torque_active_frames = self.torque_active_frames + 1 if self.torque_active else 0
 
-    # torque-only hardware: torque is the only lateral channel, never hand off to angle
-    if not self.angle_supported:
+    # torque-only hardware, or driver forced full-time torque: torque is the only lateral channel,
+    # never hand off to angle (eac_dead_frames reset so a stale count doesn't bite when the driver
+    # toggles back to the default mode mid-drive)
+    if not self.angle_supported or self.force_torque:
       self.torque_active = lat_active
+      self.eac_dead_frames = 0
       self.lat_active_last = lat_active
       return
 

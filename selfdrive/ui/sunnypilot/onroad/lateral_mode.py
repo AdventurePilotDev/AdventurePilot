@@ -37,6 +37,13 @@ class LateralMode:
       self.mode = None
       return
 
+    # driver forced full-time torque: lock the indicator to torque (stable blue) so the toggle
+    # state reads unambiguously, rather than inferring from (occasionally zero) applied torque
+    if ui_state.params.get_bool("RivianForceTorqueSteer"):
+      self.zero_torque_cnt = 0
+      self.mode = "torque"
+      return
+
     # Rivian commands no torque while it steers on its angle channel
     if sm["carOutput"].actuatorsOutput.torque == 0:
       self.zero_torque_cnt = min(self.zero_torque_cnt + 1, ZERO_TORQUE_HOLD)

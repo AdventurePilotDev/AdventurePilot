@@ -23,6 +23,18 @@ class CarController(CarControllerBase, MadsCarController):
     self.erc = ExternalController(CP)
     self.angle_harness = bool(CP.flags & RivianFlags.ANGLE_HARNESS)
 
+    # lazy openpilot import: opendbc must stay importable standalone (safety test suite). Used to read
+    # the "Rivian: Enable angle steering" master switch; None outside a device so tests still run.
+    try:
+      from openpilot.common.params import Params
+      self._params = Params()
+    except Exception:
+      self._params = None
+    self._angle_master_on = True
+    self._angle_eff_last = False
+    if self._params is not None:
+      self._angle_master_on = self._params.get_bool("RivianEnableAngleSteering")
+
   def update_live_params(self, roll, angle_offset_deg):
     self.erc.roll = roll
     self.erc.angle_offset_deg = angle_offset_deg
@@ -34,6 +46,16 @@ class CarController(CarControllerBase, MadsCarController):
 
     steer_max = round(float(np.interp(CS.out.vEgoRaw, CarControllerParams.STEER_MAX_LOOKUP[0],
                                       CarControllerParams.STEER_MAX_LOOKUP[1])))
+
+    # Rivian angle-steering master switch (angle hardware only): when off, pin torque-only for the whole
+    # drive and publish the effective state for the wheel tint. ~2Hz poll; resets to angle each drive.
+    if self.angle_harness:
+      if self._params is not None and self.frame % 50 == 0:
+        self._angle_master_on = self._params.get_bool("RivianEnableAngleSteering")
+      self.erc.force_torque = not self._angle_master_on
+      if self._params is not None and self.erc.force_torque != self._angle_eff_last:
+        self._params.put_bool("RivianForceTorqueSteer", self.erc.force_torque)
+        self._angle_eff_last = self.erc.force_torque
 
     self.erc.update(CS, self.mads.lat_active, actuators)
     apply_torque = self.erc.torque_cmd
