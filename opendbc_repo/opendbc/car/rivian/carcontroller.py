@@ -2,6 +2,7 @@ import numpy as np
 from opendbc.can import CANPacker
 from opendbc.car import Bus
 from opendbc.car.interfaces import CarControllerBase
+from opendbc.car.rivian.angle_toggle import AngleSteerToggle
 from opendbc.car.rivian.ext_controller import ExternalController, get_safety_CP  # noqa: F401
 from opendbc.car.rivian.riviancan import create_angle_steering, create_lka_steering, create_longitudinal, create_wheel_touch, create_adas_status, create_acm_status
 from opendbc.car.rivian.values import CarControllerParams, RivianFlags
@@ -23,15 +24,21 @@ class CarController(CarControllerBase, MadsCarController):
     self.erc = ExternalController(CP)
     self.angle_harness = bool(CP.flags & RivianFlags.ANGLE_HARNESS)
 
-    # lazy openpilot import: opendbc must stay importable standalone (safety test suite). Used to read
-    # the "Rivian: Enable angle steering" master switch; None outside a device so tests still run.
+    # lazy openpilot import: opendbc must stay importable standalone (safety test suite). Used to
+    # poll the driver's angle-steering toggle intent / master switch; None outside a device so tests run.
     try:
       from openpilot.common.params import Params
       self._params = Params()
     except Exception:
       self._params = None
+
+    # angle-steering hold-to-confirm toggle (angle hardware only)
+    self._angle_toggle = AngleSteerToggle()
+    self._angle_req_last = False
+    self._angle_tap = False
     self._angle_master_on = True
     self._angle_eff_last = False
+    self._angle_phase_last = 0
     if self._params is not None:
       self._angle_master_on = self._params.get_bool("RivianEnableAngleSteering")
 
@@ -47,15 +54,30 @@ class CarController(CarControllerBase, MadsCarController):
     steer_max = round(float(np.interp(CS.out.vEgoRaw, CarControllerParams.STEER_MAX_LOOKUP[0],
                                       CarControllerParams.STEER_MAX_LOOKUP[1])))
 
-    # Rivian angle-steering master switch (angle hardware only): when off, pin torque-only for the whole
-    # drive and publish the effective state for the wheel tint. ~2Hz poll; resets to angle each drive.
+    # Rivian angle-steering hold-to-confirm toggle (angle hardware only). The state machine reads the
+    # capacitive-touch hands-on signal + current channel from the ExternalController (prior frame), sets
+    # force_torque for this frame, and publishes the effective state + UI message phase via params.
     if self.angle_harness:
-      if self._params is not None and self.frame % 50 == 0:
-        self._angle_master_on = self._params.get_bool("RivianEnableAngleSteering")
-      self.erc.force_torque = not self._angle_master_on
-      if self._params is not None and self.erc.force_torque != self._angle_eff_last:
-        self._params.put_bool("RivianForceTorqueSteer", self.erc.force_torque)
-        self._angle_eff_last = self.erc.force_torque
+      if self._params is not None:
+        if self.frame % 10 == 0:
+          req = self._params.get_bool("RivianForceTorqueSteerReq")
+          if req != self._angle_req_last:
+            self._angle_tap = True  # a tap flips the request bool; consumed as a one-frame edge below
+          self._angle_req_last = req
+        if self.frame % 50 == 0:
+          self._angle_master_on = self._params.get_bool("RivianEnableAngleSteering")
+      tap = self._angle_tap
+      self._angle_tap = False
+      self.erc.force_torque = self._angle_toggle.update(tap, self.erc.hands_on, self.erc.torque_active,
+                                                        self.mads.lat_active, self._angle_master_on)
+      if self._params is not None:
+        if self.erc.force_torque != self._angle_eff_last:
+          self._params.put_bool("RivianForceTorqueSteer", self.erc.force_torque)  # effective, for the wheel tint
+          self._angle_eff_last = self.erc.force_torque
+        phase = int(self._angle_toggle.phase)
+        if phase != self._angle_phase_last:
+          self._params.put("RivianAngleSteerPhase", phase)  # INT param: must be an int, not str
+          self._angle_phase_last = phase
 
     self.erc.update(CS, self.mads.lat_active, actuators)
     apply_torque = self.erc.torque_cmd
