@@ -347,7 +347,7 @@ class TestExternalController(unittest.TestCase):
     pre_blip = history[blip_idxs[0] - 1][1]
     post_blip = history[blip_idxs[-1] + 1][1]
     self.assertGreater(pre_blip, 0)
-    # instant resume from the frozen value (may continue ramping) — a ramp-from-0
+    # instant resume from the frozen value (may continue ramping) - a ramp-from-0
     # sawtooth would drop post_blip to ~DELTA_UP instead
     self.assertGreaterEqual(post_blip, pre_blip)
 
@@ -400,7 +400,7 @@ class TestExternalController(unittest.TestCase):
 
 class TestLowSpeedTorqueLatch(unittest.TestCase):
   """CarController-level "always torque below speed" latch: single-sided hysteresis driven by
-  vEgo — enter torque immediately below the set speed, release only once LOW_SPEED_TORQUE_HYST_MS
+  vEgo - enter torque immediately below the set speed, release only once LOW_SPEED_TORQUE_HYST_MS
   (3 mph) above it, no dwell. Holds its last state inside the band from either direction."""
 
   T_MPH = 10.0

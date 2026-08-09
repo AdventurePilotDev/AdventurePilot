@@ -80,7 +80,7 @@ class LongitudinalPlannerSP:
     self.output_v_target, self.output_a_target = targets[self.source]
 
     # A source wins on the lowest SPEED target, but the a_target we hand back is assigned straight into the
-    # planner's `a_desired` — its acceleration continuity state, which seeds the MPC's initial state and is
+    # planner's `a_desired` - its acceleration continuity state, which seeds the MPC's initial state and is
     # integrated into v_desired_filter. So a source that wins the speed contest while wanting to ACCELERATE
     # (curve control holding a cap we're already below, because a lead is braking us under it) would inject an
     # acceleration the car is not producing: v_desired_filter drifts above the true speed and the MPC then plans

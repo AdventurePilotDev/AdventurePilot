@@ -11,7 +11,7 @@ from opendbc.car.rivian.values import CarControllerParams, RivianFlags
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
 
 # single-panda xnor-box branch: angle stream on the car-side bus only. (The dual-intercept
-# variant mirrors these on bus 4 for the EPAS 2-of-2 voter — see archive/unified-4h.)
+# variant mirrors these on bus 4 for the EPAS 2-of-2 voter - see archive/unified-4h.)
 ANGLE_TX_BUSES = (0,)
 
 # single-sided hysteresis on the "always torque below speed" threshold: enter torque immediately
@@ -119,7 +119,7 @@ class CarController(CarControllerBase, MadsCarController):
     can_sends.append(create_lka_steering(self.packer, self.frame, CS.acm_lka_hba_cmd, apply_torque, CC.enabled, self.erc.toi_act_cmd, self.mads))
 
     if self.angle_harness:
-      # 0x110 angle stream + 0x100 status: streamed continuously — the harness cuts the stock
+      # 0x110 angle stream + 0x100 status: streamed continuously - the harness cuts the stock
       # ACM's copies, so ours replace them; EacEnabled/Hwp only flip while actively steering,
       # otherwise 0x100 mirrors the stock cruise state. Without angle hardware these MUST NOT
       # be sent: the live stock ACM still broadcasts them (counter/checksum collision).
