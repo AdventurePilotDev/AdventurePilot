@@ -76,18 +76,25 @@ jobs:
             echo "::warning::unresolved conflicts:"; git diff --name-only --diff-filter=U; conflict=1
           fi
 
-          today=$(date -u +%Y%m%d)
           if [ "$conflict" = "0" ]; then
             git commit --no-edit -m "nightly: sync sunnypilot/master ($NEW_SP)"
             git push --no-verify origin HEAD:dev
             echo "dev advanced to SP $NEW_SP"
-          else
-            br="sp-sync-$today"
-            git add -A
-            git commit --no-edit -m "WIP nightly SP sync $NEW_SP (conflicts - manual resolution needed)" || true
-            git push --no-verify -f origin HEAD:"$br"
-            gh pr create --base dev --head "$br" \
-              --title "Nightly SP sync ($NEW_SP) - conflicts" \
-              --body "Automated sync to sunnypilot/master $NEW_SP hit conflicts. Resolve and merge into dev." \
-              2>/dev/null || echo "PR for $br may already exist"
+            exit 0
           fi
+
+          # Conflicts need a human. Do NOT commit them: a committed conflict is a broken tree, and a
+          # branch per night piles up in the device's branch picker (25 of them accumulated once).
+          # Report and fail instead; the run's failure is the notification.
+          {
+            echo "### Nightly SP sync to \`$NEW_SP\` needs manual resolution"
+            echo
+            echo "Conflicted paths:"
+            echo '```'
+            git diff --name-only --diff-filter=U
+            echo '```'
+            echo
+            echo "Resolve locally: \`git merge sunnypilot/master\` on \`dev\`, fix, push."
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/stdout}"
+          git merge --abort || git reset --hard HEAD
+          exit 1
