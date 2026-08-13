@@ -9,8 +9,11 @@
 *.ttf filter=lfs diff=lfs merge=lfs -text
 *.otf filter=lfs diff=lfs merge=lfs -text
 *.wav filter=lfs diff=lfs merge=lfs -text
-# ap_logo.png: keep out of LFS so clones (e.g. Comma) get it without LFS
-selfdrive/assets/images/ap_logo.png -filter -diff -merge
+# ap_logo.png: keep out of LFS. .lfsconfig points at sunnypilot's LFS, which we can only read from,
+# so an object we add ourselves can never be uploaded and `git lfs pull` 404s on the build runner.
+# NOTE: this path must track the nested openpilot/ layout -- when upstream moved the tree, this rule
+# stopped matching, *.png swallowed the logo back into LFS, and both prebuilt builds failed.
+openpilot/selfdrive/assets/images/ap_logo.png -filter -diff -merge
 
 openpilot/selfdrive/car/tests/test_models_segs.txt filter=lfs diff=lfs merge=lfs -text
 openpilot/common/hardware/tici/updater filter=lfs diff=lfs merge=lfs -text
