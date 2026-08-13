@@ -40,9 +40,10 @@ class CarInterface(CarInterfaceBase):
     # commands land ~0.1 s late, which reads as "slow to react" on lead-brake and sluggish on resume. Set to
     # 0.3 to match the measured lag so the command leads the plant correctly. Drop toward 0.25 if it overshoots.
     ret.longitudinalActuatorDelay = 0.3
-    # Upstream dropped vEgoStopping in ae445c9b (back to the 0.5 default); AP keeps 0.25, which our
-    # stop-transition tuning was validated against.
-    ret.vEgoStopping = 0.25
+    # vEgoStopping is NOT settable any more: commaai df1663c58d ("the one true car.capnp") moved it into
+    # the deprecated block, so assigning it raises at car init (capnp "struct has no such member"). AP had
+    # it at 0.25 vs the old 0.5 default; the stop transition is upstream's now. If the truck starts easing
+    # off the brake too early on a stop, that is where it went.
     ret.stopAccel = -0.2
     # kp intentionally left at default (0): a proportional term on (a_target - aEgo) amplifies the noisy
     # low-speed aEgo (d/dt of wheel-speed vEgo) into a ~12 Hz command dither ("stutter"), and it only
