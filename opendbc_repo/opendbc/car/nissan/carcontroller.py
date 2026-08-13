@@ -5,6 +5,7 @@ from opendbc.car.lateral import apply_std_steer_angle_limits
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.nissan import nissancan
 from opendbc.car.nissan.values import CAR, CarControllerParams
+from opendbc.sunnypilot.car.nissan.nissancan_ext import create_cruise_throttle_msg
 from opendbc.car.common.filter_simple import FirstOrderFilter
 
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
@@ -55,15 +56,12 @@ class CarController(CarControllerBase):
           CarControllerParams.LKAS_MAX_TORQUE - 0.6 * max(0, abs(CS.out.steeringTorque) - CarControllerParams.STEER_THRESHOLD),
         )
 
-    if self.CP.carFingerprint in (CAR.NISSAN_ROGUE, CAR.NISSAN_XTRAIL, CAR.NISSAN_ALTIMA) and pcm_cancel_cmd:
+    if self.CP.carFingerprint == CAR.NISSAN_ALTIMA and pcm_cancel_cmd:
       can_sends.append(nissancan.create_acc_cancel_cmd(self.packer, self.car_fingerprint, CS.cruise_throttle_msg))
 
-    # TODO: Find better way to cancel!
-    # For some reason spamming the cancel button is unreliable on the Leaf
-    # We now cancel by making propilot think the seatbelt is unlatched,
-    # this generates a beep and a warning message every time you disengage
-    if self.CP.carFingerprint in (CAR.NISSAN_LEAF, CAR.NISSAN_LEAF_IC) and self.frame % 2 == 0:
-      can_sends.append(nissancan.create_cancel_msg(self.packer, CS.cancel_msg, pcm_cancel_cmd))
+    if self.CP.carFingerprint != CAR.NISSAN_ALTIMA and self.frame % 2 == 0:
+      button = "CANCEL_BUTTON" if pcm_cancel_cmd else None
+      can_sends.append(create_cruise_throttle_msg(self.packer, self.car_fingerprint, CS.cruise_throttle_msg, self.frame, button))
 
     can_sends.append(nissancan.create_steering_control(
       self.packer, self.apply_angle_last, self.frame, CC.latActive, lkas_max_torque))

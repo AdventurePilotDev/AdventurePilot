@@ -81,13 +81,12 @@ class CarState(CarStateBase, CarStateExt):
     else:
       speed = cp_adas.vl["PROPILOT_HUD"]["SET_SPEED"]
 
-    if speed != 255:
+    if speed != 254:
       if self.CP.carFingerprint in (CAR.NISSAN_LEAF, CAR.NISSAN_LEAF_IC):
         conversion = CV.MPH_TO_MS if cp.vl["HUD_SETTINGS"]["SPEED_MPH"] else CV.KPH_TO_MS
       else:
         conversion = CV.MPH_TO_MS if cp.vl["HUD"]["SPEED_MPH"] else CV.KPH_TO_MS
       ret.cruiseState.speed = speed * conversion
-      ret.cruiseState.speedCluster = (speed - 1) * conversion  # Speed on HUD is always 1 lower than actually sent on can bus
 
     # Altima EPS faults when user overrides above a certain torque.
     # It also faults on sharp curves, although the threshold is unknown at this time

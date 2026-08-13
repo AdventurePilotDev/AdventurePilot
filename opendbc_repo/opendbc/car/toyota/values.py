@@ -592,6 +592,7 @@ EPS_SCALE = defaultdict(lambda: 73,
 # Toyota/Lexus Safety Sense 2.0 and 2.5
 TSS2_CAR = CAR.with_flags(ToyotaFlags.TSS2)
 
+# removed upstream as unused, but sunnypilot's DSU-removed radar support in interface.py still needs it
 NO_DSU_CAR = CAR.with_flags(ToyotaFlags.NO_DSU)
 
 # the DSU uses the AEB message for longitudinal on these cars

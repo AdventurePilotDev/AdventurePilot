@@ -1,0 +1,32 @@
+Import('env', 'arch', 'messaging', 'common', 'visionipc', 'ffmpeg_libs')
+
+# The self-hosted runner's AGNOS ffmpeg can drift ahead of the device's (e.g. libavformat.so.61 vs the comma's
+# older soname). loggerd/encoderd on larch64 use the V4L hardware encoder and don't call into ffmpeg, but the
+# av* libs sit in `libs` below -> without --as-needed the linker hard-wires the runner's newer soname, which the
+# device can't resolve, so loggerd dies at load ("process not running") and no logs upload. Clone the env and
+# link --as-needed so genuinely-unused shared libs (the av* set on-device) are dropped -- this reproduces the
+# known-good binary and keeps the prebuilt robust to runner ffmpeg drift. Libs that are actually used keep their
+# symbol refs and stay linked.
+env = env.Clone()
+env.Append(LINKFLAGS=['-Wl,--as-needed'])
+
+libs = [common, messaging, visionipc] + ffmpeg_libs + ['pthread', 'm', 'zstd']
+frameworks = []
+
+src = ['logger.cc', 'zstd_writer.cc', 'video_writer.cc', 'encoder/encoder.cc', 'encoder/jpeg_encoder.cc']
+if arch == "larch64":
+  src += ['encoder/v4l_encoder.cc']
+else:
+  src += ['encoder/ffmpeg_encoder.cc']
+  if arch == "Darwin":
+    frameworks += ['VideoToolbox', 'CoreMedia', 'CoreFoundation', 'CoreVideo']
+
+logger_lib = env.Library('logger', src)
+libs.insert(0, logger_lib)
+
+env.Program('loggerd', ['loggerd.cc'], LIBS=libs, FRAMEWORKS=frameworks)
+env.Program('encoderd', ['encoderd.cc'], LIBS=libs, FRAMEWORKS=frameworks)
+env.Program('bootlog.cc', LIBS=libs, FRAMEWORKS=frameworks)
+
+if GetOption('extras'):
+  env.Program('tests/test_logger', ['tests/test_runner.cc', 'tests/test_logger.cc', 'tests/test_zstd_writer.cc'], LIBS=libs)

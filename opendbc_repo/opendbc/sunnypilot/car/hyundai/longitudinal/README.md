@@ -39,11 +39,11 @@ This standard provides the foundation for the safety limits enforced by this tun
 
 **Configuration (`config.py`)**
 
-*   The `CarTuningConfig` dataclass holds tuning parameters like stopping/starting speeds, lookahead jerk profiles, actuator delay, and base jerk limits.
+*   The `CarTuningConfig` dataclass holds tuning parameters like lookahead jerk profiles, actuator delay, and base jerk limits.
 *   `TUNING_CONFIGS` provides default configurations based on car type (CANFD, EV, HYBRID, DEFAULT).
-*   `CAR_SPECIFIC_CONFIGS` allows overriding defaults for specific car models (e.g., `KIA_NIRO_EV`, `HYUNDAI_IONIQ`).
+*   `CAR_SPECIFIC_CONFIGS` allows overriding defaults for specific car models (e.g., `KIA_NIRO_EV`).
 *   The `get_car_config` helper function selects the appropriate configuration based on the car fingerprint and flags.
-*   `get_longitudinal_tune` applies relevant config values (like stopping/starting speeds, delay) to the main `CarParams` (CP).
+*   `get_longitudinal_tune` applies the actuator delay config value to the main `CarParams` (CP).
 
 **Summary**
 

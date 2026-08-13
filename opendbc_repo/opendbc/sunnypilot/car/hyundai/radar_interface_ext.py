@@ -71,12 +71,9 @@ class RadarInterfaceExt(EsccRadarInterfaceBase):
 
       valid = msg['ACC_ObjDist'] < 204.6 if self.CP.flags & HyundaiFlags.CANFD_CAMERA_SCC else msg['ACC_ObjStatus']
       if valid:
-        self.pts[ii].measured = True
         self.pts[ii].dRel = msg['ACC_ObjDist']
         self.pts[ii].yRel = float('nan')  # FIXME-SP: Only some cars have lateral position from SCC
         self.pts[ii].vRel = msg['ACC_ObjRelSpd']
-        self.pts[ii].aRel = float('nan')  # TODO-SP: calculate from ACC_ObjRelSpd and with timestep 50Hz (needs to modify in interfaces.py)
-        self.pts[ii].yvRel = float('nan')
 
       else:
         del self.pts[ii]

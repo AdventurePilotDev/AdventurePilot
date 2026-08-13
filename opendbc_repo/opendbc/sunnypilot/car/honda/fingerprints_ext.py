@@ -56,4 +56,24 @@ FW_VERSIONS_EXT = {
       b'36161-TRW-A110\x00\x00',
     ],
   },
+  CAR.HONDA_CITY_7G: {
+    (Ecu.eps, 0x18da30f1, None): [
+      b'39990-T14-B510\x00\x00',
+    ],
+    (Ecu.gateway, 0x18daeff1, None): [
+      b'38897-T14-M210\x00\x00',
+    ],
+    (Ecu.srs, 0x18da53f1, None): [
+      b'77959-T14-B810\x00\x00',
+    ],
+    (Ecu.fwdRadar, 0x18dab0f1, None): [
+      b'8S102-T14-P020\x00\x00',
+    ],
+    (Ecu.vsa, 0x18da28f1, None): [
+      b'57114-T14-M510\x00\x00',
+    ],
+    (Ecu.transmission, 0x18da1ef1, None): [
+      b'28101-63B-M510\x00\x00',
+    ],
+  },
 }

@@ -65,7 +65,7 @@ def enable_radar_tracks(logcan, sendcan, bus=0, addr=0x7d0, timeout=0.1, retry=2
 
 if __name__ == "__main__":
   import time
-  import cereal.messaging as messaging
+  import openpilot.cereal.messaging as messaging
   sendcan = messaging.pub_sock('sendcan')
   logcan = messaging.sub_sock('can')
   time.sleep(1)

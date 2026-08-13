@@ -324,6 +324,7 @@ class CarInterface(CarInterfaceBase):
       ret.safetyParam |= HondaSafetyFlagsSP.GAS_INTERCEPTOR
 
     stock_cp.autoResumeSng = stock_cp.autoResumeSng or ret.enableGasInterceptor
+    stock_cp.minEnableSpeed = -1. if ret.enableGasInterceptor else stock_cp.minEnableSpeed
 
     ret.intelligentCruiseButtonManagementAvailable = candidate in (HONDA_BOSCH - HONDA_BOSCH_CANFD) or \
                                                      (candidate in HONDA_BOSCH_CANFD and not is_release_sp)

@@ -27,7 +27,6 @@ class RadarInterface(RadarInterfaceBase, RadarInterfaceExt):
     RadarInterfaceExt.__init__(self, CP, CP_SP)
     self.updated_messages = set()
     self.trigger_msg = RADAR_START_ADDR + RADAR_MSG_COUNT - 1
-    self.track_id = 0
 
     self.radar_off_can = CP.radarUnavailable
     self.rcp = get_radar_can_parser(CP)
@@ -72,12 +71,9 @@ class RadarInterface(RadarInterfaceBase, RadarInterfaceExt):
       valid = msg['STATE'] in (3, 4)
       if valid:
         azimuth = math.radians(msg['AZIMUTH'])
-        self.pts[addr].measured = True
         self.pts[addr].dRel = math.cos(azimuth) * msg['LONG_DIST']
         self.pts[addr].yRel = 0.5 * -math.sin(azimuth) * msg['LONG_DIST']
         self.pts[addr].vRel = msg['REL_SPEED']
-        self.pts[addr].aRel = msg['REL_ACCEL']
-        self.pts[addr].yvRel = float('nan')
 
       else:
         del self.pts[addr]
