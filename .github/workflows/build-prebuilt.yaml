@@ -89,7 +89,11 @@ jobs:
           #     The device runs 3.12.x and requires-python allows it; pin to it so uv doesn't demand a
           #     managed 3.12.13 download (comma's uv is python-preference=only-system, downloads blocked).
           sudo mkdir -p /data/cache/tinygrad && sudo chown -R github-runner:github-runner /data/cache
-          uv sync --frozen --python /usr/local/venv/bin/python
+          # --extra tools: upstream moved comma-deps-bzip2 and -ncurses out of the core deps into the
+          # `tools` extra, but SConstruct still imports both unconditionally (pkg_names), so a plain
+          # sync now dies with "No module named 'bzip2'" before it reads a single SConscript. eigen is
+          # still covered: default-groups = ["standalone"] pulls openpilot[submodules] -> rednose -> eigen.
+          uv sync --frozen --extra tools --python /usr/local/venv/bin/python
           # Put the venv first on PATH so the Build step's `scons`/`python` come straight from it
           # (not the comma shim's `uv run`, which would re-resolve to the pinned 3.12.13 and fail).
           export VIRTUAL_ENV="${UV_PROJECT_ENVIRONMENT}"
