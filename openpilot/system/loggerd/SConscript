@@ -1,5 +1,20 @@
 Import('env', 'arch', 'messaging', 'common', 'visionipc', 'ffmpeg_libs')
 
+# ffmpeg linkage on the prebuilt. --as-needed drops shared libs we don't actually reference, so binaries that
+# never touch ffmpeg (bootlog) stay self-contained.
+#
+# loggerd and encoderd DO reference it (video_writer/encoder), and comma-deps-ffmpeg >= 7.1.0.post94 is a SHARED
+# build -- the old `ffmpeg @ git+...` package shipped static .a and got baked in. So these two now carry real
+# libav* NEEDED entries plus an RPATH into the venv that built them (.../ffmpeg/install/lib). That path exists
+# only on the build machine: on a tester's device the loader can't resolve libavformat.so.61 and both processes
+# fail to start, which the UI reports as "Process Not Running: loggerd encoderd" with no logs to debug from.
+#
+# Fix: also look next to the binary. The prebuilt ships libavformat/libavcodec/libavutil there, and each of those
+# already has RUNPATH=$ORIGIN, so they resolve each other. Keeps the tree self-contained like the static build was.
+env = env.Clone()
+env.Append(LINKFLAGS=['-Wl,--as-needed'])
+env["RPATH"] += [env.Literal('\\$$ORIGIN')]
+
 libs = [common, messaging, visionipc] + ffmpeg_libs + ['pthread', 'm', 'zstd']
 frameworks = []
 
