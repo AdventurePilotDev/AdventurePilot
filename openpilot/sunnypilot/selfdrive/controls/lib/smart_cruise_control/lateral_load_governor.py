@@ -19,7 +19,7 @@ this is the safety backstop. Validated offline in tools/scc_tuner.
 """
 import numpy as np
 
-import cereal.messaging as messaging
+from openpilot.cereal import messaging
 from openpilot.common.params import Params
 from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.car.cruise import V_CRUISE_UNSET

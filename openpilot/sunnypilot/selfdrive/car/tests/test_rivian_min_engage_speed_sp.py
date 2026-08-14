@@ -13,7 +13,7 @@ lateral regardless of speed.
 The threshold is stored in mph and read once in the constructor, so every case below
 builds a fresh CarSpecificEventsSP.
 """
-from cereal import custom, log
+from openpilot.cereal import custom, log
 from opendbc.car import structs
 from openpilot.common.constants import CV
 from openpilot.selfdrive.selfdrived.events import Events

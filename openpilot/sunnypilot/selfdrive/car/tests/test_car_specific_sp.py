@@ -6,7 +6,7 @@ meaningless/suppressed while Rivian steers on its angle channel. CarSpecificEven
 same stock alert from the angle channel's own saturation (RivianAngleSaturated param, written by
 the carcontroller). Rivian angle-harness only.
 """
-from cereal import log
+from openpilot.cereal import log
 from opendbc.car import structs
 from opendbc.car.rivian.values import CAR
 from opendbc.car.rivian.interface import CarInterface

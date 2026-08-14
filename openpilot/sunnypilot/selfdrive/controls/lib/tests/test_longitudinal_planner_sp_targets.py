@@ -20,7 +20,7 @@ is what the invariant is actually about; the controllers have their own tests.
 """
 from types import SimpleNamespace
 
-from cereal import custom
+from openpilot.cereal import custom
 from openpilot.sunnypilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlannerSP
 
 LongitudinalPlanSource = custom.LongitudinalPlanSP.LongitudinalPlanSource
