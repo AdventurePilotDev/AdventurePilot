@@ -125,6 +125,13 @@ jobs:
           scons -j$(nproc) cache_dir=${{ env.SCONS_CACHE_DIR }} --minimal openpilot/selfdrive/locationd
           echo "Building rest of sunnypilot..."
           scons -j$(nproc) cache_dir=${{ env.SCONS_CACHE_DIR }} --minimal
+          # comma-deps-ffmpeg is a SHARED build now, so loggerd/encoderd need libav* at runtime and the
+          # linker's RPATH points into THIS venv -- a path no tester's device has. Ship the three libs next to
+          # the binaries ($ORIGIN is on their RPATH); each lib already has RUNPATH=$ORIGIN so they find each other.
+          FFMPEG_LIB=$(python3 -c 'import ffmpeg; print(ffmpeg.LIB_DIR)')
+          echo "Vendoring ffmpeg libs from ${FFMPEG_LIB}"
+          cp -av "${FFMPEG_LIB}"/libavformat.so.* "${FFMPEG_LIB}"/libavcodec.so.* "${FFMPEG_LIB}"/libavutil.so.* \
+                 ${BUILD_DIR}/openpilot/system/loggerd/
           touch ${BUILD_DIR}/prebuilt
 
       - name: Prepare Output
@@ -156,6 +163,28 @@ jobs:
             --delete-excluded \
             --chown=comma:comma \
             ${BUILD_DIR}/ ${OUTPUT_DIR}/
+
+      - name: Guard - every shared lib the binaries need must be resolvable
+        run: |
+          # A binary whose NEEDED libs resolve only via a build-machine RPATH links and runs fine here, then dies
+          # on the tester's device as "Process Not Running". Check each ELF's NEEDED list against the libs we
+          # ship next to it and the system libs present on every device.
+          fail=0
+          while read -r bin; do
+            head -c 4 "$bin" | grep -q ELF || continue
+            for need in $(readelf -d "$bin" 2>/dev/null | grep -oP 'Shared library: \[\K[^]]+'); do
+              case "$need" in
+                libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*|libstdc++.so.*|libgcc_s.so.*) continue ;;
+              esac
+              if [ ! -e "$(dirname "$bin")/$need" ] && [ ! -e "/usr/lib/$need" ] && [ ! -e "/lib/$need" ] \
+                 && ! /sbin/ldconfig -p 2>/dev/null | grep -q " $need "; then
+                echo "::error::$bin needs $need, neither shipped beside it nor present on the device"
+                fail=1
+              fi
+            done
+          done < <(find "${OUTPUT_DIR}" -type f -perm -u+x)
+          [ "$fail" = "0" ] || exit 1
+          echo "OK: all NEEDED shared libs are shipped or system-provided."
 
       - name: Guard - fail on any LFS pointer stub
         run: |
