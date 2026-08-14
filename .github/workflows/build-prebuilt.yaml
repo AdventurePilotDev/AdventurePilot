@@ -47,6 +47,13 @@ jobs:
     outputs:
       source_sha: ${{ steps.meta.outputs.sha }}
     steps:
+      - name: Reclaim workspace (previous builds leave root-owned files)
+        run: |
+          # scons/uv leave root-owned *.egg-info under the vendored submodules. actions/checkout then
+          # can't `git clean` them, falls back to deleting the workspace, and dies with EACCES before
+          # the job even starts. Hand the tree back to the job user first; harmless on a fresh runner.
+          sudo chown -R "$(id -un):$(id -gn)" "${{ github.workspace }}" 2>/dev/null || true
+
       - name: Checkout source branch (submodules + LFS)
         uses: actions/checkout@v4
         with:
@@ -103,7 +110,7 @@ jobs:
         run: |
           export PYTHONPATH="$BUILD_DIR"
           # Copy only release-manifest files (this is why .gitattributes never enters the tree).
-          ./release/release_files.py | sort | uniq | rsync -rRl --files-from=- . $BUILD_DIR/
+          ./tools/release/release_files.py | sort | uniq | rsync -rRl --files-from=- . $BUILD_DIR/
           cd $BUILD_DIR
           sed -i '/from .board.jungle import PandaJungle, PandaJungleDFU/s/^/#/' panda/__init__.py
           echo "Building sunnypilot's modeld_v2..."
@@ -140,8 +147,8 @@ jobs:
             --exclude='**/SConscript' \
             --exclude='**/.venv/' \
             --exclude='openpilot/selfdrive/modeld/models/*driving*.onnx' \
-            --exclude='third_party/*x86*' \
-            --exclude='third_party/*Darwin*' \
+            --exclude='openpilot/third_party/*x86*' \
+            --exclude='openpilot/third_party/*Darwin*' \
             --delete-excluded \
             --chown=comma:comma \
             ${BUILD_DIR}/ ${OUTPUT_DIR}/
