@@ -51,7 +51,7 @@ class HomeLayoutSP(HomeLayout):
     version_right = self.header_rect.x + self.header_rect.width
     version_left = version_right - version_text_width
 
-    brand = "sunnypilot"
+    brand = "AdventurePilot"
     description = self.params.get("UpdaterCurrentDescription") or ""
 
     desc_width = 0
