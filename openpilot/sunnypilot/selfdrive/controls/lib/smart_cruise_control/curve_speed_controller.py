@@ -17,8 +17,8 @@ inside the steering's real limit when this feedforward under-reads a curve.
 """
 import numpy as np
 
-import cereal.messaging as messaging
-from cereal import custom
+from openpilot.cereal import messaging
+from openpilot.cereal import custom
 from openpilot.common.params import Params
 from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.car.cruise import V_CRUISE_UNSET

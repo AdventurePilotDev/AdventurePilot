@@ -11,7 +11,7 @@ frame N loses the race against silentLkasDisable, frame N+1 wins because
 transition_paused_state() is already a no-op. These tests pin that two-frame shape, since
 it is timing-sensitive and easy to break without noticing.
 """
-from cereal import custom
+from openpilot.cereal import custom
 from opendbc.car import structs
 from openpilot.selfdrive.selfdrived.events import Events
 from openpilot.sunnypilot.selfdrive.car.car_specific import CarSpecificEventsSP

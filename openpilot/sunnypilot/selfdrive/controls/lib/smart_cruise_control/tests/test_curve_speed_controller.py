@@ -6,8 +6,8 @@ See the LICENSE.md file in the root directory for more details.
 """
 import numpy as np
 
-import cereal.messaging as messaging
-from cereal import custom, log
+from openpilot.cereal import messaging
+from openpilot.cereal import custom, log
 from openpilot.common.params import Params
 from openpilot.selfdrive.car.cruise import V_CRUISE_UNSET
 from openpilot.selfdrive.modeld.constants import ModelConstants
