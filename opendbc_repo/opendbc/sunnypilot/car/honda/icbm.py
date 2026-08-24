@@ -35,7 +35,7 @@ class IntelligentCruiseButtonManagementInterface(IntelligentCruiseButtonManageme
       send_button = BUTTONS[self.ICBM.sendButton]
 
       if (self.frame - self.last_button_frame) * DT_CTRL > 0.05:
-        can_sends.append(hondacan.spam_buttons_command(packer, CAN, send_button, self.CP.carFingerprint))
+        can_sends.append(hondacan.spam_buttons_command(packer, CAN, send_button, self.CP))
         self.last_button_frame = self.frame
 
     return can_sends

@@ -1,7 +1,7 @@
 # functions common among cars
 import numpy as np
 from dataclasses import dataclass, field
-from enum import IntFlag, ReprEnum, StrEnum, EnumType, auto
+from enum import ReprEnum, StrEnum, EnumType, auto, IntFlag
 from dataclasses import replace
 
 from opendbc.car import structs, uds

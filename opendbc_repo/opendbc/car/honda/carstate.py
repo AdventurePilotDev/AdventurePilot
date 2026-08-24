@@ -5,9 +5,8 @@ from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.honda.hondacan import CanBus
-from opendbc.car.honda.values import CAR, DBC, STEER_THRESHOLD, HONDA_BOSCH, HONDA_BOSCH_ALT_RADAR, HONDA_BOSCH_CANFD, \
-                                                 HONDA_NIDEC_ALT_SCM_MESSAGES, HONDA_BOSCH_RADARLESS, \
-                                                 HondaFlags, CruiseButtons, CruiseSettings, GearShifter, CarControllerParams
+from opendbc.car.honda.values import CAR, DBC, STEER_THRESHOLD, HondaFlags, CruiseButtons, CruiseSettings, \
+                                                 GearShifter, CarControllerParams
 from opendbc.car.interfaces import CarStateBase
 
 from opendbc.sunnypilot.car.honda.carstate_ext import CarStateExt
@@ -33,7 +32,7 @@ class CarState(CarStateBase, CarStateExt):
       self.shifter_values = can_define.dv[self.gearbox_msg]["GEAR_SHIFTER"]
 
     self.car_state_scm_msg = "SCM_FEEDBACK"
-    if CP.carFingerprint in HONDA_NIDEC_ALT_SCM_MESSAGES:
+    if CP.flags & HondaFlags.NIDEC_ALT_SCM_MESSAGES:
       self.car_state_scm_msg = "SCM_BUTTONS"
 
     self.brake_error_msg = "HYBRID_BRAKE_ERROR" if CP.flags & HondaFlags.HYBRID else "STANDSTILL"
@@ -44,7 +43,7 @@ class CarState(CarStateBase, CarStateExt):
     self.brake_switch_active = False
     self.low_speed_alert = False
 
-    self.dynamic_v_cruise_units = self.CP.carFingerprint in (HONDA_BOSCH_RADARLESS | HONDA_BOSCH_ALT_RADAR | HONDA_BOSCH_CANFD)
+    self.dynamic_v_cruise_units = bool(self.CP.flags & (HondaFlags.BOSCH_RADARLESS | HondaFlags.BOSCH_ALT_RADAR | HondaFlags.BOSCH_CANFD))
     self.cruise_setting = 0
     self.v_cruise_pcm_prev = 0
 
@@ -102,7 +101,7 @@ class CarState(CarStateBase, CarStateExt):
 
     steer_status = self.steer_status_values[cp.vl["STEER_STATUS"]["STEER_STATUS"]]
     ret.steerFaultPermanent = steer_status not in ("NORMAL", "NO_TORQUE_ALERT_1", "NO_TORQUE_ALERT_2", "LOW_SPEED_LOCKOUT", "TMP_FAULT")
-    if self.CP.carFingerprint in HONDA_BOSCH_ALT_RADAR:
+    if self.CP.flags & HondaFlags.BOSCH_ALT_RADAR:
       # TODO: See if this logic works for all other Honda
       min_steer_speed = max(CarControllerParams.STEER_GLOBAL_MIN_SPEED, self.CP.minSteerSpeed)
       expected_low_speed_lockout = steer_status == "LOW_SPEED_LOCKOUT" and ret.vEgo < min_steer_speed
@@ -126,7 +125,7 @@ class CarState(CarStateBase, CarStateExt):
       self.low_speed_alert = False
     ret.lowSpeedAlert = self.low_speed_alert
 
-    if self.CP.carFingerprint in HONDA_BOSCH_RADARLESS:
+    if self.CP.flags & HondaFlags.BOSCH_RADARLESS:
       ret.accFaulted = bool(cp.vl["CRUISE_FAULT_STATUS"]["CRUISE_FAULT"])
     else:
       if self.CP.openpilotLongitudinalControl:
@@ -136,7 +135,7 @@ class CarState(CarStateBase, CarStateExt):
           ret.accFaulted = bool(cp.vl[self.brake_error_msg]["BRAKE_ERROR_1"] or cp.vl[self.brake_error_msg]["BRAKE_ERROR_2"])
 
       # Log non-critical stock ACC/LKAS faults if Nidec (camera)
-      if self.CP.carFingerprint not in HONDA_BOSCH:
+      if not (self.CP.flags & HondaFlags.BOSCH):
         ret.carFaultedNonCritical = bool(cp_cam.vl["ACC_HUD"]["ACC_PROBLEM"] or cp_cam.vl["LKAS_HUD"]["LKAS_PROBLEM"])
 
     ret.espDisabled = cp.vl["VSA_STATUS"]["ESP_DISABLED"] != 0
@@ -166,14 +165,14 @@ class CarState(CarStateBase, CarStateExt):
     ret.steeringTorque = cp.vl["STEER_STATUS"]["STEER_TORQUE_SENSOR"]
     ret.steeringPressed = abs(ret.steeringTorque) > STEER_THRESHOLD.get(self.CP.carFingerprint, 1200)
 
-    if self.CP.carFingerprint in HONDA_BOSCH:
+    if self.CP.flags & HondaFlags.BOSCH:
       # The PCM always manages its own cruise control state, but doesn't publish it
-      if self.CP.carFingerprint in HONDA_BOSCH_RADARLESS:
+      if self.CP.flags & HondaFlags.BOSCH_RADARLESS:
         ret.cruiseState.nonAdaptive = cp_cam.vl["ACC_HUD"]["CRUISE_CONTROL_LABEL"] != 0
 
       if not self.CP.openpilotLongitudinalControl:
         # ACC_HUD is on camera bus on radarless cars
-        acc_hud = cp_cam.vl["ACC_HUD"] if self.CP.carFingerprint in HONDA_BOSCH_RADARLESS else cp.vl["ACC_HUD"]
+        acc_hud = cp_cam.vl["ACC_HUD"] if self.CP.flags & HondaFlags.BOSCH_RADARLESS else cp.vl["ACC_HUD"]
         ret.cruiseState.nonAdaptive = acc_hud["CRUISE_CONTROL_LABEL"] != 0
         ret.cruiseState.standstill = acc_hud["CRUISE_SPEED"] == 252.
 
@@ -207,20 +206,20 @@ class CarState(CarStateBase, CarStateExt):
       if ret.deprecated.brake > 0.1:
         ret.brakePressed = True
 
-    if self.CP.carFingerprint in HONDA_BOSCH:
+    if self.CP.flags & HondaFlags.BOSCH:
       # TODO: find the radarless AEB_STATUS bit and make sure ACCEL_COMMAND is correct to enable AEB alerts
-      if self.CP.carFingerprint not in HONDA_BOSCH_RADARLESS:
+      if not (self.CP.flags & HondaFlags.BOSCH_RADARLESS):
         ret.stockAeb = (not self.CP.openpilotLongitudinalControl) and bool(cp.vl["ACC_CONTROL"]["AEB_STATUS"] and cp.vl["ACC_CONTROL"]["ACCEL_COMMAND"] < -1e-5)
     else:
       ret.stockAeb = bool(cp_cam.vl["BRAKE_COMMAND"]["AEB_REQ_1"] and cp_cam.vl["BRAKE_COMMAND"]["COMPUTER_BRAKE"] > 1e-5)
 
     self.acc_hud = False
     self.lkas_hud = False
-    if self.CP.carFingerprint not in HONDA_BOSCH:
+    if not (self.CP.flags & HondaFlags.BOSCH):
       ret.stockFcw = cp_cam.vl["BRAKE_COMMAND"]["FCW"] != 0
       self.acc_hud = cp_cam.vl["ACC_HUD"]
       self.stock_brake = cp_cam.vl["BRAKE_COMMAND"]
-    if self.CP.carFingerprint in HONDA_BOSCH_RADARLESS:
+    if self.CP.flags & HondaFlags.BOSCH_RADARLESS:
       self.lkas_hud = cp_cam.vl["LKAS_HUD"]
 
     if self.CP.enableBsm:

@@ -115,7 +115,6 @@ class CarControllerParams:
 
       # Longitudinal constants
       self.ACCEL_INACTIVE = 3.01  # m/s^2
-      self.ACCEL_OVERRIDE = 0.00  # m/s^2
       self.JERK_LIMIT = 4.0  # m/s^3
 
       self.shifter_values = can_define.dv["Getriebe_11"]["GE_Fahrstufe"]
@@ -647,6 +646,7 @@ VOLKSWAGEN_VERSION_RESPONSE = bytes([uds.SERVICE_TYPE.READ_DATA_BY_IDENTIFIER + 
 VOLKSWAGEN_RX_OFFSET = 0x6a
 
 FW_QUERY_CONFIG = FwQueryConfig(
+  fw_version_regex=br"\xf1\x87[\x00-\xff]{17,58}",
   requests=[request for bus, obd_multiplexing in [(1, True), (1, False), (0, False)] for request in [
     Request(
       [VOLKSWAGEN_VERSION_REQUEST_MULTI],

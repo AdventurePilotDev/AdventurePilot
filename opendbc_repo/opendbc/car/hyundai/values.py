@@ -713,7 +713,9 @@ def match_fw_to_car_fuzzy(live_fw_versions, vin, offline_fw_versions) -> set[str
   # Non-electric CAN FD platforms often do not have platform code specifiers needed
   # to distinguish between hybrid and ICE. All EVs so far are either exclusively
   # electric or specify electric in the platform code.
-  fuzzy_platform_blacklist = {str(c) for c in (CANFD_CAR - EV_CAR - CANFD_FUZZY_WHITELIST)}
+  canfd_cars = {c for c in CAR if c.config.flags & HyundaiFlags.CANFD}
+  ev_cars = {c for c in CAR if c.config.flags & HyundaiFlags.EV}
+  fuzzy_platform_blacklist = {str(c) for c in canfd_cars - ev_cars - CANFD_FUZZY_WHITELIST}
   candidates: set[str] = set()
 
   for candidate, fws in offline_fw_versions.items():
@@ -792,6 +794,7 @@ DATE_FW_ECUS = [Ecu.fwdCamera]
 # Note: an ECU on CAN FD cars may sometimes send 0x30080aaaaaaaaaaa (flow control continue) while we
 # are attempting to query ECUs. This currently does not seem to affect fingerprinting from the camera
 FW_QUERY_CONFIG = FwQueryConfig(
+  fw_version_regex=br"\xf1\x00[\x00-\xff]{19,56}",
   requests=[
     # TODO: add back whitelists
     # CAN queries (OBD-II port)

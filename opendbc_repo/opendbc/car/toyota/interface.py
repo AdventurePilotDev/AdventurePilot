@@ -3,8 +3,7 @@ from opendbc.car.toyota.carstate import CarState
 from opendbc.car.toyota.carcontroller import CarController
 from opendbc.car.toyota.radar_interface import RadarInterface
 from opendbc.car.toyota.values import Ecu, CAR, DBC, ToyotaFlags, CarControllerParams, TSS2_CAR, RADAR_ACC_CAR, NO_DSU_CAR, \
-                                                  MIN_ACC_SPEED, EPS_SCALE, NO_STOP_TIMER_CAR, ANGLE_CONTROL_CAR, \
-                                                  ToyotaSafetyFlags, UNSUPPORTED_DSU_CAR
+                                                  MIN_ACC_SPEED, EPS_SCALE, NO_STOP_TIMER_CAR, ToyotaSafetyFlags, UNSUPPORTED_DSU_CAR
 from opendbc.car.disable_ecu import disable_ecu
 from opendbc.car.interfaces import CarInterfaceBase
 from opendbc.sunnypilot.car.toyota.values import ToyotaFlagsSP, ToyotaSafetyFlagsSP
@@ -38,7 +37,7 @@ class CarInterface(CarInterfaceBase):
       ret.safetyConfigs[0].safetyParam |= ToyotaSafetyFlags.SECOC.value
       ret.dashcamOnly = is_release
 
-    if candidate in ANGLE_CONTROL_CAR:
+    if ret.flags & ToyotaFlags.ANGLE_CONTROL:
       ret.steerControlType = SteerControlType.angle
       ret.safetyConfigs[0].safetyParam |= ToyotaSafetyFlags.LTA.value
 
@@ -51,7 +50,7 @@ class CarInterface(CarInterfaceBase):
       ret.steerActuatorDelay = 0.12  # Default delay, Prius has larger delay
       ret.steerLimitTimer = 0.4
 
-    stop_and_go = candidate in TSS2_CAR
+    stop_and_go = bool(ret.flags & ToyotaFlags.TSS2)
 
     # In TSS2 cars, the camera does long control
     found_ecus = [fw.ecu for fw in car_fw]
@@ -84,15 +83,15 @@ class CarInterface(CarInterfaceBase):
 
     # TODO: Some TSS-P platforms have BSM, but are flipped based on region or driving direction.
     # Detect flipped signals and enable for C-HR and others
-    ret.enableBsm = 0x3F6 in fingerprint[0] and candidate in TSS2_CAR
+    ret.enableBsm = 0x3F6 in fingerprint[0] and bool(ret.flags & ToyotaFlags.TSS2)
 
     # No radar dbc for cars without DSU which are not TSS 2.0
     # TODO: make an adas dbc file for dsu-less models
     ret.radarUnavailable = Bus.radar not in DBC[candidate] or candidate in (NO_DSU_CAR - TSS2_CAR)
 
     # since we don't yet parse radar on TSS2/TSS-P radar-based ACC cars, gate longitudinal behind experimental toggle
-    if candidate in (RADAR_ACC_CAR | NO_DSU_CAR):
-      ret.alphaLongitudinalAvailable = candidate in RADAR_ACC_CAR
+    if ret.flags & ToyotaFlags.RADAR_ACC:
+      ret.alphaLongitudinalAvailable = True
 
       # Disabling radar is only supported on TSS2 radar-ACC cars
       if alpha_long and candidate in RADAR_ACC_CAR:
@@ -104,7 +103,7 @@ class CarInterface(CarInterfaceBase):
     # openpilot longitudinal behind experimental long toggle:
     #  - TSS2 radar ACC cars (disables radar)
 
-    ret.openpilotLongitudinalControl = (candidate in (TSS2_CAR - RADAR_ACC_CAR) or
+    ret.openpilotLongitudinalControl = ((bool(ret.flags & ToyotaFlags.TSS2) and not (ret.flags & ToyotaFlags.RADAR_ACC)) or
                                         bool(ret.flags & ToyotaFlags.DISABLE_RADAR.value))
 
     ret.autoResumeSng = ret.openpilotLongitudinalControl and candidate in NO_STOP_TIMER_CAR
@@ -116,7 +115,7 @@ class CarInterface(CarInterfaceBase):
     # to a negative value, so it won't matter.
     ret.minEnableSpeed = -1. if stop_and_go else MIN_ACC_SPEED
 
-    if candidate in TSS2_CAR:
+    if ret.flags & ToyotaFlags.TSS2:
       ret.flags |= ToyotaFlags.RAISED_ACCEL_LIMIT.value
 
       # Hybrids have much quicker longitudinal actuator response
