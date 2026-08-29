@@ -12,6 +12,7 @@ from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.shader_polygon import draw_polygon, Gradient
 from openpilot.system.ui.widgets import Widget
 from openpilot.common.filter_simple import FirstOrderFilter
+from opendbc.car.rivian.values import RivianFlags
 
 # TODO: arc_bar_pts doesn't consider rounded end caps part of the angle span
 TORQUE_ANGLE_SPAN = 12.7
@@ -164,8 +165,19 @@ class TorqueBar(Widget):
     if self._demo:
       return
 
+    car_control = ui_state.sm['carControl']
+    actuators_output = ui_state.sm['carOutput'].actuatorsOutput
+    applied_torque = actuators_output.torque
+
     # torque line
-    if ui_state.sm['controlsState'].lateralControlState.which() in ('angleState', 'curvatureState'):
+    # angle controlled cars command no torque, and neither does Rivian while it steers on its angle
+    # channel under torque primary. show the lateral accel estimate there instead of a flat zero bar
+    steering_by_angle = ui_state.sm['controlsState'].lateralControlState.which() in ('angleState', 'curvatureState')
+    # the zero-torque heuristic only holds on angle-capable hardware; a torque-only truck
+    # at a zero crossing must keep its normal torque bar
+    cp = ui_state.CP
+    angle_capable = cp is not None and cp.brand == "rivian" and bool(cp.flags & RivianFlags.ANGLE_HARNESS)
+    if steering_by_angle or (angle_capable and car_control.latActive and actuators_output.torqueOutputCan == 0):
       controls_state = ui_state.sm['controlsState']
       car_state = ui_state.sm['carState']
       vehicle_parameters = ui_state.sm['vehicleParameters']
@@ -187,7 +199,7 @@ class TorqueBar(Widget):
       else:
         self._torque_filter.update(np.clip((lateral_acceleration + accel_diff) / max_lateral_acceleration, -1, 1))
     else:
-      self._torque_filter.update(-ui_state.sm['carOutput'].actuatorsOutput.torque)
+      self._torque_filter.update(-applied_torque)
 
   def _render(self, rect: rl.Rectangle) -> None:
     # adjust y pos with torque

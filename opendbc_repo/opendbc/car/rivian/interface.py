@@ -22,10 +22,23 @@ class CarInterface(CarInterfaceBase):
     if 0x321 not in fingerprint[0]:
       ret.flags |= RivianFlags.GEN2.value
 
+    # this branch requires the xnor extreme angle harness (announces 0x1310 on bus 1)
+    if 0x1310 in fingerprint[1]:
+      ret.flags |= RivianFlags.ANGLE_HARNESS.value
+    else:
+      ret.dashcamOnly = True
+
     ret.steerActuatorDelay = 0.15
+    # angle control can hold the wheel at standstill; lateral is gated to drive gear in mads.py
+    ret.steerAtStandstill = True
+    # speed-scheduled lateral curvature low-pass (delay-compensated in modeld); damps the
+    # angle plant's crawl-speed limit cycle, off by 8 m/s
+    ret.lateralSmoothSeconds = 0.4
     ret.steerLimitTimer = 0.4
     CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 
+    # torque is the primary channel (xnor inversion): ext_controller derives the angle
+    # from curvature and cooperative torque covers override/handoff
     ret.steerControlType = structs.CarParams.SteerControlType.torque
     ret.radarUnavailable = True
 

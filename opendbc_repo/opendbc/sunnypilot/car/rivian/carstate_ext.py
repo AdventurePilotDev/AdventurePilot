@@ -8,8 +8,6 @@ import math
 from enum import StrEnum
 
 from opendbc.car import Bus, structs
-from openpilot.common.params import Params
-from openpilot.sunnypilot.mads.helpers import MadsSteeringModeOnBrake, read_steering_mode_param
 from opendbc.can.parser import CANParser
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.rivian.values import DBC
@@ -34,6 +32,9 @@ class CarStateExt:
     self.decrease_counter = 0
     self.vdm_user_adas_request = 0
     self._lkas_pending = False
+    # lazy openpilot imports: opendbc must stay importable standalone (safety test suite)
+    from openpilot.common.params import Params
+    from openpilot.sunnypilot.mads.helpers import MadsSteeringModeOnBrake, read_steering_mode_param
     # First-ever drive on this device: seed the Rivian default of DISENGAGE.
     # CarParamsPersistent is written by card.py AFTER the CarInterface (and so this constructor) is built, and it has
     # no registered default, so manager_init's "fill unset params with their default" loop never touches it. It is
@@ -72,6 +73,7 @@ class CarStateExt:
     # In DISENGAGE mode with ACC active, suppress: UP_1 cancels Rivian ACC natively
     # and pcmDisable is stripped by mads.update_events(), leaving MADS in Mode B.
     # Generating lkas here would also fire manualSteeringRequired and kill MADS.
+    from openpilot.sunnypilot.mads.helpers import MadsSteeringModeOnBrake
     if vdm == 1 and self.vdm_user_adas_request not in (1, 2):
       if not (self.steering_mode_on_brake == MadsSteeringModeOnBrake.DISENGAGE and ret.cruiseState.enabled):
         self._lkas_pending = True

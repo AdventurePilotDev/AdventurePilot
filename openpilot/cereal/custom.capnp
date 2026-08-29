@@ -375,6 +375,14 @@ struct OnroadEventSP @0xda96579883444c35 {
     e2eChime @23;
     laneChangeRoadEdge @24;
     belowMadsMinEngageSpeed @25;
+    rivianAngleDeactivated @26;
+    rivianAngleReactivated @27;
+    rivianHoldToDeactivate @28;
+    rivianHoldToReactivate @29;
+    rivianDeactivateTimeout @30;
+    rivianActivateTimeout @31;
+    rivianDeactivateCanceled @32;
+    rivianActivateCanceled @33;
   }
 }
 

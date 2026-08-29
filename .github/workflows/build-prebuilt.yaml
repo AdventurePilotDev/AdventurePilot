@@ -19,7 +19,7 @@ name: Build Prebuilt
 
 on:
   push:
-    branches: [ rel-src, stg-src ]
+    branches: [ '*-src' ]   # stg-src/rel-src + variants stg-a-src/stg-t-src/... ; publish strips -src
   workflow_dispatch:
     inputs:
       source_branch:

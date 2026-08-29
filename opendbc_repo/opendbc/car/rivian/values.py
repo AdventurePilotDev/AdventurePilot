@@ -1,10 +1,11 @@
 from dataclasses import dataclass, field
-from enum import StrEnum, IntFlag
+from enum import StrEnum, IntFlag, IntEnum
 
-from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs, uds
+from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs, uds, ACCELERATION_DUE_TO_GRAVITY
 from opendbc.car.docs_definitions import CarHarness, CarDocs, CarParts
 from opendbc.car.fw_query_definitions import FwQueryConfig, Request, StdQueries, p16
 from opendbc.car.vin import Vin
+from opendbc.car.lateral import AngleSteeringLimitsVM, ISO_LATERAL_ACCEL
 
 
 class WMI(StrEnum):
@@ -41,10 +42,30 @@ class RivianPlatformConfig(PlatformConfig):
 
 class RivianFlags(IntFlag):
   GEN2 = 1
+  # angle-capable lateral hardware present (xnor extreme box 0x1310, or dual-intercept ext panda)
+  ANGLE_HARNESS = 2
+
+
+class RivianAngleSteerPhase(IntEnum):
+  # UI phase for the angle-steering hold-to-confirm toggle. Written by CarController (card),
+  # read by CarSpecificEventsSP (selfdrived) to emit the matching on-screen message.
+  QUIET = 0                 # steady state (angle or forced-torque), no message
+  HOLD_TO_DEACTIVATE = 1    # waiting for the driver to hold the wheel to switch to torque
+  HOLD_TO_REACTIVATE = 2    # waiting for the driver to hold the wheel to re-enable angle
+  DEACTIVATED = 3           # torque locked in ("using only torque steering")
+  REACTIVATED = 4           # angle re-armed
+  DEACTIVATE_TIMEOUT = 5    # no hold within 5s (chime)
+  ACTIVATE_TIMEOUT = 6      # no hold within 5s (chime)
+  DEACTIVATE_CANCELED = 7   # second tap aborted the pending deactivate
+  ACTIVATE_CANCELED = 8     # second tap aborted the pending reactivate
 
 
 class RivianSafetyFlags(IntFlag):
   LONG_CONTROL = 1
+  # ext intercept panda: only allow 0x110 angle + 0x100 ACM_Status TX (dual-intercept mirror)
+  SECONDARY_TX = 2
+  # unlock the angle channel on the primary panda (0x110/0x100 TX + VM angle checks)
+  ANGLE_CONTROL = 4
 
 
 class CAR(Platforms):
@@ -117,6 +138,8 @@ GEAR_MAP = {
   4: structs.CarState.GearShifter.drive,
 }
 
+AVERAGE_ROAD_ROLL = 0.06  # ~3.4 degrees, 6% superelevation. higher actual roll lowers lateral acceleration
+
 
 class CarControllerParams:
   # The R1T 2023 and R1S 2023 we tested on achieves slightly more lateral acceleration going left vs. right
@@ -140,6 +163,15 @@ class CarControllerParams:
   STEER_DRIVER_ALLOWANCE = 100  # allowed driver torque before start limiting
   STEER_DRIVER_MULTIPLIER = 2  # weight driver torque
   STEER_DRIVER_FACTOR = 100
+
+  # master split AngleSteeringLimits into v1 (rate) + VM (lateral-accel); Rivian
+  # angle control uses the VM limiter (ext_controller.apply_steer_angle_limits_vm).
+  ANGLE_LIMITS: AngleSteeringLimitsVM = AngleSteeringLimitsVM(
+    500,  # deg, STEER_ANGLE_MAX
+    MAX_LATERAL_ACCEL=ISO_LATERAL_ACCEL + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL),  # ~3.6 m/s^2
+    MAX_LATERAL_JERK=3.0 + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL),  # ~3.6 m/s^3
+    MAX_ANGLE_RATE=2.5,  # deg/10ms frame
+  )
 
   ACCEL_MIN = -3.5  # m/s^2
   ACCEL_MAX = 2.0  # m/s^2

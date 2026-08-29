@@ -17,6 +17,29 @@ sections:
     description: Enable MADS. Disable toggle to revert back to stock sunnypilot engagement/disengagement.
     enablement:
     - $ref: '#/macros/offroad'
+  - key: RivianEnableAngleSteering
+    widget: toggle
+    title: 'Rivian: Enable angle steering'
+    description: When off, steering is exclusively using torque.
+    needs_onroad_cycle: true
+    enablement:
+    - $ref: '#/macros/offroad'
+    - {type: capability, field: brand, equals: rivian}
+  - key: RivianAngleSteerMinSpeed
+    widget: option
+    title: 'Rivian: Always-Torque Below Speed'
+    description: Below this speed, steering always uses torque even when angle steering is enabled. 0 = no minimum. This is true vehicle speed; the dash may read about 1 mph/1.6 km/h higher. Steering returns to angle mode only once about 3 mph/5 km/h above this speed.
+    min: 0
+    max: 40
+    step: 1
+    unit:
+      metric: km/h
+      imperial: mph
+    needs_onroad_cycle: true
+    enablement:
+    - $ref: '#/macros/offroad'
+    - {type: capability, field: brand, equals: rivian}
+    - {type: param, key: RivianEnableAngleSteering, equals: true}
   sub_panels:
   - id: mads_settings
     label: MADS Settings

@@ -179,8 +179,9 @@ class AugmentedRoadView(CameraView):
       self._offroad_label.set_text("start the car to\nuse sunnypilot")
 
   def _handle_mouse_release(self, mouse_pos: MousePos):
-    # Don't trigger click callback if bookmark was triggered
-    if not self._bookmark_icon.interacting():
+    # Don't trigger the go-home click if the bookmark swipe or a wheel-icon tap (angle/torque toggle)
+    # consumed this touch.
+    if not self._bookmark_icon.interacting() and not self._hud_renderer.angle_tap_consumed():
       super()._handle_mouse_release(mouse_pos)
 
   def _render(self, _):
