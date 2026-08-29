@@ -1,6 +1,7 @@
 name: Nightly SP Sync
 
-# Nightly: merge sunnypilot/master into dev, re-vendoring the opendbc submodule whenever SP bumps it.
+# Nightly: merge sunnypilot/master into dev, re-vendoring the opendbc submodule whenever SP bumps it,
+# then advance dev-a (the angle trunk) to match dev.
 # Clean -> push dev. Any unresolved conflict -> open a PR for manual resolution.
 # Runs on GitHub-hosted ubuntu (pure git, not the device). dev has no build/CI of its own; the build
 # gate is at stg-src promotion, so auto-advancing dev on a clean sync is low-risk.
@@ -95,6 +96,46 @@ jobs:
             echo '```'
             echo
             echo "Resolve locally: \`git merge sunnypilot/master\` on \`dev\`, fix, push."
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/stdout}"
+          git merge --abort || git reset --hard HEAD
+          exit 1
+
+      - name: Advance dev-a (angle trunk)
+        run: |
+          # dev-a is dev + the Rivian angle layer -- the same paradigm as stg -> stg-a, one tier up.
+          # It is not a *-src branch so it never builds a prebuilt; stg-a-src is promoted from it.
+          # Advance it automatically or it rots the way stg-a-src did (263 commits behind, which is
+          # what turned a routine angle propagation into a forward-port of two months of API renames).
+          # Same contract as the sync above: push on a clean merge, otherwise report and fail.
+          if ! git ls-remote --exit-code --heads origin dev-a >/dev/null 2>&1; then
+            echo "dev-a does not exist on origin; skipping."
+            exit 0
+          fi
+
+          git fetch -q origin dev dev-a
+          DEV=$(git rev-parse origin/dev)
+          git checkout -q -B dev-a origin/dev-a
+
+          if git merge-base --is-ancestor "$DEV" HEAD; then
+            echo "dev-a already contains dev $(git rev-parse --short "$DEV"); nothing to do."
+            exit 0
+          fi
+
+          if git merge --no-edit "$DEV"; then
+            git push --no-verify origin HEAD:dev-a
+            echo "dev-a advanced to dev $(git rev-parse --short "$DEV")"
+            exit 0
+          fi
+
+          {
+            echo "### dev-a could not take dev \`$(git rev-parse --short "$DEV")\` cleanly"
+            echo
+            echo "Conflicted paths:"
+            echo '```'
+            git diff --name-only --diff-filter=U
+            echo '```'
+            echo
+            echo "Resolve locally: \`git merge dev\` on \`dev-a\`, fix, push."
           } >> "${GITHUB_STEP_SUMMARY:-/dev/stdout}"
           git merge --abort || git reset --hard HEAD
           exit 1
