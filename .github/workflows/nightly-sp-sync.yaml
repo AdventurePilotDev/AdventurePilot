@@ -101,6 +101,11 @@ jobs:
           exit 1
 
       - name: Advance dev-a (angle trunk)
+        # Runs even if the SP sync above failed: dev-a follows dev, not sunnypilot. When the sync is
+        # stuck on a conflict for days, dev-a must still be able to catch up to wherever dev already is
+        # -- otherwise the angle trunk silently drifts for exactly as long as the sync is red, which is
+        # how stg-a-src ended up 263 commits behind.
+        if: ${{ !cancelled() }}
         run: |
           # dev-a is dev + the Rivian angle layer -- the same paradigm as stg -> stg-a, one tier up.
           # It is not a *-src branch so it never builds a prebuilt; stg-a-src is promoted from it.
