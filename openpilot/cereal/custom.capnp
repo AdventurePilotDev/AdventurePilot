@@ -413,6 +413,15 @@ struct CarControlSP @0xa5cd762cd951a455 {
   leadOne @2 :LeadData;
   leadTwo @3 :LeadData;
   intelligentCruiseButtonManagement @4 :IntelligentCruiseButtonManagement;
+  laneCentering @5 :LaneCentering;
+
+  struct LaneCentering {
+    active @0 :Bool;         # the lane lines passed every gate this frame
+    holding @1 :Bool;        # inside the deadband, so deliberately doing nothing
+    correction @2 :Float32;  # 1/m, signed, the curvature actually added. positive is to the right
+    offset @3 :Float32;      # m, signed, distance off the aim point before the deadband is taken out
+    clipped @4 :Bool;        # the raw demand hit MAX_RAW_CORRECTION and was cut back
+  }
 
   struct Param {
     key @0 :Text;

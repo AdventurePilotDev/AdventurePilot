@@ -10,6 +10,7 @@ from opendbc.car.rivian.values import RivianFlags
 from openpilot.common.params import Params
 from openpilot.selfdrive.ui.mici.onroad.hud_renderer import HudRenderer
 from openpilot.selfdrive.ui.sunnypilot.onroad.blind_spot_indicators import BlindSpotIndicators
+from openpilot.selfdrive.ui.sunnypilot.onroad.lane_centering_indicator import LaneCenteringIndicator
 from openpilot.selfdrive.ui.sunnypilot.onroad.lateral_mode import lateral_mode
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import MousePos
@@ -19,6 +20,7 @@ class HudRendererSP(HudRenderer):
   def __init__(self):
     super().__init__()
     self.blind_spot_indicators = BlindSpotIndicators()
+    self.lane_centering_indicator = LaneCenteringIndicator(compact=True)
     # comma 4 angle/torque tap toggle on the wheel icon (backend is device-agnostic; this is the trigger)
     self._params = Params()
     self._angle_tap_armed = False
@@ -27,12 +29,14 @@ class HudRendererSP(HudRenderer):
   def _update_state(self) -> None:
     super()._update_state()
     self.blind_spot_indicators.update()
+    self.lane_centering_indicator.update()
     lateral_mode.update()
     self.wheel_tint = lateral_mode.wheel_tint
 
   def _render(self, rect: rl.Rectangle) -> None:
     super()._render(rect)
     self.blind_spot_indicators.render(rect)
+    self.lane_centering_indicator.render(rect)
 
   def _has_blind_spot_detected(self) -> bool:
 

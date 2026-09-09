@@ -164,6 +164,12 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"InteractivityTimeout", {PERSISTENT | BACKUP, INT, "0"}},
     {"IsDevelopmentBranch", {CLEAR_ON_MANAGER_START, BOOL}},
     {"IsReleaseSpBranch", {CLEAR_ON_MANAGER_START, BOOL}},
+    {"LaneCenteringDeadband", {PERSISTENT | BACKUP, FLOAT, "0.02"}},  // m, how far off centre is close enough, 0.02 settled by road testing
+    {"LaneCenteringDisplay", {PERSISTENT | BACKUP, BOOL, "0"}},  // draw the correction indicator on the onroad screen
+    {"LaneCenteringE2EAuthority", {PERSISTENT | BACKUP, FLOAT, "1.0"}},  // 0 = always center, 1 = defer to a confident model
+    {"LaneCenteringEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"LaneCenteringGain", {PERSISTENT | BACKUP, FLOAT, "0.60"}},  // fraction of the geometric demand applied, 0.60 settled by road testing
+    {"LaneCenteringOffset", {PERSISTENT | BACKUP, FLOAT, "0.0"}},  // meters, positive is to the right
     {"LastGPSPositionLLK", {PERSISTENT, STRING}},
     {"LeadDepartAlert", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"MaxTimeOffroad", {PERSISTENT | BACKUP, INT, "1800"}},
@@ -180,7 +186,10 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"RainbowMode", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"RoadEdgeLaneChangeEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"RocketFuel", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"ScreenSaverCustomText", {PERSISTENT | BACKUP, STRING, ""}},
     {"ScreenSaverEnabled", {PERSISTENT | BACKUP, BOOL, "1"}},
+    {"ScreenSaverLogo", {PERSISTENT | BACKUP, STRING, ""}},
+    {"ScreenSaverText", {PERSISTENT | BACKUP, INT, "0"}},
     {"ScreenSaverTimeout", {PERSISTENT | BACKUP, INT, "300"}},
     {"ShowAdvancedControls", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"ShowTurnSignals", {PERSISTENT | BACKUP, BOOL, "0"}},

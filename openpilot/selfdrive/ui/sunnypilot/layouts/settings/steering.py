@@ -13,6 +13,7 @@ from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.sunnypilot.widgets.list_view import toggle_item_sp, simple_button_item_sp, option_item_sp, LineSeparatorSP
 from openpilot.system.ui.widgets.scroller_tici import Scroller
 from openpilot.system.ui.widgets import Widget
+from openpilot.selfdrive.ui.sunnypilot.layouts.settings.steering_sub_layouts.lane_centering_settings import LaneCenteringSettingsLayout
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.steering_sub_layouts.lane_change_settings import LaneChangeSettingsLayout
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.steering_sub_layouts.mads_settings import MadsSettingsLayout
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.steering_sub_layouts.torque_settings import TorqueSettingsLayout
@@ -24,12 +25,19 @@ ENABLE_ANGLE_STEERING_DESC = "{main} {note}".format(
 )
 ANGLE_STEERING_OFFROAD_ONLY = tr("Turn the vehicle off to change this setting.")
 
+LANE_CENTERING_DESC = "{main} {note}".format(
+  main=tr("Keep the car in the middle of the painted lane instead of wherever the driving model chooses to sit. " +
+          "Only acts when both lane lines are clearly visible, and steps aside for lane changes and turn signals."),
+  note=tr("Corrections are small and gentle; a confident model that deliberately moves well off center is left alone."),
+)
+
 
 class PanelType(IntEnum):
   STEERING = 0
   MADS = 1
   LANE_CHANGE = 2
   TORQUE_CONTROL = 3
+  LANE_CENTERING = 4
 
 
 class SteeringLayout(Widget):
@@ -40,6 +48,7 @@ class SteeringLayout(Widget):
     self._lane_change_settings_layout = LaneChangeSettingsLayout(lambda: self._set_current_panel(PanelType.STEERING))
     self._mads_settings_layout = MadsSettingsLayout(lambda: self._set_current_panel(PanelType.STEERING))
     self._torque_control_layout = TorqueSettingsLayout(lambda: self._set_current_panel(PanelType.STEERING))
+    self._lane_centering_layout = LaneCenteringSettingsLayout(lambda: self._set_current_panel(PanelType.STEERING))
 
     items = self._initialize_items()
     self._scroller = Scroller(items, line_separator=False, spacing=0)
@@ -78,6 +87,16 @@ class SteeringLayout(Widget):
                            + tr("Value is in mph; shown in km/h when metric is active. ")
                            + tr("Takes effect after changing from OffRoad to OnRoad.")),
       label_callback=lambda speed: f'{round(speed * 1.60934)} km/h' if ui_state.is_metric else f'{speed} mph',
+    )
+    self._lane_centering_toggle = toggle_item_sp(
+      param="LaneCenteringEnabled",
+      title=lambda: tr("Lane Centering"),
+      description=LANE_CENTERING_DESC,
+    )
+    self._lane_centering_settings_button = simple_button_item_sp(
+      button_text=lambda: tr("Customize Lane Centering"),
+      button_width=800,
+      callback=lambda: self._set_current_panel(PanelType.LANE_CENTERING)
     )
     self._lane_change_settings_button = simple_button_item_sp(
       button_text=lambda: tr("Customize Lane Change"),
@@ -129,6 +148,9 @@ class SteeringLayout(Widget):
       self._enable_angle_steering,
       self._angle_min_speed,
       LineSeparatorSP(40),
+      self._lane_centering_toggle,
+      self._lane_centering_settings_button,
+      LineSeparatorSP(40),
       self._lane_change_settings_button,
       LineSeparatorSP(40),
       self._blinker_control_toggle,
@@ -169,6 +191,7 @@ class SteeringLayout(Widget):
       self._enable_angle_steering.set_description(desc)
     # "always torque below speed" is only relevant when angle steering is available and enabled
     self._angle_min_speed.set_visible(angle_avail and self._enable_angle_steering.action_item.get_state())
+    self._lane_centering_settings_button.action_item.set_enabled(self._lane_centering_toggle.action_item.get_state())
     self._blinker_control_options.set_visible(self._blinker_control_toggle.action_item.get_state())
     self._blinker_reengage_delay.set_visible(self._blinker_control_toggle.action_item.get_state())
 
@@ -185,7 +208,9 @@ class SteeringLayout(Widget):
     self._torque_customization_button.action_item.set_enabled(self._torque_control_toggle.action_item.get_state())
 
   def _render(self, rect):
-    if self._current_panel == PanelType.LANE_CHANGE:
+    if self._current_panel == PanelType.LANE_CENTERING:
+      self._lane_centering_layout.render(rect)
+    elif self._current_panel == PanelType.LANE_CHANGE:
       self._lane_change_settings_layout.render(rect)
     elif self._current_panel == PanelType.MADS:
       self._mads_settings_layout.render(rect)

@@ -51,6 +51,7 @@ dependencies = [
 
   # ui
   "comma-deps-raylib",
+  "pillow",  # screen saver logo decode/resize, in system/ui/sunnypilot/lib/logo_store.py
 ]
 
 [project.optional-dependencies]
