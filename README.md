@@ -1,4 +1,4 @@
-# AdventurePilot FAQs
+# AdventurePilot Instructions
 
 User-facing documentation for AdventurePilot features.
 
