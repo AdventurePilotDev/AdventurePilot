@@ -15,10 +15,10 @@ from openpilot.system.ui.widgets.keyboard import Keyboard
 class InputDialogSP:
   def __init__(self, title: str, sub_title: str | None = None, current_text: str = "", param: str | None = None,
                callback: Callable[[DialogResult, str], None] | None = None,
-               min_text_size: int = 0, password_mode: bool = False):
+               min_text_size: int = 0, password_mode: bool = False, max_text_size: int = 255):
     self.callback = callback
     self.current_text = current_text
-    self.keyboard = Keyboard(max_text_size=255, min_text_size=min_text_size, password_mode=password_mode)
+    self.keyboard = Keyboard(max_text_size=max_text_size, min_text_size=min_text_size, password_mode=password_mode)
     self.param = param
     self._params = Params()
     self.sub_title = sub_title

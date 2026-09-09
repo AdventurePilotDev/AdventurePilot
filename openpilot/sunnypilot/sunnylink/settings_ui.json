@@ -1397,6 +1397,63 @@
                   "equals": true
                 }
               ]
+            },
+            {
+              "key": "ScreenSaverText",
+              "widget": "multiple_button",
+              "title": "Screen Saver Text",
+              "description": "Choose what the screen saver shows. Custom text and logos are set up on the device itself, and are not available on the comma 4.",
+              "options": [
+                {
+                  "value": 0,
+                  "label": "AdventurePilot"
+                },
+                {
+                  "value": 1,
+                  "label": "sunnypilot"
+                },
+                {
+                  "value": 2,
+                  "label": "Custom"
+                },
+                {
+                  "value": 3,
+                  "label": "Logo"
+                }
+              ],
+              "enablement": [
+                {
+                  "type": "param",
+                  "key": "ScreenSaverEnabled",
+                  "equals": true
+                }
+              ]
+            },
+            {
+              "key": "ScreenSaverCustomText",
+              "widget": "info",
+              "title": "Custom Text",
+              "description": "The text shown when Custom is selected. Type it on the device, under Display settings.",
+              "enablement": [
+                {
+                  "type": "param",
+                  "key": "ScreenSaverEnabled",
+                  "equals": true
+                }
+              ]
+            },
+            {
+              "key": "ScreenSaverLogo",
+              "widget": "info",
+              "title": "Screen Saver Logo",
+              "description": "The image shown when Logo is selected. Upload and choose it on the device, under Display settings.",
+              "enablement": [
+                {
+                  "type": "param",
+                  "key": "ScreenSaverEnabled",
+                  "equals": true
+                }
+              ]
             }
           ]
         }

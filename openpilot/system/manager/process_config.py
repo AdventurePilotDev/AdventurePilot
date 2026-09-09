@@ -190,6 +190,13 @@ if os.path.exists("../../third_party/copyparty/copyparty-sfx.py"):
   copyparty_args = [f"-v{Paths.crash_log_root()}:/swaglogs:r"]
   copyparty_args += [f"-v{Paths.log_root()}:/routes:r"]
   copyparty_args += [f"-v{Paths.model_root()}:/models:rw"]
+  # Screen saver logos. copyparty only warns about a volume whose path is missing, but the share is
+  # then unusable, so create it here rather than leaving the user an empty folder they cannot fill.
+  try:
+    os.makedirs(Paths.branding_root(), exist_ok=True)
+  except OSError:
+    pass
+  copyparty_args += [f"-v{Paths.branding_root()}:/branding:rw"]
   copyparty_args += [f"-v{sunnypilot_root}:/sunnypilot:rw"]
   copyparty_args += ["-p8080"]
   copyparty_args += ["-z"]

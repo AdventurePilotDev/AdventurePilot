@@ -95,3 +95,13 @@ class Paths:
       return str(Path(Paths.comma_home()) / "media" / "0" / "osm")
     else:
       return "/data/media/0/osm"
+
+  @staticmethod
+  def branding_root() -> str:
+    # User-supplied branding (screen saver logos). Sits alongside models and osm on the user data
+    # partition so it survives reboots, OTA updates and branch switches. The repo working tree is
+    # not an option: the updater copies an overlay over it and inspects it with git.
+    if PC:
+      return str(Path(Paths.comma_home()) / "media" / "0" / "branding")
+    else:
+      return "/data/media/0/branding"
