@@ -151,6 +151,16 @@ sections:
       - type: param
         key: LaneCenteringEnabled
         equals: true
+    - key: LaneCenteringDisplay
+      widget: toggle
+      title: Show Correction On Screen
+      description: Draws a small bar while driving showing which way lane centering is nudging the car and how hard. The
+        bar fills to the side the car is being pulled, stays dim while the car is already close enough to the middle, and
+        turns grey when the lane lines cannot be trusted.
+      enablement:
+      - type: param
+        key: LaneCenteringEnabled
+        equals: true
 - id: blinker
   title: Blinker Control
   description: Lateral pause behavior during turn signals

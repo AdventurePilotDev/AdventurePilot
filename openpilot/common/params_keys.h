@@ -165,6 +165,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"IsDevelopmentBranch", {CLEAR_ON_MANAGER_START, BOOL}},
     {"IsReleaseSpBranch", {CLEAR_ON_MANAGER_START, BOOL}},
     {"LaneCenteringDeadband", {PERSISTENT | BACKUP, FLOAT, "0.02"}},  // m, how far off centre is close enough, 0.02 settled by road testing
+    {"LaneCenteringDisplay", {PERSISTENT | BACKUP, BOOL, "0"}},  // draw the correction indicator on the onroad screen
     {"LaneCenteringE2EAuthority", {PERSISTENT | BACKUP, FLOAT, "1.0"}},  // 0 = always center, 1 = defer to a confident model
     {"LaneCenteringEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"LaneCenteringGain", {PERSISTENT | BACKUP, FLOAT, "0.60"}},  // fraction of the geometric demand applied, 0.60 settled by road testing

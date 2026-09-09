@@ -9,7 +9,7 @@ import pyray as rl
 
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.multilang import tr
-from openpilot.system.ui.sunnypilot.widgets.list_view import option_item_sp, LineSeparatorSP
+from openpilot.system.ui.sunnypilot.widgets.list_view import option_item_sp, toggle_item_sp, LineSeparatorSP
 from openpilot.system.ui.widgets.network import NavButton
 from openpilot.system.ui.widgets.scroller_tici import Scroller
 from openpilot.system.ui.widgets import Widget
@@ -114,6 +114,14 @@ class LaneCenteringSettingsLayout(Widget):
       label_callback=deadband_label,
     )
 
+    self._display = toggle_item_sp(
+      param="LaneCenteringDisplay",
+      title=lambda: tr("Show Correction On Screen"),
+      description=lambda: tr("Draws a small bar while driving showing which way lane centering is nudging the car and " +
+                             "how hard. The bar fills to the side the car is being pulled, stays dim while the car is " +
+                             "already close enough to the middle, and turns grey when the lane lines cannot be trusted."),
+    )
+
     return [
       self._offset,
       LineSeparatorSP(40),
@@ -122,6 +130,8 @@ class LaneCenteringSettingsLayout(Widget):
       self._strength,
       LineSeparatorSP(40),
       self._deadband,
+      LineSeparatorSP(40),
+      self._display,
     ]
 
   def _render(self, rect):

@@ -107,6 +107,13 @@ class ControlsExt(ModelStateBase):
     CC_SP.intelligentCruiseButtonManagement.sendButton = icbm_src.sendButton
     CC_SP.intelligentCruiseButtonManagement.vTarget = icbm_src.vTarget
 
+    # Lane centering, for the on-screen indicator only
+    CC_SP.laneCentering.active = bool(self.lane_centering.active)
+    CC_SP.laneCentering.holding = bool(self.lane_centering.holding)
+    CC_SP.laneCentering.correction = float(self.lane_centering.correction)
+    CC_SP.laneCentering.offset = float(self.lane_centering.center_error)
+    CC_SP.laneCentering.clipped = bool(self.lane_centering.clipped)
+
     return CC_SP
 
   @staticmethod

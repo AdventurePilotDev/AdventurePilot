@@ -144,6 +144,15 @@ class CarControlSP:
   leadOne: 'LeadData' = field(default_factory=lambda: LeadData())
   leadTwo: 'LeadData' = field(default_factory=lambda: LeadData())
   intelligentCruiseButtonManagement: 'IntelligentCruiseButtonManagement' = field(default_factory=lambda: IntelligentCruiseButtonManagement())
+  laneCentering: 'CarControlSP.LaneCentering' = field(default_factory=lambda: CarControlSP.LaneCentering())
+
+  @auto_dataclass
+  class LaneCentering:
+    active: bool = auto_field()
+    holding: bool = auto_field()
+    correction: float = auto_field()
+    offset: float = auto_field()
+    clipped: bool = auto_field()
 
   @auto_dataclass
   class Param:
