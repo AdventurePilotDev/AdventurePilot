@@ -16,7 +16,7 @@ Part 1 does the smooth, planned-ahead work; part 2 is the safety net that catche
 
 ## Turning it on
 
-1. Open the **Cruise**.menu  
+1. Open the **Cruise** menu.  
 2. Turn on **Curve Speed Control**.
 
 Both parts are controlled by this single toggle. No map data or GPS is required - it works purely from the forward camera / driving model.
