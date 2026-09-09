@@ -72,6 +72,85 @@ sections:
       enablement:
       - $ref: '#/macros/offroad'
       - {type: capability, field: brand, equals: rivian}
+- id: lane_centering
+  title: Lane Centering
+  description: Keep the car in the middle of the painted lane
+  items:
+  - key: LaneCenteringEnabled
+    widget: toggle
+    title: Lane Centering
+    description: Keep the car in the middle of the painted lane instead of wherever the driving model chooses to sit. Only
+      acts when both lane lines are clearly visible, and steps aside for lane changes and turn signals.
+    details: |-
+      Corrections are deliberately small and are smoothed in over about half a second, so this should read as the car
+      sitting straighter rather than as active steering. Whenever the lane lines become unreliable, a lane change starts
+      or a turn signal comes on, the correction fades away rather than being dropped in one go.
+  sub_panels:
+  - id: lane_centering_settings
+    label: Lane Centering Settings
+    trigger_key: LaneCenteringEnabled
+    trigger_condition:
+      type: param
+      key: LaneCenteringEnabled
+      equals: true
+    items:
+    - key: LaneCenteringOffset
+      widget: option
+      title: Position in Lane
+      description: Sit deliberately off the middle of the lane. Positive values sit to the right, negative to the left.
+        The car is never aimed closer than 1.1 m/3.6 ft to either line, so a large offset in a narrow lane is trimmed back.
+      min: -0.3
+      max: 0.3
+      step: 0.01
+      unit: meters
+      enablement:
+      - type: param
+        key: LaneCenteringEnabled
+        equals: true
+    # Permanent. What suits one car, model and road does not suit the next, and comparing values needs
+    # them changeable between legs of a single drive rather than a rebuild per value.
+    - key: LaneCenteringGain
+      widget: option
+      title: Centering Strength
+      description: Sets how hard the car is pulled back toward the middle of the lane. Higher means it sits closer to the
+        middle but works harder to get there. 0.6 suits the cars and roads tested so far. Lower feels smoother than it really
+        is, and 0.3 is too weak to hold against a road crown, leaving the car sitting off centre all day.
+      min: 0.0
+      max: 1.0
+      step: 0.1
+      enablement:
+      - type: param
+        key: LaneCenteringEnabled
+        equals: true
+    # Permanent, same reason as the strength above.
+    - key: LaneCenteringDeadband
+      widget: option
+      title: Close Enough To Centre
+      description: How far off the middle of the lane the car is allowed to sit before lane centering does anything about
+        it. Smaller sits closer to the middle. It does not make the car calmer. A wide tolerance lets the car drift to the
+        edge and get kicked back, which reverses more often, not less. Road testing settled on 0.02. The car's own screen
+        shows this in cm/in.
+      min: 0.0
+      max: 0.15
+      step: 0.01
+      unit: meters
+      enablement:
+      - type: param
+        key: LaneCenteringEnabled
+        equals: true
+    - key: LaneCenteringE2EAuthority
+      widget: option
+      title: Let the Model Sit Off Centre
+      description: How much freedom the driving model keeps to sit well off the middle of the lane when it is sure of itself,
+        which usually means it is avoiding something. 1.0 always lets it have its way, 0 centres the car regardless. This
+        only applies to large departures; small ones are always corrected.
+      min: 0.0
+      max: 1.0
+      step: 0.1
+      enablement:
+      - type: param
+        key: LaneCenteringEnabled
+        equals: true
 - id: blinker
   title: Blinker Control
   description: Lateral pause behavior during turn signals
