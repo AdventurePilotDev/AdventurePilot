@@ -4,6 +4,8 @@ Curve Speed Control slows the vehicle down ahead of a curve, holds a steady, com
 
 This is a **separate feature** from Smart Cruise Control - Vision (SCC-V) and Smart Cruise Control - Map (SCC-M). It has its own toggle and can be run on its own or alongside them. See [How it differs from SCC-V / SCC-M](#how-it-differs-from-scc-v--scc-m) below.
 
+**Where it has landed:** the `stg` and `stg-a` staging lines (any current prebuilt has it) and the `dev` and `dev-a` development trunks. `ap-dev` carries an earlier version without the later acceleration-smoothing fix. Not in the `rel` prebuilt yet.
+
 ## What it does
 
 Curve Speed Control has two parts that work together:

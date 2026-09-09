@@ -9,7 +9,7 @@ Rivian has no native cruise resume, unlike other brands. With Comma and the xnor
 ## Setting up
 
 - Enable **longitudinal control** (developer menu).
-- Turn on **Rivian: Enable Resume** - in the device's **Cruise** menu, or on the **Sunnylink Vehicle** page. It appears only once the comma has fingerprinted a Rivian and is OffRoad, and it defaults to **off**. Resume does nothing until this toggle is enabled. (The toggle was added on the `ap-dev-mr` development branch.)
+- Turn on **Rivian: Enable Resume** - in the device's **Cruise** menu, or on the **Sunnylink Vehicle** page. It appears only once the comma has fingerprinted a Rivian and is OffRoad, and it defaults to **off**. Resume does nothing until this toggle is enabled.
 - Disable the native Rivian **"Set to speed limit on divided highways"** feature (hold the right-hand stalk down for 0.5 s). Do this even if you never use Resume: with comma longitudinal control, that native feature otherwise causes a large - though harmless - mismatch between the comma and Rivian set-speed displays. It also uses the same stalk gesture as Resume.
 
 ![Cruise settings menu with the "Rivian: Enable Resume" toggle](images/rivian-resume-cruise-menu.png)
@@ -45,6 +45,8 @@ As on stock Rivian, this only works where stock Rivian would let you invoke crui
 | `stg` (general) | `v2026.08.08-56` |
 | `stg-a` (angle harness) | `v2026.08.08-57` |
 
-Both lines carry identical code. It is included in every build published since, so a current `stg` / `stg-a` prebuilt is covered if its version is that **or newer**. **Not yet on** `rel`, `rel-src`, `dev` or `ap-dev`.
+Both lines carry identical code. It is included in every build published since, so a current `stg` / `stg-a` prebuilt is covered if its version is that **or newer**. Also on the `dev` and `dev-a` development trunks.
+
+**Not yet on** `rel`, `rel-src` or `ap-dev`. The Resume toggle itself has been available on those branches for much longer - it is only this stale-speed fix that has not reached them, so on `ap-dev` Resume still shows the old behaviour.
 
 **No safety-layer code was touched.** The fix only changes which number the set speed is restored to, inside a feature you have to switch on. It cannot make the car command a speed you never set - if anything the opposite, since the bug it removes was the car reapplying a speed you had deliberately moved away from.

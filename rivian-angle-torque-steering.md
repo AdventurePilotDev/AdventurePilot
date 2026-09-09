@@ -8,6 +8,8 @@
 | :---- | :---- | :---- | :---- |
 | `stg-a` (angle harness) | `stg-a-src` | `17d87aea3`, `77a21378a`, `a29373622`, `aeca4d34a` | `v2026.08.11-59` |
 
+Also on `dev-a`, the angle-harness development trunk. Angle steering needs the angle harness, so it is not on `stg`, `dev`, `rel` or `ap-dev`.
+
 ---
 
 ## In one line

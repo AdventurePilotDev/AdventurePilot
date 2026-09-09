@@ -2,6 +2,8 @@
 
 **Build:** `stg-a` prebuilt `v2026.08.06-48` **Source commit:** `670f76fe9` - "Rivian: xnor torque-primary inversion on the stg-a platform" **Applies to:** Rivian R1T / R1S **fitted with the xnor extreme angle harness**. This build gates on that harness: without it the car is dashcam only and openpilot will not control the vehicle at all. Torque-only support on a standard comma harness is being worked on separately and is not part of this build.
 
+**Where it has landed:** the `stg-a-src` line (and its `stg-a` prebuilts from `v2026.08.06-48` onward) and the `dev-a` angle-harness development trunk. It needs the angle harness, so it is not on `stg`, `dev`, `rel` or `ap-dev`.
+
 ---
 
 ## In one line

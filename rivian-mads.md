@@ -73,7 +73,9 @@ Both lines carry byte-identical code for both changes. Each pair of commits is t
 
 Three-mode brake-pedal support is part of the same body of Rivian MADS work on these lines.
 
-**Not yet on** `rel`, `rel-src`, `dev` or `ap-dev` - these still behave the old way for both changes. Verified directly, not assumed.
+**Also on** the `dev` and `dev-a` development trunks, which carry the same code.
+
+**Not yet on** `rel`, `rel-src` or `ap-dev` - these still behave the old way for both changes. Verified directly, not assumed.
 
 ---
 

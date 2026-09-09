@@ -13,7 +13,9 @@ Those are the builds the fix **first** appeared in, not the ones to flash. It is
 
 The `stg` version is a port of the same fix, not a different one: the safety code is identical on both lines. Only the test needed adapting, because `stg` does not carry the angle-steering work that the `stg-a` test relies on.
 
-**Not yet fixed:** `rel`, `rel-src`, `dev` and `ap-dev` all still carry the fault. Verified directly rather than assumed - none of those four has either half of the fix. `rel` and `rel-src` are deliberately untouched for now. For `dev`, the shared half is proposed upstream as sunnypilot/opendbc draft PR #493, which is the proper long-term home for it.
+**Also carries the fix:** the `dev` and `dev-a` development trunks - the same safety code, verified byte-identical to the staging lines. The shared half is additionally proposed upstream as sunnypilot/opendbc draft PR #493, which is its proper long-term home.
+
+**Not yet fixed:** `rel` and `rel-src` (deliberately left for now) and `ap-dev`. Verified directly rather than assumed - none of those has either half of the fix.
 
 ---
 
@@ -40,7 +42,7 @@ If you have experienced an unexplained permanent LKAS fault after fiddling with 
 
 This was not found by code review or guesswork. A tester hit the fault on the road, and the cause was traced through the actual drive log (route `c17ea97dc5472650/00000006`, segment 3), one CAN frame at a time, until the full chain was proven end to end.
 
-Worth being clear about one thing: **this bug is not new, and the steering-architecture change did not cause it.** The same faulty machinery has been present on stg-a and dev all along. The new build simply produced the first clean, readable log of it happening, which is what made the diagnosis possible.
+Worth being clear about one thing: **this bug is not new, and the steering-architecture change did not cause it.** The same faulty machinery had been present on `stg-a` and `dev` for a long time before this. The new build simply produced the first clean, readable log of it happening, which is what made the diagnosis possible.
 
 ---
 
