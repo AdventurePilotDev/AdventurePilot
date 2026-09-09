@@ -46,6 +46,11 @@ ALPHA_FLOOR = 32
 
 LOGO_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 MAX_STORED_NAME_LEN = 40
+TEMP_SUFFIX = ".tmp"
+
+# The small UI keeps a single picture under one name rather than a library it has no way to
+# browse, so every upload there replaces the last one.
+FIXED_LOGO_NAME = "logo.png"
 
 _UNSAFE_NAME_CHARS = re.compile(r"[^A-Za-z0-9 _-]+")
 
@@ -179,8 +184,10 @@ def import_logo(data: bytes, filename: str) -> ImportResult:
   if root is None:
     return ImportResult(False, error="Could not write to the device storage.")
 
+  _sweep_stale_temp_files(root)
+
   destination = root / name
-  temp = root / (name + ".tmp")
+  temp = root / (name + TEMP_SUFFIX)
   try:
     with open(temp, "wb") as f:
       cropped.save(f, format="PNG")
@@ -193,6 +200,19 @@ def import_logo(data: bytes, filename: str) -> ImportResult:
     return ImportResult(False, error="Could not save the logo to the device.")
 
   return ImportResult(True, name=name, warnings=warnings)
+
+
+def _sweep_stale_temp_files(root: Path):
+  """Clear part-written uploads left behind by a power cut mid-write.
+
+  They are invisible to list_logos() because of the extension filter, so they never show up as
+  a broken logo, but without this they accumulate quietly.
+  """
+  try:
+    for path in root.glob("*" + TEMP_SUFFIX):
+      path.unlink(missing_ok=True)
+  except OSError:
+    cloudlog.exception("logo_store: could not clear stale temporary files")
 
 
 def delete_logo(name: str) -> bool:

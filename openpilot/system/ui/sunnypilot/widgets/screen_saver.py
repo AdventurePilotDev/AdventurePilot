@@ -31,9 +31,9 @@ LOGO_MODE = 3
 MAX_MODE = LOGO_MODE
 DEFAULT_TEXT = PRESET_TEXTS[0]
 
-# Highest mode the small UI offers. Custom text and logos are big-UI features, but ScreenSaverText
-# is remotely writable, so the small UI has to cope with a mode it has no way to configure.
-MICI_MAX_MODE = 1
+# What the small UI offers. It has a picture upload screen but no keyboard flow for custom text,
+# and ScreenSaverText is remotely writable, so anything else has to fall back to a preset.
+MICI_MODES = (0, 1, LOGO_MODE)
 
 # Fraction of the screen the logo is allowed to occupy, matching the share the text takes so the
 # logo travels rather than filling the screen.
@@ -104,7 +104,7 @@ class ScreenSaverSP(Widget):
     mode = self._params.get("ScreenSaverText", return_default=True)
     if mode is None or not 0 <= mode <= MAX_MODE:
       return 0
-    if self._is_mici and mode > MICI_MAX_MODE:
+    if self._is_mici and mode not in MICI_MODES:
       return 0
     return mode
 

@@ -15,6 +15,7 @@ from openpilot.system.ui.widgets.option_dialog import MultiOptionDialog
 from openpilot.system.ui.widgets.scroller_tici import Scroller
 from openpilot.system.ui.sunnypilot.lib.logo_store import display_name, list_logos
 from openpilot.system.ui.sunnypilot.widgets.input_dialog import InputDialogSP
+from openpilot.system.ui.sunnypilot.widgets.logo_upload_dialog import LogoUploadDialog
 from openpilot.system.ui.sunnypilot.widgets.list_view import toggle_item_sp, option_item_sp, button_item_sp, multiple_button_item_sp
 from openpilot.system.ui.sunnypilot.widgets.screen_saver import CUSTOM_TEXT_MODE, LOGO_MODE, MAX_CUSTOM_TEXT_LEN, PRESET_TEXTS
 from openpilot.sunnypilot.system.params_migration import ONROAD_BRIGHTNESS_TIMER_VALUES
@@ -101,6 +102,12 @@ class DisplayLayout(Widget):
       callback=self._show_custom_text_dialog,
     )
     self._screensaver_custom_text.action_item.set_value(lambda: self._params.get("ScreenSaverCustomText", return_default=True) or "")
+    self._screensaver_logo_upload = button_item_sp(
+      title=lambda: tr("Add a Logo"),
+      button_text=lambda: tr("UPLOAD"),
+      description=lambda: tr("Show a code to scan with your phone, then pick a picture to send to this device."),
+      callback=self._show_logo_upload_dialog,
+    )
     self._screensaver_logo = button_item_sp(
       title=lambda: tr("Screen Saver Logo"),
       button_text=lambda: tr("SELECT"),
@@ -118,6 +125,7 @@ class DisplayLayout(Widget):
       self._screensaver_timeout,
       self._screensaver_text,
       self._screensaver_custom_text,
+      self._screensaver_logo_upload,
       self._screensaver_logo,
     ]
     return items
@@ -126,13 +134,21 @@ class DisplayLayout(Widget):
     selected = self._params.get("ScreenSaverLogo", return_default=True) or ""
     return display_name(selected) if selected in self._logos else tr("None")
 
+  def _show_logo_upload_dialog(self):
+    def on_uploaded(name: str):
+      self._logos = list_logos()
+      # If nothing was chosen yet, the picture the user just sent is the one they meant
+      if not (self._params.get("ScreenSaverLogo", return_default=True) or ""):
+        self._params.put("ScreenSaverLogo", name, block=True)
+
+    gui_app.push_widget(LogoUploadDialog(on_uploaded=on_uploaded))
+
   def _show_logo_dialog(self):
     # Re-read here rather than trusting the cache: an image may have been uploaded since the panel
     # was opened, and this is a tap, not a frame
     self._logos = logos = list_logos()
     if not logos:
-      gui_app.push_widget(alert_dialog(tr("No images found. Turn on the copyparty Service in Developer settings, " +
-                                          "then upload a PNG or JPEG to the branding folder from your browser.")))
+      gui_app.push_widget(alert_dialog(tr("No images yet. Use Add a Logo above to send one from your phone.")))
       return
 
     labels = [display_name(name) for name in logos]
@@ -182,7 +198,9 @@ class DisplayLayout(Widget):
     self._screensaver_timeout.set_visible(screensaver_on)
     self._screensaver_text.set_visible(screensaver_on)
     self._screensaver_custom_text.set_visible(screensaver_on and self._screensaver_text.action_item.selected_button == CUSTOM_TEXT_MODE)
-    self._screensaver_logo.set_visible(screensaver_on and self._screensaver_text.action_item.selected_button == LOGO_MODE)
+    logo_mode = screensaver_on and self._screensaver_text.action_item.selected_button == LOGO_MODE
+    self._screensaver_logo_upload.set_visible(logo_mode)
+    self._screensaver_logo.set_visible(logo_mode)
 
   def _render(self, rect):
     self._scroller.render(rect)
