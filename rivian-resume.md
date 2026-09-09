@@ -1,25 +1,50 @@
-# Rivian Resume Instructions
+# Rivian Resume
 
-Although Rivian does not provide a native cruise control resume function unlike other brands, if you have Comma with the xnor longitudinal harness (xnor.shop) you can have most of the functions of resume that you might have been used to elsewhere.
+**Applies to:** Rivian R1T / R1S. Rivian-only. Needs the xnor longitudinal harness (xnor.shop) and longitudinal control enabled.
 
-# Setting up:
+Rivian has no native cruise resume, unlike other brands. With Comma and the xnor longitudinal harness you can get back most of the resume behaviour you may be used to elsewhere.
 
-You should disable the native Rivian feature that enables the "Set to speed limit on divided highways" feature by holding the right hand stalk down for 0.5 seconds. Note that you should disable this in any case even if not using the resume feature because its use with longitudinal cruise control on comma will usually result in a significant disconnect between the comma and Rivian cruise set speed display. This disconnect is harmless but could cause confusion for the driver.
+---
 
-To use resume you must enable longitudinal (on the developer menu)
+## Setting up
 
-In the ap-dev-mr branch an additional toggle (Rivian: Enable Resume) has been added in the Device's Cruise menu and it is also available in the Sunnylink Vehicle menu. It is available only once the the comma has fingerprinted a Rivian and is OffRoad. It defaults to off (Disabled) - the Resume feature is effective only when this toggle is enabled
+- Enable **longitudinal control** (developer menu).
+- Turn on **Rivian: Enable Resume** - in the device's **Cruise** menu, or on the **Sunnylink Vehicle** page. It appears only once the comma has fingerprinted a Rivian and is OffRoad, and it defaults to **off**. Resume does nothing until this toggle is enabled. (The toggle was added on the `ap-dev-mr` development branch.)
+- Disable the native Rivian **"Set to speed limit on divided highways"** feature (hold the right-hand stalk down for 0.5 s). Do this even if you never use Resume: with comma longitudinal control, that native feature otherwise causes a large - though harmless - mismatch between the comma and Rivian set-speed displays. It also uses the same stalk gesture as Resume.
 
 ![Cruise settings menu with the "Rivian: Enable Resume" toggle](images/rivian-resume-cruise-menu.png)
 
-# Sunnylink
-
 ![Sunnylink Vehicle page showing "Rivian: Enable Resume"](images/rivian-resume-sunnylink.png)
 
-# How it works:
+---
 
-Holding the right hand stalk down full for at least 0.5 seconds will set the cruise set speed to the same as the most recent set speed the last time cruise was turned off. If cruise has never been enabled it will just set the speed to the vehicle's current speed.  It will of course, only work whenever it is possible to invoke cruise on stock Rivian - i.e. at speeds greater than 20mph/32kph or, under some circumstances, when stopped behind another vehicle (such as at a traffic light or a stop sign) just as for stock Rivian.
+## How it works
 
-# Things to note:
+Hold the right-hand stalk down fully for at least 0.5 seconds. The cruise set speed is restored to the set speed you were using when cruise was last turned off. If cruise has never been engaged, it is set to the current vehicle speed instead.
 
-Inevitably when resume is invoked the Rivian's set speed display will be out of sync with the comma's actual set speed since it will display the speed at which the vehicle was moving when resume was invoked. This is similar to the disconnect that happens when using the speed control buttons on the steering wheel. only a bit more dramatic. If the vehicle was moving slower than the resume set speed the driver can take advantage of the feature whereby a tap down of the rh stalk will update the Rivian's cruise set speed display to equal the vehicle's speed at the time. Unfortunately if the vehicle was moving faster than the resume set speed this "trick" will not work owing to the inherent limitation in the Rivian system.
+As on stock Rivian, this only works where stock Rivian would let you invoke cruise at all: above 20 mph / 32 km/h, or in some stopped situations behind another vehicle (a traffic light, a stop sign).
+
+**One deactivation, one resume.** The remembered speed is cleared as soon as it has been used; only a fresh cruise deactivation stores a new one. So the feature brings back the speed from before cruise dropped out, and after that it has nothing to restore until cruise drops out again.
+
+> Earlier builds kept the old speed instead of clearing it, and would reapply it if you held the stalk down again later in the same drive - overwriting a speed you had chosen since. For example: resume at 70, then drop to 50 for a slower road, then have 70 snap back on the next stalk-hold. That is fixed.
+
+---
+
+## Things to note
+
+- After a resume, the Rivian's own set-speed display will be out of sync with the comma's actual set speed - it shows the speed the car was doing when resume was invoked. This is the same kind of mismatch you get from the steering-wheel speed buttons, just larger.
+- If the car was going **slower** than the resumed speed, you can bring the Rivian display back into line: a tap down on the right-hand stalk updates the Rivian's displayed set speed to the current vehicle speed.
+- If the car was going **faster** than the resumed speed, that trick does not work - an inherent limitation of the Rivian system.
+
+---
+
+## Where the stale-speed fix landed
+
+| Line | First shipped in |
+| :---- | :---- |
+| `stg` (general) | `v2026.08.08-56` |
+| `stg-a` (angle harness) | `v2026.08.08-57` |
+
+Both lines carry identical code. It is included in every build published since, so a current `stg` / `stg-a` prebuilt is covered if its version is that **or newer**. **Not yet on** `rel`, `rel-src`, `dev` or `ap-dev`.
+
+**No safety-layer code was touched.** The fix only changes which number the set speed is restored to, inside a feature you have to switch on. It cannot make the car command a speed you never set - if anything the opposite, since the bug it removes was the car reapplying a speed you had deliberately moved away from.
