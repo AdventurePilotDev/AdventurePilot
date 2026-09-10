@@ -36,9 +36,9 @@ A useful side effect: this build **removes** more shared openpilot code than it 
 
 ## What you will notice while driving
 
-**A coloured steering wheel icon.** The wheel on screen is tinted to show which channel is actually steering:
+**A colored steering wheel icon.** The wheel on screen is tinted to show which channel is actually steering:
 
-| Colour | Meaning |
+| Color | Meaning |
 | :---- | :---- |
 | **Green** | Angle steering - the EPAS is holding the line, no torque is being commanded |
 | **Blue** | Torque steering - the normal openpilot torque loop is doing the work |
@@ -48,7 +48,7 @@ The indicator waits for about 10 frames of genuinely zero torque before calling 
 
 **Hands-on feels immediate.** Putting a hand on the wheel moves you into cooperative torque straight away rather than fighting a servo. Letting go does *not* snap straight back - it waits for the wheel to settle first, which is deliberate and prevents a lurch on release.
 
-**It holds the wheel at a standstill** in Drive, which is expected behaviour on this hardware.
+**It holds the wheel at a standstill** in Drive, which is expected behavior on this hardware.
 
 **It will not steer in Reverse, Park or Neutral.** Lateral actuation is hard-gated to Drive. This matters most during a reverse-parking shuffle, where MADS can otherwise re-arm in the gaps between gear changes.
 

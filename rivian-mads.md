@@ -8,7 +8,7 @@ MADS (Modular Assistive Driving System) runs lane centering independently of cru
 
 ## Engaging and disengaging
 
-**To engage MADS:** tap the stalk up (not past the detent), from either ACC or fully disengaged. Further taps up toggle MADS off and on. (The toggle-on-repeat behaviour may not have been present in earlier Rivian MADS versions.)
+**To engage MADS:** tap the stalk up (not past the detent), from either ACC or fully disengaged. Further taps up toggle MADS off and on. (The toggle-on-repeat behavior may not have been present in earlier Rivian MADS versions.)
 
 **To disengage MADS:** tap or hold the brake pedal. This is the single, consistent disengage action, and it works the same way whichever brake mode you are in.
 
@@ -58,7 +58,7 @@ Previously, shifting into **Reverse** put MADS into a *paused* state rather than
 
 **What you will notice:** after reversing, MADS stays off until you re-engage it the normal way. Nothing else about engagement, settings, or driving changes.
 
-Under the hood: reverse detection and the Rivian disengage request used to land on the same frame, and the "quietly pause" signal won the race. The fix repeats the disengage request on the next frame - about a hundredth of a second later - when the pause signal is no longer being raised, so MADS ends up *disabled* and stays there. This is the same two-frame pattern the Park path already used. It is a workaround for a collision in the shared MADS state machine, not a root-cause fix: an explicit disengage request does not automatically outrank an implicit pause request, and correcting that properly would change behaviour for every supported brand, so it is being kept as a separate decision. No practical consequence for you - the behaviour is correct.
+Under the hood: reverse detection and the Rivian disengage request used to land on the same frame, and the "quietly pause" signal won the race. The fix repeats the disengage request on the next frame - about a hundredth of a second later - when the pause signal is no longer being raised, so MADS ends up *disabled* and stays there. This is the same two-frame pattern the Park path already used. It is a workaround for a collision in the shared MADS state machine, not a root-cause fix: an explicit disengage request does not automatically outrank an implicit pause request, and correcting that properly would change behavior for every supported brand, so it is being kept as a separate decision. No practical consequence for you - the behavior is correct.
 
 ---
 
@@ -114,7 +114,7 @@ Both changes have revert-and-reland histories in the development branch that loo
 
 ## Limitations and things to know
 
-- **Silent refusal is intentional but undiscoverable.** Nothing tells you why the stalk did nothing below the minimum speed. If you have not read this page, the behaviour is genuinely confusing - that is the main cost of the design.
+- **Silent refusal is intentional but undiscoverable.** Nothing tells you why the stalk did nothing below the minimum speed. If you have not read this page, the behavior is genuinely confusing - that is the main cost of the design.
 - **The minimum-speed threshold is read once per drive.** Changing it mid-drive has no effect until the next OffRoad to OnRoad transition.
 - **A new setting key needs a full reboot** if you build from source; published builds handle it.
 - **The Reverse fix is a workaround**, not a root-cause fix, for the reason given above. It has no practical effect on how the car behaves for you.

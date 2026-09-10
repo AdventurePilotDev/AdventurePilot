@@ -38,7 +38,7 @@ Location: **Settings -> Steering** (main steering menu). Default: **ON**.
 - Only appears on angle-harness Rivians.  
 - Can only be changed **off-road** (with the vehicle parked / off). Changes take effect after changing from OffRoad to OnRoad. The setting is remembered between drives.
 
-| Setting | Behaviour |
+| Setting | Behavior |
 | :---- | :---- |
 | **ON** (default) | Angle steering is available. The on-screen tap toggle (below) is active. |
 | **OFF** | The car uses **torque steering only** for the whole drive. The on-screen tap toggle is disabled - tapping the wheel icon does nothing. |
@@ -54,7 +54,7 @@ The setting is also available remotely through **Sunnylink** (Steering page), su
 Location: **Settings -> Steering**, directly under "Rivian: Enable angle steering". Default: **0 (off)**.
 
 - Only appears when "Rivian: Enable angle steering" is ON (it is meaningless otherwise).  
-- Sets a speed below which the car **always uses torque steering**, even though angle steering is enabled. Angle-mode steering can be poor at very low speed, so this lets you keep the smoother torque behaviour for slow driving and let angle steering take over once you speed up.  
+- Sets a speed below which the car **always uses torque steering**, even though angle steering is enabled. Angle-mode steering can be poor at very low speed, so this lets you keep the smoother torque behavior for slow driving and let angle steering take over once you speed up.  
 - The value is in **mph** (shown in **km/h** when your device is set to metric), adjustable from **0 to 40** mph. **0 means off** - no low-speed forcing, exactly as before.  
 - The value is **true vehicle speed**. Your dash speedometer may read about **1 mph higher** than this (it is deliberately optimistic), so the threshold matches the speedo exactly when you have "Always Display True Speed" turned on, and reads about 1 mph low against the dash otherwise.  
 - Also available remotely through **Sunnylink** (Steering page).

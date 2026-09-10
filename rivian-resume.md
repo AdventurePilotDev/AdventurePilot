@@ -2,7 +2,7 @@
 
 **Applies to:** Rivian R1T / R1S. Rivian-only. Needs the xnor longitudinal harness (xnor.shop) and longitudinal control enabled.
 
-Rivian has no native cruise resume, unlike other brands. With Comma and the xnor longitudinal harness you can get back most of the resume behaviour you may be used to elsewhere.
+Rivian has no native cruise resume, unlike other brands. With Comma and the xnor longitudinal harness you can get back most of the resume behavior you may be used to elsewhere.
 
 ---
 
@@ -47,6 +47,6 @@ As on stock Rivian, this only works where stock Rivian would let you invoke crui
 
 Both lines carry identical code. It is included in every build published since, so a current `stg` / `stg-a` prebuilt is covered if its version is that **or newer**. Also on the `dev` and `dev-a` development trunks.
 
-**Not yet on** `rel`, `rel-src` or `ap-dev`. The Resume toggle itself has been available on those branches for much longer - it is only this stale-speed fix that has not reached them, so on `ap-dev` Resume still shows the old behaviour.
+**Not yet on** `rel`, `rel-src` or `ap-dev`. The Resume toggle itself has been available on those branches for much longer - it is only this stale-speed fix that has not reached them, so on `ap-dev` Resume still shows the old behavior.
 
 **No safety-layer code was touched.** The fix only changes which number the set speed is restored to, inside a feature you have to switch on. It cannot make the car command a speed you never set - if anything the opposite, since the bug it removes was the car reapplying a speed you had deliberately moved away from.
