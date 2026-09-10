@@ -12,17 +12,17 @@ How far off depends almost entirely on **which driving model you are running**, 
 
 | Driving model, feature off | Where the car actually sat |
 | :---- | :---- |
-| Down to Ride v6 | 13.9 cm right of centre, on average |
-| GWM V9 | 1.0 cm left of centre, on average |
+| Down to Ride v6 | 13.9 cm right of center, on average |
+| GWM V9 | 1.0 cm left of center, on average |
 
 With Lane Centering on, both models sat within about 3 to 5 cm of the middle. On a 13 minute drive with the same model and roads either way:
 
-| Speed | Average distance off centre, off | on |
+| Speed | Average distance off center, off | on |
 | :---- | :---- | :---- |
 | 11-34 mph / 18-54 km/h | 13.5 cm right | 3.3 cm right |
 | 34-56 mph / 54-90 km/h | 20.3 cm right | 5.8 cm right |
 
-The car spent 78% of that drive more than 10 cm off centre without it, and 42% with it.
+The car spent 78% of that drive more than 10 cm off center without it, and 42% with it.
 
 So the feature matters a great deal on some driving models and very little on others, and you cannot tell which from the driver's seat without measuring. That is worth knowing before you decide whether it did anything for you.
 
@@ -30,7 +30,7 @@ So the feature matters a great deal on some driving models and very little on ot
 
 A hundred times a second it looks about one second of travel ahead, works out where the middle of the painted lane is at that point and where the car is going to be, and if the two differ by more than the tolerance it adds a very small steering nudge toward the middle, easing it in over about half a second.
 
-**The nudge is tiny.** Across a full drive the sideways push it added averaged about 0.03 metres per second squared and never went past 0.09. A gentle motorway curve is more than ten times stronger than that. At the wheel it is about one degree at road speed. There is a hard cap it can never exceed, and it is applied *before* the existing steering rate and cornering limits, so it cannot ask the car for anything it would not otherwise have been allowed to do.
+**The nudge is tiny.** Across a full drive the sideways push it added averaged about 0.03 meters per second squared and never went past 0.09. A gentle highway curve is more than ten times stronger than that. At the wheel it is about one degree at road speed. There is a hard cap it can never exceed, and it is applied *before* the existing steering rate and cornering limits, so it cannot ask the car for anything it would not otherwise have been allowed to do.
 
 ## Turning it on
 
@@ -44,7 +44,7 @@ Everything here can be changed while driving. The change takes effect within abo
 
 > **After a fresh install, reboot the device before looking for these.** Two new settings had to be registered, and that only happens on a restart. Until then the menu items are not there at all.
 
-> **If you are updating rather than installing fresh, check the two numbers by hand.** New defaults only apply to a fresh install. An existing device keeps whatever it had, so **Centering Strength** may still be sitting at the old 30% and **Close Enough To Centre** at the old 4 cm. Set them to **60%** and **2 cm**.
+> **If you are updating rather than installing fresh, check the two numbers by hand.** New defaults only apply to a fresh install. An existing device keeps whatever it had, so **Centering Strength** may still be sitting at the old 30% and **Close Enough To Center** at the old 4 cm. Set them to **60%** and **2 cm**.
 
 ## What you see on screen
 
@@ -55,32 +55,32 @@ Turning on **Show Correction On Screen** (the last item in the same menu) puts a
 There are three things to read:
 
 - **The bar** fills out of the mark in the middle, towards the side the car is being pulled. Further out means working harder.
-- **The number on the left** is the size of the nudge, as a sideways push in metres per second squared - the same unit the Developer UI uses for cornering force. The arrow beside it is the direction.
-- **The number on the right** is how far off the middle of the lane the car is sitting, with an **L** or an **R** for the side it is off to. `3L in` means three inches left of centre. In the picture above the car is three inches left of the middle and is being nudged gently right, which is exactly what it should be doing.
+- **The number on the left** is the size of the nudge, as a sideways push in meters per second squared - the same unit the Developer UI uses for cornering force. The arrow beside it is the direction.
+- **The number on the right** is how far off the middle of the lane the car is sitting, with an **L** or an **R** for the side it is off to. `3L in` means three inches left of center. In the picture above the car is three inches left of the middle and is being nudged gently right, which is exactly what it should be doing.
 
-Those two numbers are the only coloured text. Units and words beside them are plain white, so the colour never has to compete with anything.
+Those two numbers are the only colored text. Units and words beside them are plain white, so the color never has to compete with anything.
 
-**The numbers settle twice a second**, not every frame. Each figure stands for half a second and is then replaced by the average of the half second just gone, because a number redrawn twenty times a second cannot be read at all. So what you see is what the car has been doing, not one instant of it. The bar underneath still moves continuously, which is what makes a brief loss of the lane lines show up as a flash of grey.
+**The numbers settle twice a second**, not every frame. Each figure stands for half a second and is then replaced by the average of the half second just gone, because a number redrawn twenty times a second cannot be read at all. So what you see is what the car has been doing, not one instant of it. The bar underneath still moves continuously, which is what makes a brief loss of the lane lines show up as a flash of gray.
 
-Distances are shown in inches or centimetres according to your units setting - the same one that picks mph or km/h.
+Distances are shown in inches or centimeters according to your units setting - the same one that picks mph or km/h.
 
-### What the colours mean
+### What the colors mean
 
 **Green - correcting normally.** The ordinary state on a marked road.
 
-![Green: correcting, 0.09 m/s2, three inches left of centre](images/lane-centering-3x-correcting.png)
+![Green: correcting, 0.09 m/s2, three inches left of center](images/lane-centering-3x-correcting.png)
 
-**White "centred" - deliberately doing nothing.** The car is already within the tolerance of where it is aiming, so the feature stands down. `on centre` on the right means less than half a unit off. At the 2 cm default you will see this less than you did at the old 4 cm.
+**White "centered" - deliberately doing nothing.** The car is already within the tolerance of where it is aiming, so the feature stands down. `on center` on the right means less than half a unit off. At the 2 cm default you will see this less than you did at the old 4 cm.
 
-![White: centred, on centre](images/lane-centering-3x-centred.png)
+![White: centered, on center](images/lane-centering-3x-centered.png)
 
-**Grey "no lines" - not acting at all.** The lane lines cannot be trusted, so nothing is being applied and no distance is shown. This is also what you get during a lane change and while a turn signal is on. Seeing this flash through a bend or across a junction is normal.
+**Gray "no lines" - not acting at all.** The lane lines cannot be trusted, so nothing is being applied and no distance is shown. This is also what you get during a lane change and while a turn signal is on. Seeing this flash through a bend or across an intersection is normal.
 
-![Grey: no lines](images/lane-centering-3x-no-lines.png)
+![Gray: no lines](images/lane-centering-3x-no-lines.png)
 
-**Amber - working harder than usual.** Past the end of the bar. Usually means the car has wandered a long way off centre and is on its way back.
+**Amber - working harder than usual.** Past the end of the bar. Usually means the car has wandered a long way off center and is on its way back.
 
-![Amber: 0.62 m/s2, nine inches left of centre](images/lane-centering-3x-amber.png)
+![Amber: 0.62 m/s2, nine inches left of center](images/lane-centering-3x-amber.png)
 
 **Red - it wanted more than it is allowed.** The correction has been cut back to the cap. In practice this only happens at low speed.
 
@@ -88,7 +88,7 @@ Distances are shown in inches or centimetres according to your units setting - t
 
 ### On a comma 4
 
-There is no room for the numbers on a comma 4 screen, so you get the bar on its own, in the lower middle. Direction and effort read exactly the same way, and it uses the same colours.
+There is no room for the numbers on a comma 4 screen, so you get the bar on its own, in the lower middle. Direction and effort read exactly the same way, and it uses the same colors.
 
 ![The lane centering bar on a comma 4](images/lane-centering-comma4-screen.png)
 
@@ -100,11 +100,11 @@ It is genuinely useful when you are comparing settings, or want to know whether 
 
 ### Position in Lane
 
-Sit deliberately off the middle of the lane, up to 30 cm (about 12 inches) either way. Shown in words on the device, for example "12 cm right", so there is no sign to remember. In Sunnylink it is in metres, where positive is to the right.
+Sit deliberately off the middle of the lane, up to 30 cm (about 12 inches) either way. Shown in words on the device, for example "12 cm right", so there is no sign to remember. In Sunnylink it is in meters, where positive is to the right.
 
 Whatever you ask for, the car is never aimed closer than **1.1 m / 3.6 ft** to either line. In a narrow lane a large offset is quietly trimmed back to respect that, so you cannot use this to ride the line.
 
-The usual reason to touch it is that the car ends up consistently off centre in one direction even with the feature on - dial in a small value the other way.
+The usual reason to touch it is that the car ends up consistently off center in one direction even with the feature on - dial in a small value the other way.
 
 ### Let the Model Sit Off Center
 
@@ -112,11 +112,11 @@ Sometimes the driving model moves well off the middle on purpose, usually becaus
 
 | Setting | What happens |
 | :---- | :---- |
-| **Model decides (100%)** | The model gets its way when it is confident and well off centre. The default. |
+| **Model decides (100%)** | The model gets its way when it is confident and well off center. The default. |
 | **50%** | Split the difference - the car comes part of the way back. |
-| **Always centre (0%)** | The car is centred regardless of what the model wanted. |
+| **Always center (0%)** | The car is centered regardless of what the model wanted. |
 
-Leave it at the default unless you find the car declining to centre itself where you think it should. Turning it down makes the feature more insistent, which also means overriding the model in situations where the model may have had a good reason.
+Leave it at the default unless you find the car declining to center itself where you think it should. Turning it down makes the feature more insistent, which also means overriding the model in situations where the model may have had a good reason.
 
 ### Centering Strength
 
@@ -126,22 +126,22 @@ Earlier builds defaulted to 30%, which turned out to be too weak: at that settin
 
 If you do compare, be warned that **30% feels smoother than it is**. It applies about a third of the sideways force of 90%, which is below what a driver notices, so a loop that is barely acting reads as a calm one - and it is also the setting that leaves the car furthest off the middle. Judge it on where the car ends up sitting, not on how little you can feel it.
 
-### Close Enough To Centre
+### Close Enough To Center
 
-Lane centering ignores the car being slightly off the middle, because chasing the last millimetre would make the steering fidget for no benefit. This sets that tolerance, and inside it the feature does nothing at all. Range 0 to 15 cm, **default 2 cm**.
+Lane centering ignores the car being slightly off the middle, because chasing the last millimeter would make the steering fidget for no benefit. This sets that tolerance, and inside it the feature does nothing at all. Range 0 to 15 cm, **default 2 cm**.
 
-| Tolerance | Typical distance off centre | Time spent more than 10 cm off |
+| Tolerance | Typical distance off center | Time spent more than 10 cm off |
 | :---- | :---- | :---- |
 | 0 cm | 4.3 cm | 9% |
 | **2 cm** | **5.6 cm** | **13%** |
 | 4 cm | 6.1 cm | 19% |
 | 8 cm | 8.4 cm | 32% |
 
-**A wide tolerance does not make the car calmer.** This is the part worth knowing, because it is the opposite of what the word sounds like it should mean. A wide band lets the car drift out to the edge, get a kick back, drift to the other edge, and get kicked again. Over the same road, 8 cm reversed the direction of the correction about twice as often as 0 cm did. Correcting continuously turns out to be the smoother behaviour, not the busier one.
+**A wide tolerance does not make the car calmer.** This is the part worth knowing, because it is the opposite of what the word sounds like it should mean. A wide band lets the car drift out to the edge, get a kick back, drift to the other edge, and get kicked again. Over the same road, 8 cm reversed the direction of the correction about twice as often as 0 cm did. Correcting continuously turns out to be the smoother behavior, not the busier one.
 
-So why 2 cm rather than 0? Neither reason is in the table. At 0 there is no holding state at all, so the readout never says "centred" and always shows a figure, which is a busier thing to have on screen all day. And 0 leaves no margin for a car whose camera calibration is slightly off. 2 cm keeps almost all of the benefit and keeps both of those.
+So why 2 cm rather than 0? Neither reason is in the table. At 0 there is no holding state at all, so the readout never says "centered" and always shows a figure, which is a busier thing to have on screen all day. And 0 leaves no margin for a car whose camera calibration is slightly off. 2 cm keeps almost all of the benefit and keeps both of those.
 
-If you have the readout turned on, this control is directly visible: the white "centred" state is the car sitting inside the tolerance. Lower the tolerance and you will see that state less often.
+If you have the readout turned on, this control is directly visible: the white "centered" state is the car sitting inside the tolerance. Lower the tolerance and you will see that state less often.
 
 ### Show Correction On Screen
 
@@ -158,7 +158,7 @@ It only acts when it is confident. All of the following have to be true:
 - No lane change is running.
 - No turn signal is on.
 
-When any of that stops being true the nudge **fades away over about a fifth of a second** rather than being dropped in one go, so there is no step in the steering. On screen that is the grey "no lines" state.
+When any of that stops being true the nudge **fades away over about a fifth of a second** rather than being dropped in one go, so there is no step in the steering. On screen that is the gray "no lines" state.
 
 ## What further testing would help
 
@@ -167,16 +167,16 @@ Everything measured so far is **one car, two driving models and a small number o
 | Setting | What is worth trying | What to look for |
 | :---- | :---- | :---- |
 | **Centering Strength** | 40, 60 and 80% back to back on the same road | Where the car settles left to right, and whether it starts crossing to the far side. 60% is right for a Rivian R1S; a lighter or slower-steering car may want more or less |
-| **Close Enough To Centre** | 0 and 2 cm on the same road | Whether 0 is worth the readout never saying "centred". If your camera calibration is slightly off, 0 may hunt where 2 does not |
-| **Position in Lane** | A small value against a car that sits off centre with the feature on | Whether the residual bias goes away, and whether it stays gone on a different road |
-| **Let the Model Sit Off Center** | 50% if the car declines to centre where you think it should | Whether it now centres in those places, and whether it starts arguing with the model somewhere it was right |
-| **Driving model** | The same drive on two models with the feature off | Your own starting point. A model that already sits centred has very little for this feature to do |
+| **Close Enough To Center** | 0 and 2 cm on the same road | Whether 0 is worth the readout never saying "centered". If your camera calibration is slightly off, 0 may hunt where 2 does not |
+| **Position in Lane** | A small value against a car that sits off center with the feature on | Whether the residual bias goes away, and whether it stays gone on a different road |
+| **Let the Model Sit Off Center** | 50% if the car declines to center where you think it should | Whether it now centers in those places, and whether it starts arguing with the model somewhere it was right |
+| **Driving model** | The same drive on two models with the feature off | Your own starting point. A model that already sits centered has very little for this feature to do |
 
 Roads and conditions worth pointing it at:
 
 - **Narrow lanes**, where the 1.1 m minimum distance to a line starts trimming what it will do.
 - **Poor or repainted markings**, tar snakes, and old lines left beside new ones.
-- **Roadworks, merges, splits and wide junctions**, where the lines briefly become unreliable. It should quietly stand down, not lurch. The grey "no lines" state is what you are looking for.
+- **Road work, merges, splits and wide intersections**, where the lines briefly become unreliable. It should quietly stand down, not lurch. The gray "no lines" state is what you are looking for.
 - **Low speed**, below about 25 mph, which is where the red capped state actually shows up.
 - **Long constant-radius bends**, where any bias in how the model reads the lines shows most clearly.
 - **A strong road crown**, which is the thing 30% was too weak to hold against.
@@ -186,7 +186,7 @@ What is worth writing down when you report back:
 1. Which driving model you were on, and the two settings you used.
 2. The route or the time of day, so the drive can be found in the logs.
 3. Whether you could feel it working, and where.
-4. Where the car looked to be sitting **by eye**. This one matters more than it sounds: the logs cannot tell the difference between the car genuinely sitting 6 cm right of centre and the camera reading the painted lines 6 cm to the right of where they really are, because the feature and the measurement both come from the same picture. Your eyes can. If the car looks centred to you, the remaining 6 cm is only in the numbers.
+4. Where the car looked to be sitting **by eye**. This one matters more than it sounds: the logs cannot tell the difference between the car genuinely sitting 6 cm right of center and the camera reading the painted lines 6 cm to the right of where they really are, because the feature and the measurement both come from the same picture. Your eyes can. If the car looks centered to you, the remaining 6 cm is only in the numbers.
 
 ## How this differs from Adjust Camera Offset
 
@@ -197,25 +197,25 @@ There is an existing setting, **Adjust Camera Offset** (Settings > sunnypilot > 
 | **What it changes** | Where the car aims, relative to the painted lines it can see | Where the car believes the camera is, which shifts its whole view of the world |
 | **Acts when** | Only when both lines are clearly visible | Always |
 | **Effect on the on-screen path** | None, the display is unchanged | Shifts the drawn path and lane lines too |
-| **Good for** | A car that sits off centre in a marked lane | A genuinely mis-positioned or mis-calibrated camera |
+| **Good for** | A car that sits off center in a marked lane | A genuinely mis-positioned or mis-calibrated camera |
 
-Using both at once means two settings fighting over the same thing. Pick one. If the car sits off centre in normal marked lanes, Lane Centering is the one you want, and the camera offset should stay at zero.
+Using both at once means two settings fighting over the same thing. Pick one. If the car sits off center in normal marked lanes, Lane Centering is the one you want, and the camera offset should stay at zero.
 
 ## Things to keep in mind
 
 - This assists you. It does not replace attention, and it does not keep the car in its lane on its own.
-- It does nothing at all where there are no clear lines - unmarked roads, roadworks, snow, faded paint, wide junctions. That is deliberate, and in those places the car steers exactly as it did before.
-- It aims at the middle of the lines **the camera can see**. If the markings themselves are off, or one line is a kerb edge the model has read as a line, the middle it works out will be off with them.
-- If turning it on visibly moves the car off centre the *other* way, that is the lane-line reading being slightly biased rather than the feature misbehaving. Trim it out with **Position in Lane**.
+- It does nothing at all where there are no clear lines - unmarked roads, road work, snow, faded paint, wide intersections. That is deliberate, and in those places the car steers exactly as it did before.
+- It aims at the middle of the lines **the camera can see**. If the markings themselves are off, or one line is a curb edge the model has read as a line, the middle it works out will be off with them.
+- If turning it on visibly moves the car off center the *other* way, that is the lane-line reading being slightly biased rather than the feature misbehaving. Trim it out with **Position in Lane**.
 - It works the same whether the car is steering with torque or with the angle harness, because it acts before either takes over.
 
 ## If something is not working
 
 - **There is no Lane Centering item in the Steering menu.** The update has not finished installing, or the device has not been restarted since it did. Check **Settings > Software**, then reboot - this needs a full restart, not just new files.
 - **Customize Lane Centering does nothing.** The main **Lane Centering** toggle is off. The adjustments only become available once the feature itself is on.
-- **It does not seem to be doing anything.** Turn on **Show Correction On Screen** and look. Grey "no lines" all the time means the lane markings are not good enough where you are driving. White "centred" all the time means it is working and there is nothing to correct. If it says neither, check **Centering Strength** is not sitting at 0.
+- **It does not seem to be doing anything.** Turn on **Show Correction On Screen** and look. Gray "no lines" all the time means the lane markings are not good enough where you are driving. White "centered" all the time means it is working and there is nothing to correct. If it says neither, check **Centering Strength** is not sitting at 0.
 - **It was better before the update.** Check the two numbers. An update keeps whatever your device already had, so a device that has been through several builds may still be on 30% strength and a 4 cm tolerance.
-- **The car now sits off centre the other way.** Expected on some roads and some models - the lane-line reading is slightly biased. Dial a small **Position in Lane** value the opposite way and see whether it holds on a different road too.
+- **The car now sits off center the other way.** Expected on some roads and some models - the lane-line reading is slightly biased. Dial a small **Position in Lane** value the opposite way and see whether it holds on a different road too.
 - **The readout flickers between states.** It should not - the text settles twice a second on purpose. Rapid flicker of the *bar* is normal and is the lane lines dropping in and out for a few frames at a time.
 - **I can feel it working.** That is worth reporting. Note the road, the speed and both settings. Try 40% before you conclude the feature is at fault, since strength is the most likely cause.
 - **It fights me when I take the wheel.** It should not - it stands down with the rest of lateral control. Report this one with the time and route.

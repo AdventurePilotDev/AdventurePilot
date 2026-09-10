@@ -1,6 +1,6 @@
 # Screen Saver
 
-When the car is parked and the screen has not been touched for a while, AdventurePilot shows a screen saver instead of just turning the screen off. It can show the word **AdventurePilot**, the word **sunnypilot**, up to fourteen characters you type yourself, or a picture you send from your phone or a laptop. Whatever it shows drifts around and changes colour every time it touches an edge, which is what stops a still image or a line of text wearing a permanent mark into the screen.
+When the car is parked and the screen has not been touched for a while, AdventurePilot shows a screen saver instead of just turning the screen off. It can show the word **AdventurePilot**, the word **sunnypilot**, up to fourteen characters you type yourself, or a picture you send from your phone or a laptop. Whatever it shows drifts around and changes color every time it touches an edge, which is what stops a still image or a line of text wearing a permanent mark into the screen.
 
 ## Turning it on
 
@@ -56,9 +56,9 @@ Nothing checks a picture sent this way. The device only inspects it when it trie
 
 ## What makes a good picture
 
-The screen saver recolours your picture as it moves, picking a new colour each time it touches an edge, the same as it does with text. A white shape on a transparent background works beautifully.
+The screen saver recolors your picture as it moves, picking a new color each time it touches an edge, the same as it does with text. A white shape on a transparent background works beautifully.
 
-This is deliberate: constantly changing the colour is what stops a still image wearing a permanent mark into the screen. It has a consequence worth knowing - recolouring works by filtering, so a picture made of one strong colour disappears completely whenever it is tinted a colour it does not contain. A red logo is invisible for roughly a third of every cycle. The upload page warns you when it spots this; the fix is always the same, send a white version.
+This is deliberate: constantly changing the color is what stops a still image wearing a permanent mark into the screen. It has a consequence worth knowing - recoloring works by filtering, so a picture made of one strong color disappears completely whenever it is tinted a color it does not contain. A red logo is invisible for roughly a third of every cycle. The upload page warns you when it spots this; the fix is always the same, send a white version.
 
 | Property | Requirement | Why |
 | :---- | :---- | :---- |
@@ -67,8 +67,8 @@ This is deliberate: constantly changing the colour is what stops a still image w
 | Largest side | 4096 pixels | Anything bigger is refused |
 | Total size | 8 megapixels | A 4000 by 3000 photo is refused even though each side is under the limit |
 | Good size | 1440 by 720 or less | It is shown at about a third of the screen anyway |
-| Background | Transparent | The screen saver draws on black, so a white or coloured rectangle around your logo will show |
-| Colour | White, or several colours | A picture made of one strong colour vanishes when it is tinted the opposite one |
+| Background | Transparent | The screen saver draws on black, so a white or colored rectangle around your logo will show |
+| Color | White, or several colors | A picture made of one strong color vanishes when it is tinted the opposite one |
 | Animation | Not supported | An animated GIF works, but only its first frame is shown |
 
 ## comma 4
@@ -83,7 +83,7 @@ comma 4 support is newer than the rest of this and has had less use. If somethin
 
 ## What it will not do
 
-- **Your picture is recoloured.** Brand colours will not survive - see above for why this is worth accepting.
+- **Your picture is recolored.** Brand colors will not survive - see above for why this is worth accepting.
 - **Only partly changeable from Sunnylink.** Sunnylink can turn the screen saver on or off, set its duration, and switch which of the four modes it uses, but it cannot send a picture or type custom text. Both appear there read-only, so you can see what is set without being able to change it remotely.
 - **Only while parked.** The upload page only runs while that screen is open, and the screen saver itself only ever appears offroad.
 - **One picture at a time.** You can store several and switch between them, but it does not cycle through them.
@@ -100,8 +100,8 @@ comma 4 support is newer than the rest of this and has had less use. If somethin
 - **The device says it is not on a network.** Connect it to Wi-Fi under **Settings > Network**. With nothing to join, switch on **Tethering** under **Settings > Network > Advanced** - the device makes its own network, called `weedle-` and four characters.
 - **The upload page refused my picture.** It will have told you why on the phone. The usual reasons are that the picture is larger than 4096 pixels on a side, has more than 8 megapixels in total, is not really an image despite its name, or is entirely transparent.
 - **I chose a logo but it still shows AdventurePilot.** The device could not use the picture, so it fell back to text. Unlikely if it arrived through the phone page, since that checks first; more likely if you dragged it across from a laptop, since nothing checks it that way. Send the same file through the phone page to find out why.
-- **The logo is there but almost invisible, or keeps vanishing.** A dark picture is dim against the black background. A picture made of one strong colour disappears entirely whenever it is tinted the opposite colour, so it flashes in and out. Send a white version on a transparent background - most logos come with one meant for dark backgrounds.
-- **The colours are wrong.** They are supposed to be. Whatever is showing takes a new colour every time it hits the edge, text and pictures alike, and will never show its own colours.
+- **The logo is there but almost invisible, or keeps vanishing.** A dark picture is dim against the black background. A picture made of one strong color disappears entirely whenever it is tinted the opposite color, so it flashes in and out. Send a white version on a transparent background - most logos come with one meant for dark backgrounds.
+- **The colors are wrong.** They are supposed to be. Whatever is showing takes a new color every time it hits the edge, text and pictures alike, and will never show its own colors.
 - **How do I remove a picture?** On a comma 4, use the **remove picture** button on the screen saver screen. On other devices, switch on the file browser (above), open the **branding** folder and delete the file there. If the deleted picture was the chosen one, the screen saver goes back to text.
 
 ## Where things are kept
