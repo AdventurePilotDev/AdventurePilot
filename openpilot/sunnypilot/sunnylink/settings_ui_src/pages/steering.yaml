@@ -114,7 +114,7 @@ sections:
       title: Centering Strength
       description: Sets how hard the car is pulled back toward the middle of the lane. Higher means it sits closer to the
         middle but works harder to get there. 0.6 suits the cars and roads tested so far. Lower feels smoother than it really
-        is, and 0.3 is too weak to hold against a road crown, leaving the car sitting off centre all day.
+        is, and 0.3 is too weak to hold against a road crown, leaving the car sitting off center all day.
       min: 0.0
       max: 1.0
       step: 0.1
@@ -125,7 +125,7 @@ sections:
     # Permanent, same reason as the strength above.
     - key: LaneCenteringDeadband
       widget: option
-      title: Close Enough To Centre
+      title: Close Enough To Center
       description: How far off the middle of the lane the car is allowed to sit before lane centering does anything about
         it. Smaller sits closer to the middle. It does not make the car calmer. A wide tolerance lets the car drift to the
         edge and get kicked back, which reverses more often, not less. Road testing settled on 0.02. The car's own screen
@@ -140,9 +140,9 @@ sections:
         equals: true
     - key: LaneCenteringE2EAuthority
       widget: option
-      title: Let the Model Sit Off Centre
+      title: Let the Model Sit Off Center
       description: How much freedom the driving model keeps to sit well off the middle of the lane when it is sure of itself,
-        which usually means it is avoiding something. 1.0 always lets it have its way, 0 centres the car regardless. This
+        which usually means it is avoiding something. 1.0 always lets it have its way, 0 centers the car regardless. This
         only applies to large departures; small ones are always corrected.
       min: 0.0
       max: 1.0
@@ -156,7 +156,7 @@ sections:
       title: Show Correction On Screen
       description: Draws a small bar while driving showing which way lane centering is nudging the car and how hard. The
         bar fills to the side the car is being pulled, stays dim while the car is already close enough to the middle, and
-        turns grey when the lane lines cannot be trusted.
+        turns gray when the lane lines cannot be trusted.
       enablement:
       - type: param
         key: LaneCenteringEnabled

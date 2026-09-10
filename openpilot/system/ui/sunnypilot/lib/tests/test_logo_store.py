@@ -67,13 +67,13 @@ class TestImportLogo:
     # multiplies it to solid black. This is the case the old mean-luminance check let through.
     result = logo_store.import_logo(encode(200, 100, (255, 0, 0, 255)), "red.png")
     assert result.ok, result.error
-    assert any("one colour" in w for w in result.warnings), result.warnings
+    assert any("one color" in w for w in result.warnings), result.warnings
 
   def test_does_not_warn_about_white(self):
     assert logo_store.import_logo(encode(200, 100, (255, 255, 255, 255)), "white.png").warnings == []
 
-  def test_does_not_warn_about_mid_grey(self):
-    assert logo_store.import_logo(encode(200, 100, (128, 128, 128, 255)), "grey.png").warnings == []
+  def test_does_not_warn_about_mid_gray(self):
+    assert logo_store.import_logo(encode(200, 100, (128, 128, 128, 255)), "gray.png").warnings == []
 
   def test_warns_about_animation_and_keeps_the_first_frame(self, branding_dir):
     frames = [Image.new("RGBA", (300, 200), (255, 0, 0, 255)), Image.new("RGBA", (300, 200), (0, 255, 0, 255))]
@@ -107,15 +107,15 @@ class TestImportLogo:
 class TestVisibility:
   """The tint is a per channel multiply, so the weakest channel decides the worst case."""
 
-  @pytest.mark.parametrize(("colour", "expected"), [
+  @pytest.mark.parametrize(("color", "expected"), [
     ((255, 255, 255), ""),          # white survives every tint
-    ((128, 128, 128), ""),          # grey is dimmer but never vanishes
-    ((255, 0, 0), "one colour"),    # no green or blue: black under a cyan tint
-    ((0, 255, 255), "one colour"),  # no red: black under a red tint
+    ((128, 128, 128), ""),          # gray is dimmer but never vanishes
+    ((255, 0, 0), "one color"),    # no green or blue: black under a cyan tint
+    ((0, 255, 255), "one color"),  # no red: black under a red tint
     ((10, 10, 12), "dark"),         # nothing to light up at all
   ])
-  def test_warning_matches_the_weakest_channel(self, colour, expected):
-    image = Image.new("RGBA", (64, 64), (*colour, 255))
+  def test_warning_matches_the_weakest_channel(self, color, expected):
+    image = Image.new("RGBA", (64, 64), (*color, 255))
     warning = logo_store.visibility_warning(image)
     assert (expected in warning) if expected else (warning == "")
 

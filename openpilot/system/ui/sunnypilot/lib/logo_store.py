@@ -36,7 +36,7 @@ MIN_SOURCE_HEIGHT = 32
 STORED_MAX_WIDTH = 1440
 STORED_MAX_HEIGHT = 720
 
-# The logo is drawn tinted on a black background. The tint is a per channel multiply, so a colour
+# The logo is drawn tinted on a black background. The tint is a per channel multiply, so a color
 # the logo does not contain wipes it out completely: a pure red logo under a cyan tint is black.
 # The weakest channel is therefore what decides whether the logo ever disappears, and a channel
 # mean below this earns a warning, never a rejection.
@@ -118,7 +118,7 @@ def load_logo_rgba(path: Path | str, max_width: int, max_height: int) -> Image.I
     with Image.open(path) as img:
       width, height = img.size
       # Checked before load(), because the header gives us the dimensions without decoding any
-      # pixels. This ordering is the decompression bomb defence; doing it later would be pointless.
+      # pixels. This ordering is the decompression bomb defense; doing it later would be pointless.
       if width > MAX_SOURCE_DIM or height > MAX_SOURCE_DIM or width * height > MAX_DECODED_PIXELS:
         cloudlog.warning(f"logo_store: refusing oversized logo {width}x{height}")
         return None
@@ -255,7 +255,7 @@ def visibility_warning(img: Image.Image) -> str:
   """Warn if some tint would make this logo vanish. Empty string if it is fine.
 
   The screen saver draws the logo with a full saturation tint that changes on every bounce, and
-  the tint multiplies each colour channel. At full saturation there is always a tint that lights
+  the tint multiplies each color channel. At full saturation there is always a tint that lights
   one channel alone, so the worst case a logo ever faces is its own weakest channel: a pure red
   logo goes to solid black under any cyan, green or blue tint, and vanishes for roughly a third
   of every cycle. That makes the weakest channel mean the whole answer, with no need to sample
@@ -268,7 +268,7 @@ def visibility_warning(img: Image.Image) -> str:
   if max(red, green, blue) < MIN_CHANNEL_MEAN:
     return "That logo is very dark, so it will be hard to see against the black screen saver background."
 
-  return ("That logo is nearly all one colour, so it will disappear each time the screen saver tints it a " +
+  return ("That logo is nearly all one color, so it will disappear each time the screen saver tints it a " +
           "different one. A white logo on a transparent background avoids this.")
 
 
