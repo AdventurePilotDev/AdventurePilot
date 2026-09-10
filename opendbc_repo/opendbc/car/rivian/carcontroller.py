@@ -142,13 +142,25 @@ class CarController(CarControllerBase, MadsCarController):
 
     # Longitudinal control
     if self.CP.openpilotLongitudinalControl:
-      accel = actuators.accel
-      if CC.longActive:
+      # Keep the acceleration request at exactly zero whenever the panda would refuse it. The panda
+      # drops longitudinal permission the moment it sees the driver's brake, the driver's gas, or the
+      # stock ACM clearing its feature status, and from then on it rejects every 0x160 whose request
+      # is not exactly zero. It reads all three straight off the bus, a frame or two before carControl
+      # can react, so the frames openpilot keeps sending in the meantime never reach the VDM at all.
+      # The VDM puts up with roughly 30 ms of missing request; past about 40 ms it reports an
+      # implausible command, and the ACM can then shut itself down for the rest of the ignition cycle,
+      # leaving the truck with no cruise control until it is restarted. Mirroring the panda's own
+      # condition here, against this frame's CarState, gets the request to zero in time so the stream
+      # never breaks. Nothing about the safety checks changes; openpilot just agrees with them sooner.
+      long_allowed = CC.longActive and CS.out.cruiseState.enabled and not CS.out.gasPressed and not CS.out.brakePressed
+      if long_allowed:
         # Cancel the VDM's uncompensated regen/creep drag so the truck delivers the accel we ask for
         # (less over-braking, more willing accel). Speed-scheduled, ramps from 0 at standstill so we
         # still hold the brake at a stop. See CarControllerParams.ACCEL_FF_DRAG_*.
-        accel += float(np.interp(CS.out.vEgo, CarControllerParams.ACCEL_FF_DRAG_BP, CarControllerParams.ACCEL_FF_DRAG_V))
-      accel = float(np.clip(accel, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX))
+        accel = actuators.accel + float(np.interp(CS.out.vEgo, CarControllerParams.ACCEL_FF_DRAG_BP, CarControllerParams.ACCEL_FF_DRAG_V))
+        accel = float(np.clip(accel, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX))
+      else:
+        accel = 0.0
       can_sends.append(create_longitudinal(self.packer, self.frame, accel, CC.enabled))
     else:
       interface_status = None
