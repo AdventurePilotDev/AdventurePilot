@@ -72,8 +72,8 @@ PAGE = """<!doctype html>
   <div class="card">
     <h2 style="font-size:1rem;margin:0 0 .6rem">What works best</h2>
     <ul>
-      <li>A white logo on a transparent background. The screen saver recolours the picture as it
-          moves, so a picture that is all one strong colour disappears whenever it is tinted with
+      <li>A white logo on a transparent background. The screen saver recolors the picture as it
+          moves, so a picture that is all one strong color disappears whenever it is tinted with
           the opposite one.</li>
       <li>PNG keeps transparency. JPEG does not.</li>
       <li>Up to 4096 pixels a side and 8 megapixels. Bigger is refused, and there is no benefit:

@@ -112,7 +112,7 @@ class DisplayLayout(Widget):
       title=lambda: tr("Screen Saver Logo"),
       button_text=lambda: tr("SELECT"),
       description=lambda: tr("Choose which of your uploaded images the screen saver shows. " +
-                             "The image is tinted and changes colour as it moves, so a white logo on a transparent " +
+                             "The image is tinted and changes color as it moves, so a white logo on a transparent " +
                              "background works best."),
       callback=self._show_logo_dialog,
     )

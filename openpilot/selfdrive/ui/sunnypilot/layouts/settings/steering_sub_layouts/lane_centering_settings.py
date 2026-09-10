@@ -95,14 +95,14 @@ class LaneCenteringSettingsLayout(Widget):
       description=lambda: tr("Sets how hard the car is pulled back toward the middle of the lane. Higher means it sits closer to " +
                              "the middle but works harder to get there. 60% suits the cars and roads tested so far. Lower feels " +
                              "smoother than it is: 30% is too weak to hold against a road crown and leaves the car sitting off " +
-                             "centre all day."),
+                             "center all day."),
       use_float_scaling=True,
       label_callback=centering_strength_label,
     )
 
     self._deadband = option_item_sp(
       param="LaneCenteringDeadband",
-      title=lambda: tr("Close Enough To Centre"),
+      title=lambda: tr("Close Enough To Center"),
       min_value=0,
       max_value=15,
       value_change_step=1,
@@ -119,7 +119,7 @@ class LaneCenteringSettingsLayout(Widget):
       title=lambda: tr("Show Correction On Screen"),
       description=lambda: tr("Draws a small bar while driving showing which way lane centering is nudging the car and " +
                              "how hard. The bar fills to the side the car is being pulled, stays dim while the car is " +
-                             "already close enough to the middle, and turns grey when the lane lines cannot be trusted."),
+                             "already close enough to the middle, and turns gray when the lane lines cannot be trusted."),
     )
 
     return [
