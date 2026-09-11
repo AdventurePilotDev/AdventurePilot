@@ -148,6 +148,7 @@ inline void mads_heartbeat_engaged_check(void) {
 // Function Implementations
 // ===============================
 
+// cppcheck-suppress misra-c2012-8.7; called from libsafety test harness
 inline void mads_set_alternative_experience(const int *mode) {
   const bool mads_enabled = (*mode & ALT_EXP_ENABLE_MADS) != 0;
   const bool disengage_lateral_on_brake = (*mode & ALT_EXP_MADS_DISENGAGE_LATERAL_ON_BRAKE) != 0;
