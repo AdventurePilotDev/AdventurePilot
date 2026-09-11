@@ -13,9 +13,9 @@ Those are the builds the fix **first** appeared in, not the ones to flash. It is
 
 The `stg` version is a port of the same fix, not a different one: the safety code is identical on both lines. Only the test needed adapting, because `stg` does not carry the angle-steering work that the `stg-a` test relies on.
 
-**Also carries the fix:** the `dev` and `dev-a` development trunks - the same safety code, verified byte-identical to the staging lines. The shared half is additionally proposed upstream as sunnypilot/opendbc draft PR #493, which is its proper long-term home.
+**Carries the complete fix, both halves:** the `dev` and `dev-a` development trunks. As of 2026-09-11 these are the only lines that also have the **second half** described under "One half or both" below - `stg` and `stg-a` still carry the first half only. The shared parts are additionally proposed upstream as sunnypilot/opendbc draft PR #493, which is their proper long-term home.
 
-**Not yet fixed:** `rel` and `rel-src` (deliberately left for now) and `ap-dev`. Verified directly rather than assumed - none of those has either half of the fix.
+**Not yet fixed:** `rel` and `rel-src` (deliberately left for now) and `ap-dev`. Verified directly rather than assumed, and re-checked on 2026-09-11 - none of those has any part of the fix.
 
 ---
 
@@ -66,12 +66,17 @@ Two small, targeted fixes:
 - **Clear the stale counter on disengage.** When MADS exits, the mismatch counter is now reset, so a saturated count can never carry over and kill the next engagement on its first tick.  
 - **Stop the two sides disagreeing in the first place.** The panda now only treats a stalk-up as a MADS toggle when stock cruise is **not** already engaged - matching how the software interprets the same input. While cruise is engaged, lateral is already granted through the normal path, so **no capability is lost**; the two state machines simply can no longer drift apart at step 1.
 
+And, on `dev` and `dev-a` only, a third:
+
+- **Clear the stale counter when you ask to engage, too.** Resetting only on the way out covers a re-engage that arrives *after* the watchdog has fired. It does nothing for one that arrives *before* it, in the second or two while the counter is still climbing - and that ordering is the worse of the two. Asking to engage now clears the count as well, so every engagement starts with a full grace window however it is timed.
+
 ### On safety
 
-Both changes are in the panda safety layer, so they deserve a direct answer: **neither one relaxes any safety constraint.**
+All of these changes are in the panda safety layer, so they deserve a direct answer: **none of them relaxes any safety constraint.**
 
 - The stalk change makes the panda grant lateral control in **fewer** circumstances, not more.  
-- The counter reset happens **inside the disengage path** - after control has already been dropped. It does not extend any window in which control stays allowed. If a genuine mismatch persists, the watchdog simply re-accumulates and exits again exactly as before. It is stale-state cleanup, not a tolerance window.
+- The counter reset happens **inside the disengage path** - after control has already been dropped. It does not extend any window in which control stays allowed. If a genuine mismatch persists, the watchdog simply re-accumulates and exits again exactly as before. It is stale-state cleanup, not a tolerance window.  
+- The third change, on `dev` and `dev-a`, clears the same counter when the driver asks to engage. Being straightforward about it: this is the one that does affect timing, because a fresh request restarts the watchdog's three-second count. It never grants control - only the normal engage path does that - and it cannot hold control through a brake, because the brake and cruise-off exits are checked immediately afterwards in the same pass and still fire. If the software genuinely is not engaged, the count simply builds again from zero and the watchdog withdraws steering as it always did. It mirrors a reset the upstream code already performs on the equivalent counter for cruise.
 
 ---
 
@@ -89,8 +94,12 @@ Mostly, you will notice **nothing** - which is the point. Specifically:
 
 Two things worth knowing:
 
-- **One of the two fixes is in shared code**, not Rivian-specific. The stale-counter reset lives in the common sunnypilot MADS module, so it applies to every supported brand. That is appropriate - it is the same bug for all of them - but it is not a Rivian-only change.  
-- **This is one half of a two-part fix.** It closes the path where a *disengage* leaves the counter stale. There is a matching fix for the *request* side that is in neither build yet. The fault chain proven in the log is closed; full coverage arrives when the second half is promoted.
+- **The counter fixes are in shared code**, not Rivian-specific. They live in the common sunnypilot MADS module, so they apply to every supported brand. That is appropriate - it is the same bug for all of them - but they are not Rivian-only changes. Only the stalk gate is Rivian-specific.  
+- **One half or both, depending on your line.** The fault chain proven in the log is closed on every line listed at the top. But the stale counter can strand steering in two different ways, depending on whether your re-engage lands *after* the watchdog fires or *before* it:
+  - `stg` and `stg-a` close the *after* case. This is the one captured frame-by-frame in the log, and it is the one that latches the permanent EPAS fault.
+  - `dev` and `dev-a` close **both**. The *before* case was found later, on a separate drive, and it fails differently: instead of a steering fault it leaves the panda with steering switched off while the software still believes it is on, which ends about two seconds later in a red **"Controls Mismatch: Lateral"**. If you have seen that alert after working the stalk, this is the likely cause.
+  
+  Full coverage arrives on the staging lines when the second half is promoted to them.
 
 ---
 
@@ -107,3 +116,17 @@ The two new regression tests cover the stalk gate, and run in both the stock and
 
 - **Mutation tested on both lines:** the fix was deliberately reverted to confirm the new tests actually catch it. On each line exactly the two new tests failed with the fix removed - and nothing else did - then passed again once restored. The tests are genuinely exercising the compiled safety code, not passing vacuously.  
 - Built and published by CI on the comma 3X runner: both lines successful. (The `stg` build took two attempts - the first compiled fine but its publish step was cancelled during a GitHub Actions outage on 2026-08-06. The re-run published cleanly from the same commit.)
+
+### The second half, on `dev` and `dev-a` (2026-09-11)
+
+| Check | `dev` | `dev-a` |
+| :---- | :---- | :---- |
+| Rivian panda safety tests | **135 passed**, 91 skipped, 0 failed (up from 131) | **161 passed**, 96 skipped, 0 failed (up from 157) |
+
+Two further regression tests come with it, again running in both the stock and longitudinal-control configurations, which is where the increase of four comes from.
+
+- **Mutation tested the same way.** With the safety change reverted but the new tests left in place, exactly the two new tests failed, on both configurations, with the message *"Fresh engage revoked by a stale mismatch counter; counter not reset on request"*. They passed again once restored. The older pair kept passing throughout, which is the expected result: those cover the first half, which these lines already had.  
+- The safety logic now matches the line this fix was originally developed and road-proven on, line for line. No reworked variant of it is being carried anywhere.  
+- These lines also picked up the routine nightly sync of sunnypilot master on the same day. The sync touches the same safety file, but only to add a static-analysis comment well away from any of this, so the two sit side by side; that comment is the sole difference between the file here and on the line it came from. The test results above are from after the sync was merged.
+
+**A reflash is needed.** These changes are in the panda firmware, not the phone-side software, so pulling the update alone is not enough for them to take effect.
