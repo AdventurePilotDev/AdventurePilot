@@ -375,7 +375,8 @@ struct OnroadEventSP @0xda96579883444c35 {
     speedLimitPending @22;
     e2eChime @23;
     laneChangeRoadEdge @24;
-    belowMadsMinEngageSpeed @25;
+    bigModelReady @25;
+    belowMadsMinEngageSpeed @26;
   }
 }
 
