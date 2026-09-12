@@ -31,6 +31,10 @@ ACC_PCMCRUISE_DISABLED_DESCRIPTION = tr_noop("This feature is not supported on t
 ONROAD_ONLY_DESCRIPTION = tr_noop("Start the vehicle to check vehicle compatibility.")
 
 
+def _stop_distance_label(v: int) -> str:
+  return f"{v / 10:.1f}m"
+
+
 def _t_follow_offset_label(v: int) -> str:
   if v == 0:
     return tr("Default")
@@ -88,6 +92,27 @@ class CruiseLayout(Widget):
       min_value=1, max_value=3, value_change_step=1,
       inline=True)
 
+    self.stop_distance_option = option_item_sp(
+      title=tr("Minimum Stop Distance"),
+      description=tr("Gap behind a stopped lead car (4.5 to 6.0 m). Default 6.0 m. " +
+                     "Only active when cruise set speed is 50 kph / 31 mph or below; " +
+                     "reverts to 6.0 m above that speed. " +
+                     "Takes effect after changing from OffRoad to OnRoad."),
+      param="SPStopDistance",
+      min_value=45,
+      max_value=60,
+      value_change_step=5,
+      label_callback=_stop_distance_label,
+      on_value_changed=self._on_stop_distance_changed,
+      inline=True)
+
+    self.stop_distance_personality = toggle_item_sp(
+      title=tr("Link Stop Distance to Personality"),
+      description=tr("When enabled, and while the reduced stop distance is active: " +
+                     "Aggressive uses the minimum distance; Standard uses the midpoint; " +
+                     "Relaxed always uses 6.0 m."),
+      param="SPStopDistancePersonality")
+
     self.following_time_offset = option_item_sp(
       title=tr("Following Distance Offset"),
       description=tr("Scales the time-gap to the lead car across all personality modes. " +
@@ -120,6 +145,8 @@ class CruiseLayout(Widget):
       self.custom_acc_toggle,
       self.custom_acc_short_increment,
       self.custom_acc_long_increment,
+      self.stop_distance_option,
+      self.stop_distance_personality,
       self.following_time_offset,
       self.rivian_resume_toggle,
       self.sla_settings_button,
@@ -178,6 +205,8 @@ class CruiseLayout(Widget):
         # has_longitudinal_control) instead of leaving it always-on here.
         self.curve_speed_toggle.action_item.set_enabled(has_long)
         self.following_time_offset.action_item.set_enabled(has_long and ui_state.is_offroad())
+        self.stop_distance_option.action_item.set_enabled(has_long and ui_state.is_offroad())
+        self.stop_distance_personality.action_item.set_enabled(has_long and ui_state.is_offroad())
       else:
         ui_state.params.remove("CustomAccIncrementsEnabled")
         ui_state.params.remove("SmartCruiseControlVision")
@@ -188,9 +217,13 @@ class CruiseLayout(Widget):
         self.scc_m_toggle.action_item.set_enabled(False)
         self.curve_speed_toggle.action_item.set_enabled(False)
         self.following_time_offset.action_item.set_enabled(False)
+        self.stop_distance_option.action_item.set_enabled(False)
+        self.stop_distance_personality.action_item.set_enabled(False)
 
       if not has_long:
         ui_state.params.remove("SPFollowingTimeOffset")
+        ui_state.params.remove("SPStopDistance")
+        ui_state.params.remove("SPStopDistancePersonality")
 
       is_rivian_long = ui_state.CP.brand == "rivian" and has_long
       self.rivian_resume_toggle.action_item.set_enabled(is_rivian_long and ui_state.is_offroad())
@@ -203,6 +236,8 @@ class CruiseLayout(Widget):
       self.icbm_toggle.set_description(tr(ONROAD_ONLY_DESCRIPTION))
       self.rivian_resume_toggle.action_item.set_enabled(False)
       self.following_time_offset.action_item.set_enabled(False)
+      self.stop_distance_option.action_item.set_enabled(False)
+      self.stop_distance_personality.action_item.set_enabled(False)
 
     show_custom_acc_desc = False
 
@@ -227,6 +262,12 @@ class CruiseLayout(Widget):
         self.custom_acc_toggle.show_description(True)
 
     self._on_custom_acc_toggle(self.custom_acc_toggle.action_item.get_state())
+
+  def _on_stop_distance_changed(self, value: int) -> None:
+    below_max = value < 60
+    self.stop_distance_personality.set_visible(below_max)
+    if not below_max:
+      ui_state.params.remove("SPStopDistancePersonality")
 
   def _on_custom_acc_toggle(self, state):
     self.custom_acc_short_increment.set_visible(state)

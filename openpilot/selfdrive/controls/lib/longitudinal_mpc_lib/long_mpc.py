@@ -55,6 +55,13 @@ FCW_IDXS = T_IDXS < 5.0
 T_DIFFS = np.diff(T_IDXS, prepend=[0.])
 COMFORT_BRAKE = 2.5
 STOP_DISTANCE = 6.0
+STOP_DISTANCE_MAX_V_CRUISE = 50 / 3.6   # ~13.9 m/s, the reduced stop distance is inactive above this
+# ~0.14 m/s, so a set speed of exactly 50 kph still passes the gate rather than falling foul of the
+# conversion. NOTE: it does not stretch to 32 mph, which is 51.5 kph: on an imperial car the feature
+# gives up just above 31 mph even though the setting text says 32. Inherited from the branch this was
+# ported from, kept as-is because that is the behaviour that was road tested. Widen deliberately if
+# the text is ever made to match.
+STOP_DISTANCE_SPEED_EPSILON = 0.5 / 3.6
 MIN_X_LEAD_FACTOR = 0.5
 
 def get_jerk_factor(personality=log.LongitudinalPersonality.standard):
@@ -219,6 +226,12 @@ class LongitudinalMpc:
     self.source = LongitudinalPlanSource.cruise
     # percentage adjustment to the follow time, set from the sunnypilot planner each boot
     self.t_follow_offset_pct = 0
+    # reduced stop distance, also set from the sunnypilot planner. v_cruise_for_stop_gate is the only
+    # one that moves while driving: it is the cruise target this used to read from a v_cruise argument
+    # that upstream removed when the cruise obstacle left the MPC.
+    self.stop_distance = STOP_DISTANCE
+    self.personality_linked = False
+    self.v_cruise_for_stop_gate = 0.0
 
   def reset(self):
     self.solver.reset()
@@ -318,8 +331,25 @@ class LongitudinalMpc:
     # To estimate a safe distance from a moving lead, we calculate how much stopping
     # distance that lead needs as a minimum. We can add that to the current distance
     # and then treat that as a stopped car/obstacle at this new distance.
-    lead_0_obstacle = lead_xv_0[:,0] + get_stopped_equivalence_factor(lead_xv_0[:,1])
-    lead_1_obstacle = lead_xv_1[:,0] + get_stopped_equivalence_factor(lead_xv_1[:,1])
+    # STOP_DISTANCE is compiled into the solver, so a shorter gap is delivered by moving the obstacle
+    # further away by the difference rather than by changing the constant.
+    stop_distance_allowed = self.v_cruise_for_stop_gate <= STOP_DISTANCE_MAX_V_CRUISE + STOP_DISTANCE_SPEED_EPSILON
+    if self.stop_distance < STOP_DISTANCE and stop_distance_allowed:
+      if self.personality_linked:
+        if personality == log.LongitudinalPersonality.aggressive:
+          effective_stop = self.stop_distance
+        elif personality == log.LongitudinalPersonality.standard:
+          effective_stop = (self.stop_distance + STOP_DISTANCE) / 2
+        else:  # relaxed
+          effective_stop = STOP_DISTANCE
+      else:
+        effective_stop = self.stop_distance
+    else:
+      effective_stop = STOP_DISTANCE
+    adjustment = STOP_DISTANCE - effective_stop
+
+    lead_0_obstacle = lead_xv_0[:,0] + get_stopped_equivalence_factor(lead_xv_0[:,1]) + adjustment
+    lead_1_obstacle = lead_xv_1[:,0] + get_stopped_equivalence_factor(lead_xv_1[:,1]) + adjustment
 
     x_obstacles = np.column_stack([lead_0_obstacle, lead_1_obstacle])
     self.source = MPC_SOURCES[np.argmin(x_obstacles[0])]
