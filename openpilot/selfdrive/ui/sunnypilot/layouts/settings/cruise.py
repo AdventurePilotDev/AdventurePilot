@@ -31,6 +31,12 @@ ACC_PCMCRUISE_DISABLED_DESCRIPTION = tr_noop("This feature is not supported on t
 ONROAD_ONLY_DESCRIPTION = tr_noop("Start the vehicle to check vehicle compatibility.")
 
 
+def _t_follow_offset_label(v: int) -> str:
+  if v == 0:
+    return tr("Default")
+  return f"+{v}%" if v > 0 else f"{v}%"
+
+
 class CruiseLayout(Widget):
   def __init__(self):
     super().__init__()
@@ -82,6 +88,18 @@ class CruiseLayout(Widget):
       min_value=1, max_value=3, value_change_step=1,
       inline=True)
 
+    self.following_time_offset = option_item_sp(
+      title=tr("Following Distance Offset"),
+      description=tr("Scales the time-gap to the lead car across all personality modes. " +
+                     "Negative = follow closer; positive = follow further. " +
+                     "Takes effect after changing from OffRoad to OnRoad."),
+      param="SPFollowingTimeOffset",
+      min_value=-20,
+      max_value=20,
+      value_change_step=5,
+      label_callback=_t_follow_offset_label,
+      inline=True)
+
     self.sla_settings_button = simple_button_item_sp(
       button_text=lambda: tr("Speed Limit"),
       button_width=800,
@@ -102,6 +120,7 @@ class CruiseLayout(Widget):
       self.custom_acc_toggle,
       self.custom_acc_short_increment,
       self.custom_acc_long_increment,
+      self.following_time_offset,
       self.rivian_resume_toggle,
       self.sla_settings_button,
     ]
@@ -158,6 +177,7 @@ class CruiseLayout(Widget):
         # longitudinal active -- gate it like the DEC toggle (and like the mici UI, which hides both on
         # has_longitudinal_control) instead of leaving it always-on here.
         self.curve_speed_toggle.action_item.set_enabled(has_long)
+        self.following_time_offset.action_item.set_enabled(has_long and ui_state.is_offroad())
       else:
         ui_state.params.remove("CustomAccIncrementsEnabled")
         ui_state.params.remove("SmartCruiseControlVision")
@@ -167,6 +187,10 @@ class CruiseLayout(Widget):
         self.scc_v_toggle.action_item.set_enabled(False)
         self.scc_m_toggle.action_item.set_enabled(False)
         self.curve_speed_toggle.action_item.set_enabled(False)
+        self.following_time_offset.action_item.set_enabled(False)
+
+      if not has_long:
+        ui_state.params.remove("SPFollowingTimeOffset")
 
       is_rivian_long = ui_state.CP.brand == "rivian" and has_long
       self.rivian_resume_toggle.action_item.set_enabled(is_rivian_long and ui_state.is_offroad())
@@ -178,6 +202,7 @@ class CruiseLayout(Widget):
       self.icbm_toggle.action_item.set_enabled(False)
       self.icbm_toggle.set_description(tr(ONROAD_ONLY_DESCRIPTION))
       self.rivian_resume_toggle.action_item.set_enabled(False)
+      self.following_time_offset.action_item.set_enabled(False)
 
     show_custom_acc_desc = False
 
