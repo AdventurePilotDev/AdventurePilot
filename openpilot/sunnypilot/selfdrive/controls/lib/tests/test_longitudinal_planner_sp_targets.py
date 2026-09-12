@@ -79,6 +79,9 @@ def _targets(v_ego, a_ego, v_cruise, vision=None, scc_map=None, curve=None, gove
   planner.source = LongitudinalPlanSource.cruise
   planner.output_v_target = 0.0
   planner.output_a_target = 0.0
+  # update_targets() hands the winning cruise target to the MPC, which gates the reduced stop
+  # distance on it. Nothing here reads it back; the stub just has to accept the write.
+  planner.mpc = SimpleNamespace()
 
   sm = {
     'carState': SimpleNamespace(vCruiseCluster=v_cruise * 3.6),

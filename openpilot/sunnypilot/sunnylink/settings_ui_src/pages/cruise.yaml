@@ -35,6 +35,33 @@ sections:
       label: Relaxed
     enablement:
     - $ref: '#/macros/longitudinal'
+  - key: SPStopDistance
+    widget: option
+    title: Minimum Stop Distance
+    description: >-
+      Gap behind a stopped lead car, in tenths of a metre (45 = 4.5 m, 60 = 6.0 m).
+      Default is 60 (6.0 m). Only active when cruise set speed is 50 kph / 31 mph or below;
+      reverts to 6.0 m above that speed. Takes effect after changing from OffRoad to OnRoad.
+    min: 45
+    max: 60
+    step: 5
+    enablement:
+    - $ref: '#/macros/offroad'
+    - $ref: '#/macros/longitudinal'
+  - key: SPStopDistancePersonality
+    widget: toggle
+    title: Link Stop Distance to Personality
+    description: >-
+      When enabled, and while the reduced stop distance is active: Aggressive uses the
+      minimum stop distance; Standard uses the midpoint; Relaxed always uses 6.0 m.
+    enablement:
+    - $ref: '#/macros/offroad'
+    - $ref: '#/macros/longitudinal'
+    visibility:
+    - type: param_compare
+      key: SPStopDistance
+      op: '<'
+      value: 60
   - key: SPFollowingTimeOffset
     widget: option
     title: Following Distance Offset
