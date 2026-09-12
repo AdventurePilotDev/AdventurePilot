@@ -217,6 +217,8 @@ class LongitudinalMpc:
     self.solver = AcadosOcpSolverCython(MODEL_NAME, ACADOS_SOLVER_TYPE, N)
     self.reset()
     self.source = LongitudinalPlanSource.cruise
+    # percentage adjustment to the follow time, set from the sunnypilot planner each boot
+    self.t_follow_offset_pct = 0
 
   def reset(self):
     self.solver.reset()
@@ -308,7 +310,7 @@ class LongitudinalMpc:
     return lead_xv
 
   def update(self, radarstate, personality=log.LongitudinalPersonality.standard):
-    t_follow = get_T_FOLLOW(personality)
+    t_follow = get_T_FOLLOW(personality) * (1 + self.t_follow_offset_pct / 100)
 
     lead_xv_0 = self.process_lead(radarstate.leadOne)
     lead_xv_1 = self.process_lead(radarstate.leadTwo)

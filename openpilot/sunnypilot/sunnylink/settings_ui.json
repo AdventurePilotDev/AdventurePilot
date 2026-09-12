@@ -790,6 +790,25 @@
               ]
             },
             {
+              "key": "SPFollowingTimeOffset",
+              "widget": "option",
+              "title": "Following Distance Offset",
+              "description": "Scales the time-gap to the lead car across all personality modes (-20% to +20%). Negative values follow closer; positive values follow further. Default is 0 (no change). Takes effect after changing from OffRoad to OnRoad.",
+              "min": -20,
+              "max": 20,
+              "step": 5,
+              "enablement": [
+                {
+                  "type": "offroad_only"
+                },
+                {
+                  "type": "capability",
+                  "field": "has_longitudinal_control",
+                  "equals": true
+                }
+              ]
+            },
+            {
               "key": "IntelligentCruiseButtonManagement",
               "widget": "toggle",
               "title": "Intelligent Cruise Button Management (ICBM) (Alpha)",

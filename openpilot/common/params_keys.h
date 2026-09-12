@@ -299,6 +299,9 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"RivianAngleSteerPhase",           {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, INT,  "0"}},
     {"RivianAngleSaturated",            {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL, "0"}},
 
+    // Following Distance
+    {"SPFollowingTimeOffset", {PERSISTENT | BACKUP, INT, "0"}},
+
     // Smart Cruise Control
     {"MapTargetVelocities", {CLEAR_ON_ONROAD_TRANSITION, STRING}},
     {"SmartCruiseControlMap", {PERSISTENT | BACKUP, BOOL, "0"}},
