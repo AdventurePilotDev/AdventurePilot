@@ -161,6 +161,11 @@ class CarController(CarControllerBase, MadsCarController):
         accel = float(np.clip(accel, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX))
       else:
         accel = 0.0
+      # Record what we asked for next to what the car answered, for the ACC fault snapshot.
+      # getattr because the car-level tests drive this controller with a stand-in CarState.
+      recorder = getattr(CS, "acc_fault_recorder", None)
+      if recorder is not None:
+        recorder.record_command(accel, CC.enabled, long_allowed)
       can_sends.append(create_longitudinal(self.packer, self.frame, accel, CC.enabled))
     else:
       interface_status = None
