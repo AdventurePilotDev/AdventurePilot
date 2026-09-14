@@ -11,6 +11,7 @@ from opendbc.car import Bus, structs
 from opendbc.can.parser import CANParser
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.rivian.values import DBC
+from opendbc.sunnypilot.car.rivian.acc_fault_recorder import AccFaultRecorder
 from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
 
 ButtonType = structs.CarState.ButtonEvent.Type
@@ -32,6 +33,7 @@ class CarStateExt:
     self.decrease_counter = 0
     self.vdm_user_adas_request = 0
     self._lkas_pending = False
+    self.acc_fault_recorder = AccFaultRecorder()
     # lazy openpilot imports: opendbc must stay importable standalone (safety test suite)
     from openpilot.common.params import Params
     from openpilot.sunnypilot.mads.helpers import MadsSteeringModeOnBrake, read_steering_mode_param
@@ -199,6 +201,10 @@ class CarStateExt:
 
     if self.CP_SP.flags & RivianFlagsSP.LONGITUDINAL_HARNESS_UPGRADE:
       button_events.extend(self.update_longitudinal_upgrade(ret, can_parsers))
+
+    # Watch the ACC command and response channel so a cruise fault leaves a readable record.
+    # Silent on a healthy drive; see acc_fault_recorder.py for what it emits and why.
+    self.acc_fault_recorder.update(ret, can_parsers[Bus.pt], can_parsers[Bus.cam])
 
     button_events.extend(self.update_stalk_controls(ret, can_parsers))
     ret.buttonEvents = button_events
