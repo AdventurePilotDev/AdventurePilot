@@ -436,15 +436,25 @@ class SelfdriveD(CruiseHelper):
     if not self.sm.all_checks() and no_system_errors and not big_model_settling:  # the load holds modelV2 and friends back on purpose
       if not self.sm.all_alive():
         self.events.add(EventName.commIssue)
+        cause = 'not_alive'
       elif not self.sm.all_freq_ok():
         self.events.add(EventName.commIssueAvgFreq)
+        cause = 'not_freq_ok'
       else:
         self.events.add(EventName.commIssue)
+        cause = 'invalid'
 
+      # Each list is filtered by the same ignore list the matching check uses, so the log names only
+      # services that could actually have raised this event. Unfiltered, every one of these lines also
+      # named the ignored services, which look alarming, never matter, and cost real time to rule out.
+      # 'cause' says which of the three checks failed: a publisher that genuinely stopped shows up
+      # under not_alive or not_freq_ok, while 'invalid' with nothing else is a valid=False propagation
+      # from a downstream process and needs no action.
       logs = {
-        'invalid': [s for s, valid in self.sm.valid.items() if not valid],
-        'not_alive': [s for s, alive in self.sm.alive.items() if not alive],
-        'not_freq_ok': [s for s, freq_ok in self.sm.freq_ok.items() if not freq_ok],
+        'cause': cause,
+        'invalid': [s for s, valid in self.sm.valid.items() if not valid and s not in self.sm.ignore_valid],
+        'not_alive': [s for s, alive in self.sm.alive.items() if not alive and s not in self.sm.ignore_alive],
+        'not_freq_ok': [s for s, freq_ok in self.sm.freq_ok.items() if not freq_ok and self.sm._check_avg_freq(s)],
       }
       if logs != self.logged_comm_issue:
         cloudlog.event("commIssue", error=True, **logs)
