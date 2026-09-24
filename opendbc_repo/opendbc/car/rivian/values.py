@@ -1,0 +1,160 @@
+from dataclasses import dataclass, field
+from enum import StrEnum, IntFlag
+
+from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs, uds
+from opendbc.car.docs_definitions import CarHarness, CarDocs, CarParts
+from opendbc.car.fw_query_definitions import FwQueryConfig, Request, StdQueries, p16
+from opendbc.car.vin import Vin
+
+
+class WMI(StrEnum):
+  RIVIAN_TRUCK = "7FC"
+  RIVIAN_MPV = "7PD"
+
+
+class ModelLine(StrEnum):
+  R1T = "T"  # R1T 4-door Pickup Truck
+  R1S = "S"  # R1S 4-door MPV
+
+
+class ModelYear(StrEnum):
+  N_2022 = "N"
+  P_2023 = "P"
+  R_2024 = "R"
+  S_2025 = "S"
+  T_2026 = "T"
+
+
+@dataclass
+class RivianCarDocs(CarDocs):
+  package: str = "All"
+
+
+@dataclass
+class RivianPlatformConfig(PlatformConfig):
+  dbc_dict: DbcDict = field(default_factory=lambda: {Bus.pt: 'rivian_primary_actuator', Bus.radar: 'rivian_mando_front_radar_generated',
+                                                     Bus.alt: 'rivian_park_assist_can'})
+  wmis: set[WMI] = field(default_factory=set)
+  lines: set[ModelLine] = field(default_factory=set)
+  years: set[ModelYear] = field(default_factory=set)
+
+
+class RivianFlags(IntFlag):
+  GEN2 = 1
+
+
+class RivianSafetyFlags(IntFlag):
+  LONG_CONTROL = 1
+
+
+class CAR(Platforms):
+  RIVIAN_R1 = RivianPlatformConfig(
+    [
+      RivianCarDocs("Rivian R1S 2022-24", video="https://youtu.be/dflSSGQwYNc", setup_video="https://youtu.be/uaISd1j7Z4U",
+                    car_parts=CarParts.common([CarHarness.rivian_a])),
+      RivianCarDocs("Rivian R1S 2025", car_parts=CarParts.common([CarHarness.rivian_b])),
+      RivianCarDocs("Rivian R1T 2022-24", video="https://youtu.be/dflSSGQwYNc", setup_video="https://youtu.be/uaISd1j7Z4U",
+                    car_parts=CarParts.common([CarHarness.rivian_a])),
+      RivianCarDocs("Rivian R1T 2025", car_parts=CarParts.common([CarHarness.rivian_b])),
+    ],
+    CarSpecs(mass=3206., wheelbase=3.08, steerRatio=15.2),
+    wmis={WMI.RIVIAN_TRUCK, WMI.RIVIAN_MPV},
+    lines={ModelLine.R1T, ModelLine.R1S},
+    years={ModelYear.N_2022, ModelYear.P_2023, ModelYear.R_2024, ModelYear.S_2025},
+  )
+
+
+def match_fw_to_car_fuzzy(live_fw_versions, vin, offline_fw_versions) -> set[str]:
+  # Rivian VIN reference: https://www.rivianforums.com/forum/threads/rivian-vin-decoder.1546
+  vin_obj = Vin(vin)
+  line = vin_obj.vds[:1]
+  year = vin_obj.vis[:1]
+
+  candidates = set()
+  for platform in CAR:
+    if vin_obj.wmi in platform.config.wmis and line in platform.config.lines and year in platform.config.years:
+      candidates.add(platform)
+
+  return {str(c) for c in candidates}
+
+
+RIVIAN_VERSION_REQUEST = bytes([uds.SERVICE_TYPE.READ_DATA_BY_IDENTIFIER]) + \
+  p16(0xf1a0)
+RIVIAN_VERSION_RESPONSE = bytes([uds.SERVICE_TYPE.READ_DATA_BY_IDENTIFIER + 0x40])
+
+FW_QUERY_CONFIG = FwQueryConfig(
+  requests=[
+    Request(
+      [StdQueries.TESTER_PRESENT_REQUEST, StdQueries.SUPPLIER_SOFTWARE_VERSION_REQUEST],
+      [StdQueries.TESTER_PRESENT_RESPONSE, StdQueries.SUPPLIER_SOFTWARE_VERSION_RESPONSE],
+      rx_offset=0x40,
+      bus=0,
+    ),
+    Request(
+      [StdQueries.TESTER_PRESENT_REQUEST, StdQueries.MANUFACTURER_ECU_HARDWARE_NUMBER_REQUEST],
+      [StdQueries.TESTER_PRESENT_RESPONSE, StdQueries.MANUFACTURER_ECU_HARDWARE_NUMBER_RESPONSE],
+      rx_offset=0x40,
+      bus=0,
+      logging=True,
+    ),
+    Request(
+      [StdQueries.TESTER_PRESENT_REQUEST, RIVIAN_VERSION_REQUEST],
+      [StdQueries.TESTER_PRESENT_RESPONSE, RIVIAN_VERSION_RESPONSE],
+      rx_offset=0x40,
+      bus=0,
+      logging=True,
+    ),
+  ],
+  match_fw_to_car_fuzzy=match_fw_to_car_fuzzy,
+)
+
+GEAR_MAP = {
+  0: structs.CarState.GearShifter.unknown,
+  1: structs.CarState.GearShifter.park,
+  2: structs.CarState.GearShifter.reverse,
+  3: structs.CarState.GearShifter.neutral,
+  4: structs.CarState.GearShifter.drive,
+}
+
+
+class CarControllerParams:
+  # The R1T 2023 and R1S 2023 we tested on achieves slightly more lateral acceleration going left vs. right
+  # and lateral acceleration falls linearly as speed decreases from 38 mph to 20 mph. These values are set
+  # conservatively to reach a maximum of 3.0 m/s^2 turning left at 80 mph
+
+  # These refer to turning left:
+  # 250 is ~2.8 m/s^2 above 17 m/s, then linearly ramps to ~1.6 m/s^2 from 17 m/s to 9 m/s
+  # TODO: it is theorized older models have different steering racks and achieve down to half the
+  #  lateral acceleration referenced here at all speeds. detect this and ship a torque increase for those models
+  STEER_MAX = 385  # peak of the lookup below
+  # 4-point lookup keeps the highway cap at 275 (unchanged from old [385,275]) but
+  # holds slightly elevated torque through the 13-25 m/s band. Earlier
+  # [9,13,25,27]->[481,415,305,275] shape was too aggressive (jerky low speed,
+  # oversteer at mid speed); this halves the mid-speed bump and reverts low speed
+  # to original. Knee moved 17 -> 27 m/s so modest help extends through ~55 mph.
+  STEER_MAX_LOOKUP = [9, 13, 25, 27], [385, 350, 295, 275]
+  STEER_STEP = 1
+  STEER_DELTA_UP = 3  # torque increase per refresh
+  STEER_DELTA_DOWN = 5  # torque decrease per refresh
+  STEER_DRIVER_ALLOWANCE = 100  # allowed driver torque before start limiting
+  STEER_DRIVER_MULTIPLIER = 2  # weight driver torque
+  STEER_DRIVER_FACTOR = 100
+
+  ACCEL_MIN = -3.5  # m/s^2
+  ACCEL_MAX = 2.0  # m/s^2
+
+  # Feedforward accel offset that cancels the Rivian VDM's uncompensated regen/creep drag. Measured
+  # aEgo - commanded accel on steady frames (routes c17ea97d 0000000b/00000002, ~17k frames) is a
+  # consistent -0.10..-0.18 m/s^2 across regimes -> the truck brakes ~0.17 harder than asked and
+  # accelerates ~0.15 weaker than asked, worst below ~10 m/s. Adding it back at the actuator flattens
+  # the tracking bias (less over-braking, more willing accel) deterministically, without the noise a
+  # feedback kp injects. Speed breakpoints (m/s) -> added accel (m/s^2); gated to 0 at/near standstill
+  # so we still hold the brake at a stop, and only applied when longitudinally active.
+  ACCEL_FF_DRAG_BP = [0.8, 3.0, 8.0, 13.0, 20.0, 30.0]
+  ACCEL_FF_DRAG_V = [0.0, 0.17, 0.17, 0.12, 0.10, 0.08]
+
+  def __init__(self, CP):
+    pass
+
+
+DBC = CAR.create_dbc_map()
