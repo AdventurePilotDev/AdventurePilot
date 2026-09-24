@@ -15,8 +15,9 @@ BIG_UI = gui_app.big_ui()
 
 def main():
   cores = {5, }
-  # above plannerd and radard
-  config_realtime_process(0, Priority.CTRL_HIGH)
+  # below plannerd and radard, which share core 5: above them, the UI's engage-time
+  # work starves the planning loop (matches xnor rx-dev)
+  config_realtime_process(0, Priority.CTRL_LOW - 1)
 
   gui_app.init_window("UI")
   if BIG_UI:
