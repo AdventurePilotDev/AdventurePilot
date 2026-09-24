@@ -114,7 +114,7 @@ jobs:
         run: |
           export PYTHONPATH="$BUILD_DIR"
           # Copy only release-manifest files (this is why .gitattributes never enters the tree).
-          ./tools/release/release_files.py | sort | uniq | rsync -rRl --files-from=- . $BUILD_DIR/
+          ./tools/release/release_files.py | tr '\n' '\0' | rsync -rRl --from0 --files-from=- . $BUILD_DIR/
           cd $BUILD_DIR
           sed -i '/from .board.jungle import PandaJungle, PandaJungleDFU/s/^/#/' panda/__init__.py
           echo "Building sunnypilot's modeld_v2..."
