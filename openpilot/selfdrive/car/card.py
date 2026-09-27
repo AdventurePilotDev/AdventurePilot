@@ -197,6 +197,13 @@ class Car:
 
     # Update carState from CAN
     CS, CS_SP = self.CI.update(can_list)
+
+    # An ACC engage press the car port hid from the stock cruise ECU because openpilot couldn't engage (see
+    # openpilot_engageable). Surface it as an enable attempt so selfdrived shows the usual noEntry alert with the
+    # reason. selfdrived drops it if there is no NO_ENTRY event by then, so it can never engage openpilot.
+    if getattr(self.CI.CC, 'engage_request_blocked', False):
+      self.CI.CC.engage_request_blocked = False
+      CS.buttonEnable = True
     CS_SP = convert_to_capnp(CS_SP)
 
     # Update radar tracks from CAN
