@@ -168,12 +168,19 @@ class Soundd(QuietMode):
     volume = ((weighted_db - AMBIENT_DB) / DB_SCALE) * (MAX_VOLUME - MIN_VOLUME) + MIN_VOLUME
     return math.pow(VOLUME_BASE, (np.clip(volume, MIN_VOLUME, MAX_VOLUME) - 1))
 
-  @retry(attempts=10, delay=3)
+  # The sound card can take ~30 s after manager starts us to register (sound.target on mici), which used to exhaust
+  # the old 10 x 3 s budget by ~2 s and crash micd/soundd for the whole drive. Allow ~2 min before giving up, and log
+  # the real PortAudio error each attempt (retry() only prints it to stdout, which never reaches the logs).
+  @retry(attempts=40, delay=3)
   def get_stream(self, sd):
-    # reload sounddevice to reinitialize portaudio
-    sd._terminate()
-    sd._initialize()
-    return sd.OutputStream(channels=1, samplerate=SAMPLE_RATE, callback=self.callback, blocksize=SAMPLE_BUFFER)
+    try:
+      # reload sounddevice to reinitialize portaudio
+      sd._terminate()
+      sd._initialize()
+      return sd.OutputStream(channels=1, samplerate=SAMPLE_RATE, callback=self.callback, blocksize=SAMPLE_BUFFER)
+    except Exception as e:
+      cloudlog.warning(f"soundd get_stream failed, retrying: {e!r}")
+      raise
 
   def soundd_thread(self):
     # sounddevice must be imported after forking processes
