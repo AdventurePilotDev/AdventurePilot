@@ -316,7 +316,11 @@ class Car:
     try:
       t.start()
       while True:
+        t_step = time.monotonic()
         self.step()
+        step_ms = (time.monotonic() - t_step) * 1000.
+        if step_ms > 20.:
+          cloudlog.event("card slow step", step_ms=step_ms, error=True)
         self.rk.monitor_time()
     finally:
       e.set()
@@ -324,7 +328,9 @@ class Car:
 
 
 def main():
-  config_realtime_process(4, Priority.CTRL_HIGH)
+  # card shares core 4 with selfdrived and controlsd. One notch higher lets it preempt a slow step in either, so the
+  # car keeps getting its commands on time (Rivian's VDM latches an ACC fault after ~80ms without ACM_longitudinalRequest)
+  config_realtime_process(4, Priority.CTRL_HIGH + 1)
   car = Car()
   car.card_thread()
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import math
+import time
 from numbers import Number
 
 from openpilot.cereal import log
@@ -283,11 +284,15 @@ class Controls(ControlsExt):
   def run(self):
     rk = Ratekeeper(100, print_delay_threshold=None)
     while True:
+      t_step = time.monotonic()
       self.update()
       CC, lac_log = self.state_control()
       self.publish(CC, lac_log)
       self.get_params_sp(self.sm)
       self.run_ext(self.sm, self.pm)
+      step_ms = (time.monotonic() - t_step) * 1000.
+      if step_ms > 20.:
+        cloudlog.event("controlsd slow step", step_ms=step_ms, error=True)
       rk.monitor_time()
 
 
