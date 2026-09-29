@@ -105,7 +105,7 @@ def create_longitudinal(packer, frame, accel, enabled):
   return packer.make_can_msg("ACM_longitudinalRequest", 0, values)
 
 
-def create_adas_status(packer, vdm_adas_status, interface_status):
+def create_adas_status(packer, vdm_adas_status, interface_status, block_engage=False):
   values = {s: vdm_adas_status[s] for s in (
     "VDM_AdasStatus_Checksum",
     "VDM_AdasStatus_Counter",
@@ -119,6 +119,11 @@ def create_adas_status(packer, vdm_adas_status, interface_status):
     "VDM_AdasVehicleHoldStatus",
     "VDM_UserAdasRequest",
   )}
+
+  # VDM_UserAdasRequest: 0=IDLE, 1=UP_1, 2=UP_2, 3=DOWN_1, 4=DOWN_2. DOWN_1/DOWN_2 turn stock ACC on: hide them from
+  # the ACM while openpilot would refuse to engage. UP_1/UP_2 (cancel) always pass through.
+  if block_engage and values["VDM_UserAdasRequest"] in (3, 4):
+    values["VDM_UserAdasRequest"] = 0
 
   if interface_status is not None:
     if interface_status == 1:
