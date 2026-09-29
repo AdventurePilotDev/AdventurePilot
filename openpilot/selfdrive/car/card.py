@@ -197,6 +197,13 @@ class Car:
 
     # Update carState from CAN
     CS, CS_SP = self.CI.update(can_list)
+
+    # An ACC engage press the car port hid from the stock cruise ECU because openpilot couldn't engage (see
+    # openpilot_engageable). Surface it as an enable attempt so selfdrived shows the usual noEntry alert with the
+    # reason. selfdrived drops it if there is no NO_ENTRY event by then, so it can never engage openpilot.
+    if getattr(self.CI.CC, 'engage_request_blocked', False):
+      self.CI.CC.engage_request_blocked = False
+      CS.buttonEnable = True
     CS_SP = convert_to_capnp(CS_SP)
 
     # Update radar tracks from CAN
@@ -280,6 +287,9 @@ class Car:
     if self.sm.all_alive(['carControl']):
       # send car controls over can
       now_nanos = self.can_log_mono_time if REPLAY else int(time.monotonic() * 1e9)
+      # tell the car port whether selfdrived would refuse an engagement (any NO_ENTRY event), so ports whose stock
+      # cruise ECU faults when it enters ACC without openpilot following (e.g. Rivian ACM) can keep it out of ACC
+      self.CI.CC.openpilot_engageable = not any(e.noEntry for e in self.sm['onroadEvents'])
       self.last_actuators_output, can_sends = self.CI.apply(CC, convert_carControlSP(CC_SP), now_nanos)
       self.pm.send('sendcan', can_list_to_can_capnp(can_sends, msgtype='sendcan', valid=CS.canValid))
 
