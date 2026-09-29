@@ -28,7 +28,7 @@ class CarInterface(CarInterfaceBase):
 
     ret.steerActuatorDelay = 0.1
     ret.steerAtStandstill = True
-    ret.steerLimitTimer = 0.4
+    ret.steerLimitTimer = 0.8  # 0.4 flagged normal low-speed turn-in lag as steerSaturated
     CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 
     # torque is the primary channel, the angle command comes in via actuators.steeringAngleDeg
