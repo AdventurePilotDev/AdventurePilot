@@ -154,15 +154,23 @@ class TestRivianStockSafety(TestRivianSafetyBase):
 
 class TestRivianLongitudinalSafety(TestRivianSafetyBase):
 
-  TX_MSGS = [[0x120, 0], [0x321, 2], [0x160, 0]]
-  RELAY_MALFUNCTION_ADDRS = {0: (0x120, 0x160), 2: (0x321,)}
-  FWD_BLACKLISTED_ADDRS = {0: [0x321], 2: [0x120, 0x160]}
+  TX_MSGS = [[0x120, 0], [0x321, 2], [0x160, 0], [0x162, 2]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x120, 0x160), 2: (0x321, 0x162)}
+  FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: [0x120, 0x160]}
 
   def setUp(self):
     self.packer = CANPackerSafety("rivian_primary_actuator")
     self.safety = libsafety_py.libsafety
     self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, RivianSafetyFlags.LONG_CONTROL)
     self.safety.init_tests()
+
+  def test_adas_status(self):
+    # VDM_AdasSts is forwarded to the ACM in long mode so openpilot can hide ACC engage requests it would refuse
+    for controls_allowed in (True, False):
+      self.safety.set_controls_allowed(controls_allowed)
+      for user_request in range(5):
+        values = {"VDM_UserAdasRequest": user_request}
+        self.assertTrue(self._tx(self.packer.make_can_msg_safety("VDM_AdasSts", 2, values)))
 
 
 class TestRivianIgnition(unittest.TestCase):
