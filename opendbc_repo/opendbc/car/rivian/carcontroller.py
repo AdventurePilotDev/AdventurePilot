@@ -26,6 +26,11 @@ class CarController(CarControllerBase, MadsCarController):
     MadsCarController.__init__(self)
     self.apply_torque_last = 0
     self.packer = CANPacker(dbc_names[Bus.pt])
+    # set by card: False while selfdrived has a NO_ENTRY event (openpilot would refuse to engage)
+    self.openpilot_engageable = True
+    # set here when a driver ACC engage request was hidden from the ACM; card reads and clears it
+    self.engage_request_blocked = False
+    self.engage_request_prev = False
     self.cancel_frames = 0
     self.erc = ExternalController(CP)
     self.angle_harness = bool(CP.flags & RivianFlags.ANGLE_HARNESS)
@@ -167,6 +172,19 @@ class CarController(CarControllerBase, MadsCarController):
       if recorder is not None:
         recorder.record_command(accel, CC.enabled, long_allowed)
       can_sends.append(create_longitudinal(self.packer, self.frame, accel, CC.enabled))
+
+      # Forward VDM_AdasSts to the ACM. If openpilot would refuse to engage (NO_ENTRY), hide the driver's ACC-on stalk
+      # request so the ACM never enters ACC: once it is in ACC with nothing accepting its long request, it latches an
+      # ACC fault that only clears when the car sleeps (a spoofed cancel does not prevent it). Cancels pass through.
+      block_engage = not self.openpilot_engageable and not CS.out.cruiseState.enabled
+      if CS.vdm_adas_status:
+        engage_request = any(msg["VDM_UserAdasRequest"] in (3, 4) for msg in CS.vdm_adas_status)
+        # rising edge of a blocked request: card surfaces it so selfdrived shows the noEntry reason
+        if block_engage and engage_request and not self.engage_request_prev:
+          self.engage_request_blocked = True
+        self.engage_request_prev = engage_request
+      for msg in CS.vdm_adas_status:
+        can_sends.append(create_adas_status(self.packer, msg, None, block_engage))
     else:
       interface_status = None
       if CC.cruiseControl.cancel:
