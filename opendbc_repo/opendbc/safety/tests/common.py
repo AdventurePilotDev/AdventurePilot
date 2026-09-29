@@ -1055,6 +1055,9 @@ class SafetyTest(SafetyTestBase):
             if attr.startswith('TestHyundaiLongitudinal'):
               # exceptions for common msgs across different Hyundai CAN platforms
               tx = list(filter(lambda m: m[0] not in [0x420, 0x50A, 0x389, 0x4A2], tx))
+            # Rivian stock and longitudinal modes both forward VDM_AdasSts to the ACM
+            if attr.startswith('TestRivian') and current_test.startswith('TestRivian'):
+              tx = list(filter(lambda m: m[0] not in [0x162, ], tx))
             all_tx.append([[m[0], m[1], attr] for m in tx])
 
     # make sure we got all the msgs
