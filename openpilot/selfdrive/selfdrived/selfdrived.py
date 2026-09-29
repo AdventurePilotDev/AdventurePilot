@@ -686,7 +686,7 @@ class SelfdriveD(CruiseHelper):
         t_step = time.monotonic()
         self.step()
         step_ms = (time.monotonic() - t_step) * 1000.
-        if step_ms > 20.:
+        if step_ms > 40.:
           cloudlog.event("selfdrived slow step", step_ms=step_ms, error=True)
         self.rk.monitor_time()
     finally:

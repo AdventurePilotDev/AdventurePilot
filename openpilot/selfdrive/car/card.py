@@ -319,7 +319,7 @@ class Car:
         t_step = time.monotonic()
         self.step()
         step_ms = (time.monotonic() - t_step) * 1000.
-        if step_ms > 20.:
+        if step_ms > 40.:
           cloudlog.event("card slow step", step_ms=step_ms, error=True)
         self.rk.monitor_time()
     finally:

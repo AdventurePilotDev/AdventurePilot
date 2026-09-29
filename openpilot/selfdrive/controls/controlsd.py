@@ -291,7 +291,7 @@ class Controls(ControlsExt):
       self.get_params_sp(self.sm)
       self.run_ext(self.sm, self.pm)
       step_ms = (time.monotonic() - t_step) * 1000.
-      if step_ms > 20.:
+      if step_ms > 40.:
         cloudlog.event("controlsd slow step", step_ms=step_ms, error=True)
       rk.monitor_time()
 
