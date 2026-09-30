@@ -86,6 +86,9 @@ class SelfdriveD(CruiseHelper):
     self.big_model_active = False
     self.big_model_failed = False
     self.big_model_ready_t = 0.
+    # read in params_thread, not the 100Hz realtime step: disk reads there can stall everything on core 4
+    self.chestnut_loading = self.params.get_bool("ChestnutLoading")
+    self.chestnut_active = self.params.get("ChestnutActive")
 
     # Setup sockets
     self.pm = messaging.PubMaster(['selfdriveState', 'onroadEvents'] + ['selfdriveStateSP', 'onroadEventsSP'])
@@ -195,7 +198,7 @@ class SelfdriveD(CruiseHelper):
       self.events.add(EventName.joystickDebug)
       self.startup_event = None
 
-    loading = self.params.get_bool("ChestnutLoading")
+    loading = self.chestnut_loading
     if self.big_model_loading and not loading:
       self.big_model_ready_t = time.monotonic()
       self.events_sp.add(custom.OnroadEventSP.EventName.bigModelReady)
@@ -203,7 +206,7 @@ class SelfdriveD(CruiseHelper):
     if self.big_model_loading:
       self.events.add(EventName.bigModelLoading)
 
-    big_active = self.params.get("ChestnutActive")
+    big_active = self.chestnut_active
     chestnut_present = self.sm['deviceState'].chestnutPresent
     model_unavailable = big_active is True and self.sm.seen['modelV2'] and not self.sm.alive['modelV2']
     big_failed = big_active is False or model_unavailable or (self.big_model_active and not chestnut_present)
@@ -682,6 +685,9 @@ class SelfdriveD(CruiseHelper):
       self.experimental_mode = self.params.get_bool("ExperimentalMode") and self.CP.openpilotLongitudinalControl
       self.personality = self.params.get("LongitudinalPersonality", return_default=True)
 
+      self.chestnut_loading = self.params.get_bool("ChestnutLoading")
+      self.chestnut_active = self.params.get("ChestnutActive")
+
       self.mads.read_params()
       time.sleep(0.1)
 
@@ -691,7 +697,11 @@ class SelfdriveD(CruiseHelper):
     try:
       t.start()
       while True:
+        t_step = time.monotonic()
         self.step()
+        step_ms = (time.monotonic() - t_step) * 1000.
+        if step_ms > 40.:
+          cloudlog.event("selfdrived slow step", step_ms=step_ms, error=True)
         self.rk.monitor_time()
     finally:
       e.set()
