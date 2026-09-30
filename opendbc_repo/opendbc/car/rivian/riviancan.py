@@ -77,7 +77,7 @@ def create_longitudinal(packer, frame, accel, enabled):
   return packer.make_can_msg("ACM_longitudinalRequest", 0, values)
 
 
-def create_adas_status(packer, vdm_adas_status, interface_status, block_engage=False):
+def create_adas_status(packer, vdm_adas_status, interface_status, block_engage=False, cancel_request=False):
   values = {s: vdm_adas_status[s] for s in (
     "VDM_AdasStatus_Checksum",
     "VDM_AdasStatus_Counter",
@@ -98,6 +98,9 @@ def create_adas_status(packer, vdm_adas_status, interface_status, block_engage=F
     values["VDM_UserAdasRequest"] = 0
 
   if interface_status is not None:
+    # with openpilot long the ACM only leaves ACC cleanly when it also sees the driver's cancel (UP_1)
+    if interface_status == 1 and cancel_request:
+      values["VDM_UserAdasRequest"] = 1
     values["VDM_AdasInterfaceStatus"] = interface_status
 
   data = packer.make_can_msg("VDM_AdasSts", 2, values)[1]
