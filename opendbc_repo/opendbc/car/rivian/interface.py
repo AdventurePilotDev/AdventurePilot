@@ -34,7 +34,7 @@ class CarInterface(CarInterfaceBase):
     # speed-scheduled lateral curvature low-pass (delay-compensated in modeld); damps the
     # angle plant's crawl-speed limit cycle, off by 8 m/s
     ret.lateralSmoothSeconds = 0.4
-    ret.steerLimitTimer = 0.4
+    ret.steerLimitTimer = 0.8
     CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 
     # torque is the primary channel (xnor inversion): ext_controller derives the angle
