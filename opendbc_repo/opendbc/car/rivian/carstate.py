@@ -10,7 +10,8 @@ from opendbc.sunnypilot.car.rivian.carstate_ext import CarStateExt
 GearShifter = structs.CarState.GearShifter
 
 # EPAS torque-overlay fault (ToiFlt) held this long while the angle channel is not steering: the EPAS is ignoring our
-# torque requests. Debounced so a single-frame glitch does not drop lateral.
+# torque requests. Debounced so a single-frame glitch does not drop lateral, and so a latch the controller clears
+# (within a few frames) does not flash the warning.
 TOI_FAULT_FRAMES = 30  # 0.3 s at 100 Hz
 
 
@@ -62,7 +63,15 @@ class CarState(CarStateBase, CarStateExt):
     # EPAS_HandsOnLevel: 1 = normal/hands-on; any other value is a car-reported hands-off fault
     hands_on_level = cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"]
     self.toi_fault = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiFlt"] != 0
-    ret.steerFaultTemporary = self.toi_fault or hands_on_level != 1
+    # Report a latched ToiFlt only once it persists, and with the angle harness not while the angle channel is steering
+    # (the torque overlay is not in use then). It was silent on the harness before: the EPAS ignored every torque
+    # request for ~20 s with no alert (route 4440a486580ed7c6/00000112 seg 15-16).
+    toi_fault = self.toi_fault
+    if self.CP.flags & RivianFlags.ANGLE_HARNESS:
+      toi_fault = toi_fault and cp.vl["EPAS_AdasStatus"]["EPAS_EacStatus"] != 2
+    self.toi_fault_frames = self.toi_fault_frames + 1 if toi_fault else 0
+    toi_fault_persists = self.toi_fault_frames > TOI_FAULT_FRAMES
+    ret.steerFaultTemporary = toi_fault_persists or hands_on_level != 1
 
     if self.CP.flags & RivianFlags.ANGLE_HARNESS:
       # angle-harness EAC fault semantics (xnor rx-dev): the stock ACM shows EAC errors while
@@ -70,13 +79,7 @@ class CarState(CarStateBase, CarStateExt):
       # pending validation that stock trucks never report EacStatus 4 / error 12.
       eac_status = cp.vl["EPAS_AdasStatus"]["EPAS_EacStatus"]
       ret.steerFaultPermanent = eac_status == 4
-      ret.steerFaultTemporary = eac_status == 2 and cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"] != 0
-      # The branch above ignores ToiFlt, so a latched torque-overlay fault was silent: the EPAS ignored every
-      # torque request for ~20 s with no alert (route 4440a486580ed7c6/00000112 seg 15-16). Report it once it
-      # persists, but not while the angle channel is steering (the torque overlay is not in use then).
-      toi_fault = self.toi_fault and eac_status != 2
-      self.toi_fault_frames = self.toi_fault_frames + 1 if toi_fault else 0
-      ret.steerFaultTemporary = ret.steerFaultTemporary or self.toi_fault_frames > TOI_FAULT_FRAMES
+      ret.steerFaultTemporary = (eac_status == 2 and cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"] != 0) or toi_fault_persists
       # EPAS reports a dedicated error when the driver overrides the angle steering request
       ret.steeringDisengage = eac_status == 2 and cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"] == 12  # EPAS_Hands_On_Detn_Err
 

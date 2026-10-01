@@ -686,14 +686,14 @@ class TestTorqueLockoutVisibility(unittest.TestCase):
   """The EPAS torque-overlay fault used to be silent in torque mode, and a panda-refused torque frame was not
   reported to the controller (route 4440a486580ed7c6/00000112 seg 15-16)."""
 
-  def _cs_and_parsers(self):
+  def _cs_and_parsers(self, xnor_box=True):
     # the SP extension reads openpilot params and MADS helpers; it is not under test and the openpilot package is
     # unavailable in the Mac test venv, so neutralise it
     for name in ("__init__", "update"):
       patcher = mock.patch.object(CarStateExt, name, lambda *a, **k: None)
       patcher.start()
       self.addCleanup(patcher.stop)
-    cp = _get_cp(xnor_box=True)
+    cp = _get_cp(xnor_box=xnor_box)
     cp_sp = structs.CarParamsSP()
     cs = CarState(cp, cp_sp)
     return cp, cs, CarState.get_can_parsers(cp, cp_sp)
@@ -709,6 +709,20 @@ class TestTorqueLockoutVisibility(unittest.TestCase):
     cp, cs, parsers = self._cs_and_parsers()
     flags = []
     for frame in range(1, 60):
+      self._feed_epas(cp, parsers, frame, toi_flt=1)
+      ret, _ = cs.update(parsers)
+      flags.append(ret.steerFaultTemporary)
+    self.assertFalse(any(flags[:TOI_FAULT_FRAMES]), "a brief ToiFlt must not drop lateral")
+    self.assertTrue(all(flags[TOI_FAULT_FRAMES + 2:]), "a persistent ToiFlt must be reported")
+
+  def test_toi_fault_reported_once_it_persists_without_angle_harness(self):
+    # torque-only trucks: same delay, so a latch the controller clears within a few frames does not flash the warning
+    cp, cs, parsers = self._cs_and_parsers(xnor_box=False)
+    for frame in range(1, 4):  # let the parser see a normal hands-on level first; that path also reports it
+      self._feed_epas(cp, parsers, frame, toi_flt=0)
+      cs.update(parsers)
+    flags = []
+    for frame in range(4, 63):
       self._feed_epas(cp, parsers, frame, toi_flt=1)
       ret, _ = cs.update(parsers)
       flags.append(ret.steerFaultTemporary)
