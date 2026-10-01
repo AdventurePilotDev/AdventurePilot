@@ -4,6 +4,7 @@ from opendbc.car import Bus
 from opendbc.car.lateral import apply_driver_steer_torque_limits, common_fault_avoidance
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.rivian.riviancan import create_lka_steering, create_longitudinal, create_wheel_touch, create_adas_status
+from opendbc.car.rivian.torque_rt import TorqueRtLimiter
 from opendbc.car.rivian.values import CarControllerParams, RivianFlags
 
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
@@ -31,11 +32,17 @@ class CarController(CarControllerBase, MadsCarController):
     self.engage_request_prev = False
     self.angle_limit_counter = 0
     self.cancel_frames = 0
+    self.rt_limiter = TorqueRtLimiter()  # keeps torque requests inside the panda's real-time check
 
   def update(self, CC, CC_SP, CS, now_nanos):
     MadsCarController.update(self, CC, CC_SP, CS)
     actuators = CC.actuators
     can_sends = []
+
+    if getattr(CS, "torque_tx_refused", False):
+      # the panda refused a torque frame: it has zeroed its torque memory, so restart from zero
+      self.apply_torque_last = 0
+      self.rt_limiter.refused()
 
     apply_torque = 0
     steer_max = round(float(np.interp(CS.out.vEgoRaw, CarControllerParams.STEER_MAX_LOOKUP[0],
@@ -47,6 +54,9 @@ class CarController(CarControllerBase, MadsCarController):
       if abs(CS.out.steeringAngleDeg) > HIGH_ANGLE_THRESHOLD_DEG:
         cap = int(round(steer_max * HIGH_ANGLE_CAP_FRAC))
         apply_torque = max(-cap, min(cap, apply_torque))
+      apply_torque = self.rt_limiter.limit(apply_torque)
+    else:
+      self.rt_limiter.reset()
 
     self.angle_limit_counter, lka_act_toi = common_fault_avoidance(
       abs(CS.out.steeringAngleDeg) >= MAX_ANGLE_DEG,
@@ -60,6 +70,10 @@ class CarController(CarControllerBase, MadsCarController):
     send_torque = 0 if blip else apply_torque
     if not blip:
       self.apply_torque_last = apply_torque
+      if self.mads.lat_active:
+        self.rt_limiter.sent(apply_torque)
+    else:
+      self.rt_limiter.blip()
 
     can_sends.append(create_lka_steering(self.packer, self.frame, CS.acm_lka_hba_cmd, send_torque, CC.enabled, CC.latActive, self.mads, lka_act_toi))
 

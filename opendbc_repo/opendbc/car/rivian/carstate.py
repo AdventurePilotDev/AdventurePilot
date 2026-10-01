@@ -2,6 +2,7 @@ import copy
 from opendbc.can import CANParser
 from opendbc.car import Bus, structs
 from opendbc.car.interfaces import CarStateBase
+from opendbc.car.rivian.torque_rt import refused_torque_parser
 from opendbc.car.rivian.values import DBC, GEAR_MAP, RivianFlags
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.sunnypilot.car.rivian.carstate_ext import CarStateExt
@@ -18,11 +19,14 @@ class CarState(CarStateBase, CarStateExt):
     self.acm_lka_hba_cmd: dict | None = None
     self.sccm_wheel_touch: dict | None = None
     self.vdm_adas_status: list[dict] | None = None
+    # the panda refused a torque frame this update (its echo comes back on bus 192)
+    self.torque_tx_refused = False
 
   def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
     cp = can_parsers[Bus.pt]
     cp_cam = can_parsers[Bus.cam]
     cp_adas = can_parsers[Bus.adas]
+    cp_refused = can_parsers[Bus.main]
     ret = structs.CarState()
     ret_sp = structs.CarStateSP()
 
@@ -100,6 +104,7 @@ class CarState(CarStateBase, CarStateExt):
     # This message can lag and send two messages at once, make sure we forward all of them
     adas_status_msgs = cp.vl_all["VDM_AdasSts"]
     self.vdm_adas_status = [dict(zip(adas_status_msgs, vals, strict=True)) for vals in zip(*adas_status_msgs.values(), strict=True)]
+    self.torque_tx_refused = len(cp_refused.vl_all["ACM_lkaHbaCmd"]["ACM_lkaStrToqReq"]) > 0
 
     CarStateExt.update(self, ret, can_parsers)
 
@@ -111,5 +116,6 @@ class CarState(CarStateBase, CarStateExt):
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 0),
       Bus.adas: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 1),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 2),
+      Bus.main: refused_torque_parser(DBC[CP.carFingerprint][Bus.pt]),
       **CarStateExt.get_parser(CP, CP_SP),
     }
