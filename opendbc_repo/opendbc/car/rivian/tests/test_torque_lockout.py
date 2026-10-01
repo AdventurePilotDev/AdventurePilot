@@ -1,8 +1,11 @@
 import unittest
+from types import SimpleNamespace
 
 from opendbc.car.rivian.torque_rt import TorqueRtLimiter, TORQUE_RT_MAX_DELTA, refused_torque_parser
 from opendbc.car.rivian.values import DBC, CAR
-from opendbc.car import Bus
+from opendbc.car import Bus, structs
+from opendbc.car.rivian.carcontroller import (CarController, BLIP_FRAMES, TOI_CLEAR_LATCH_FRAMES, TOI_CLEAR_QUIET_FRAMES,
+                                              TOI_CLEAR_RETRY_FRAMES)
 
 
 class TestTorqueRtLimiter(unittest.TestCase):
@@ -78,6 +81,73 @@ class TestRefusedParser(unittest.TestCase):
     p.update([(30_000_000_000, [(0x120, bytes([0, 5, 0, 0, 0, 0, 0, 0]), 192)])])  # odd counter, long gap
     self.assertTrue(p.can_valid)
     self.assertFalse(p.bus_timeout)
+
+
+class TestToiFaultLatchClear(unittest.TestCase):
+  """A latched EPAS ToiFlt never times out on its own (59 s and 75 s on route 2bba20cd6136cc27/0000007a--9d80d483b8)
+  but clears ~20 ms after a frame with the TOI request low, so the controller releases the request to clear it."""
+
+  def setUp(self):
+    self.controller = CarController({"pt": "rivian_primary_actuator"}, structs.CarParams(), structs.CarParamsSP())
+    out = structs.CarState()
+    out.vEgoRaw = 10.0
+    self.cs = SimpleNamespace(out=out, acm_lka_hba_cmd={"ACM_hbaSysState": 0, "ACM_hbaLamp": 0, "ACM_hbaOnOffState": 0,
+                                                        "ACM_slifOnOffState": 0},
+                              sccm_wheel_touch={"SCCM_WheelTouch_Counter": 0, "SCCM_WheelTouch_HandsOn": 0,
+                                                "SCCM_WheelTouch_CapacitiveValue": 0, "SCCM_WheelTouch_Calibration": 100,
+                                                "SCCM_WheelTouch_ResistiveValue": 0},
+                              vdm_adas_status=[], toi_fault=False, torque_tx_refused=False)
+
+  def _run(self, faults, refused=(), lat_active=True, torque=0.5):
+    out = []
+    for i, fault in enumerate(faults):
+      self.cs.toi_fault = fault
+      self.cs.torque_tx_refused = i in refused
+      cc = structs.CarControl()
+      cc.latActive = lat_active
+      cc.actuators.torque = torque
+      _, sends = self.controller.update(cc.as_reader(), structs.CarControlSP(), self.cs, 0)
+      dat = next(d for addr, d, _ in sends if addr == 0x120)
+      out.append((bool((dat[3] >> 4) & 1), ((dat[2] << 3) | (dat[3] >> 5)) - 1024))
+    return out
+
+  def _released(self, out):
+    return [i for i, (toi, _) in enumerate(out) if not toi]
+
+  def test_latched_fault_is_released_once_then_torque_resumes(self):
+    steady = self._run([False] * 150)[-1][1]
+    self.assertGreater(steady, 0)
+    out = self._run([True] * TOI_CLEAR_LATCH_FRAMES + [False] * 20)  # the release clears it
+    rel = self._released(out)
+    self.assertEqual(rel, list(range(TOI_CLEAR_LATCH_FRAMES - 1, TOI_CLEAR_LATCH_FRAMES - 1 + BLIP_FRAMES)))
+    for i in rel:
+      self.assertEqual(out[i][1], 0, "torque is 0 while the request is released")
+    self.assertEqual(out[rel[-1] + 1], (True, steady), "torque resumes at the frozen value")
+
+  def test_brief_fault_is_not_released(self):
+    self._run([False] * 150)
+    out = self._run([True] * (TOI_CLEAR_LATCH_FRAMES - 1) + [False] * 20)
+    self.assertEqual(self._released(out), [])
+
+  def test_persistent_fault_is_retried_every_half_second(self):
+    self._run([False] * 150)
+    rel = self._released(self._run([True] * 200))
+    starts = [i for i in rel if i - 1 not in rel]
+    self.assertEqual(len(rel), len(starts) * BLIP_FRAMES)
+    self.assertEqual(starts[0], TOI_CLEAR_LATCH_FRAMES - 1)
+    self.assertEqual([b - a for a, b in zip(starts, starts[1:], strict=False)], [TOI_CLEAR_RETRY_FRAMES] * (len(starts) - 1))
+
+  def test_no_release_while_the_panda_is_still_refusing(self):
+    # a release does not stick while 0x120 frames are still being refused: the EPAS loses them and latches again
+    self._run([False] * 150)
+    rel = self._released(self._run([True] * 40, refused=range(20)))
+    self.assertTrue(rel, "released once the refusals stop")
+    self.assertEqual(rel[0], 19 + TOI_CLEAR_QUIET_FRAMES)
+
+  def test_no_release_without_lateral(self):
+    self._run([True] * 20, lat_active=False)
+    self.assertEqual(self.controller.toi_clear_cooldown, 0)
+    self.assertEqual(self.controller.toi_fault_frames, 0)
 
 
 if __name__ == "__main__":

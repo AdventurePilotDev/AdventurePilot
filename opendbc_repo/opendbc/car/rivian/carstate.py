@@ -21,6 +21,8 @@ class CarState(CarStateBase, CarStateExt):
     self.vdm_adas_status: list[dict] | None = None
     # the panda refused a torque frame this update (its echo comes back on bus 192)
     self.torque_tx_refused = False
+    # EPAS torque-overlay fault as reported this frame; the controller releases the TOI request to clear it
+    self.toi_fault = False
 
   def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
     cp = can_parsers[Bus.pt]
@@ -51,7 +53,8 @@ class CarState(CarStateBase, CarStateExt):
 
     # EPAS_HandsOnLevel: 1 = normal/hands-on; any other value is a car-reported hands-off fault
     hands_on_level = cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"]
-    ret.steerFaultTemporary = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiFlt"] != 0 or hands_on_level != 1
+    self.toi_fault = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiFlt"] != 0
+    ret.steerFaultTemporary = self.toi_fault or hands_on_level != 1
 
     # Cruise state
     speed = min(int(cp_adas.vl["ACM_tsrCmd"]["ACM_tsrSpdDisClsMain"]), 85)

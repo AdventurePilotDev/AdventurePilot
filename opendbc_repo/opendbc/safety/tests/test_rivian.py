@@ -130,6 +130,30 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
     self._torque_loop_rx()
     return ok
 
+  def test_toi_fault_release_is_never_refused(self):
+    """Releasing the TOI request to clear a latched EPAS ToiFlt (torque 0, request low) must pass the panda wherever it
+    lands: mid-ramp, next to a TOI blip, at any phase of the panda's real-time interval. So must the resume, which
+    starts from the frozen torque (route 2bba20cd6136cc27/0000007a--9d80d483b8: the latch lasted 59 s and 75 s)."""
+    blocked = []
+    no_release = []
+    for sign in (1.0, -1.0):
+      for offset in range(0, 26, 5):  # panda interval timer against the blip cycle
+        for start in range(0, 100, 7):  # where in the ramp / blip cycle the latch lands
+          self._torque_loop_setup(timer_offset_frames=offset)
+          released_at = None
+          for i in range(200):
+            # like the EPAS: latched from start until a couple of frames after the first release
+            self.cs.toi_fault = start <= i and (released_at is None or i < released_at + 2)
+            if not self._torque_loop_frame(sign):
+              blocked.append((sign, offset, start, i))
+              break
+            if released_at is None and self.controller.toi_clear_cooldown > 0:
+              released_at = i
+          if released_at is None:
+            no_release.append((sign, offset, start))
+    self.assertEqual(blocked, [], f"panda refused around a ToiFlt release at (sign, timer offset, latch start, frame): {blocked[:6]}")
+    self.assertEqual(no_release, [], f"latch was never released: {no_release[:6]}")
+
   def test_torque_ramp_through_blip_is_never_blocked(self):
     """A full-rate torque ramp that straddles the TOI blip must never be refused. The panda's real-time check
     only refreshes its reference every 250 ms and a blip frame restarts that timer without refreshing the

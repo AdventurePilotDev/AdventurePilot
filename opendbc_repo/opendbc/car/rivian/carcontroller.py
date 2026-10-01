@@ -18,6 +18,17 @@ BLIP_FRAMES = 2
 HIGH_ANGLE_THRESHOLD_DEG = 90
 HIGH_ANGLE_CAP_FRAC = 0.95
 
+# A latched EPAS ToiFlt does not time out: the EPAS ignored torque for 59 s and 75 s on route
+# 2bba20cd6136cc27/0000007a--9d80d483b8 while openpilot showed engaged. It clears ~20 ms after any frame with the
+# TOI request low (5 of 5 times on that route), so release the request for a blip once it has latched. Not while the
+# panda is still refusing torque frames: the EPAS loses 0x120 again and the fault comes straight back.
+TOI_CLEAR_LATCH_FRAMES = 3       # ToiFlt seen this many frames in a row before releasing
+TOI_CLEAR_QUIET_FRAMES = 5       # and no panda refusal for this many frames
+TOI_CLEAR_RETRY_FRAMES = 50      # at most one release every 0.5 s while it stays latched
+# A release is itself a blip. Two blips inside one 250 ms panda interval leave its real-time reference older than
+# TorqueRtLimiter allows for, and the resume is refused, so keep every release at least this far from any other blip.
+TOI_CLEAR_BLIP_GAP_FRAMES = 30
+
 
 class CarController(CarControllerBase, MadsCarController):
   def __init__(self, dbc_names, CP, CP_SP):
@@ -33,6 +44,33 @@ class CarController(CarControllerBase, MadsCarController):
     self.angle_limit_counter = 0
     self.cancel_frames = 0
     self.rt_limiter = TorqueRtLimiter()  # keeps torque requests inside the panda's real-time check
+    # releasing the TOI request to clear a latched EPAS ToiFlt
+    self.toi_fault_frames = 0
+    self.frames_since_refusal = TOI_CLEAR_QUIET_FRAMES
+    self.toi_clear_frames = 0    # release frames still to send
+    self.toi_clear_cooldown = 0
+
+  def _toi_clear_release(self, CS, lka_act_toi: bool) -> bool:
+    """True on the frames where the TOI request must be released to clear a latched EPAS ToiFlt. The release goes out
+    as a blip (torque 0, request low), which the panda accepts at any time: it is not a steer_req mismatch."""
+    if not self.mads.lat_active:
+      self.toi_fault_frames = 0
+      self.toi_clear_frames = 0
+      self.toi_clear_cooldown = 0
+      return False
+    self.toi_fault_frames = self.toi_fault_frames + 1 if getattr(CS, "toi_fault", False) else 0
+    self.toi_clear_cooldown = max(self.toi_clear_cooldown - 1, 0)
+    if (self.toi_clear_frames == 0 and self.toi_clear_cooldown == 0 and self.toi_fault_frames >= TOI_CLEAR_LATCH_FRAMES and
+        self.frames_since_refusal >= TOI_CLEAR_QUIET_FRAMES and lka_act_toi and
+        self.rt_limiter.frames_since_blip >= TOI_CLEAR_BLIP_GAP_FRAMES):
+      self.toi_clear_frames = BLIP_FRAMES
+      self.toi_clear_cooldown = TOI_CLEAR_RETRY_FRAMES
+      # the release also serves the high-angle blip, so restart that count: the next one is a full interval away
+      self.angle_limit_counter = 0
+    if self.toi_clear_frames > 0:
+      self.toi_clear_frames -= 1
+      return True
+    return False
 
   def update(self, CC, CC_SP, CS, now_nanos):
     MadsCarController.update(self, CC, CC_SP, CS)
@@ -43,6 +81,9 @@ class CarController(CarControllerBase, MadsCarController):
       # the panda refused a torque frame: it has zeroed its torque memory, so restart from zero
       self.apply_torque_last = 0
       self.rt_limiter.refused()
+      self.frames_since_refusal = 0
+    else:
+      self.frames_since_refusal = min(self.frames_since_refusal + 1, TOI_CLEAR_QUIET_FRAMES)
 
     apply_torque = 0
     steer_max = round(float(np.interp(CS.out.vEgoRaw, CarControllerParams.STEER_MAX_LOOKUP[0],
@@ -65,6 +106,8 @@ class CarController(CarControllerBase, MadsCarController):
       MAX_ANGLE_FRAMES,
       BLIP_FRAMES,
     )
+    if self._toi_clear_release(CS, lka_act_toi):
+      lka_act_toi = False
 
     blip = self.mads.lat_active and not lka_act_toi
     send_torque = 0 if blip else apply_torque
