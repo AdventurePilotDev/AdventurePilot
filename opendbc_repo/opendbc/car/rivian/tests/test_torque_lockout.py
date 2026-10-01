@@ -1,8 +1,12 @@
+import sys
+import types
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 from opendbc.car.rivian.torque_rt import TorqueRtLimiter, TORQUE_RT_MAX_DELTA, refused_torque_parser
 from opendbc.car.rivian.values import DBC, CAR
+from opendbc.can import CANPacker
 from opendbc.car import Bus, structs
 from opendbc.car.rivian.carcontroller import (CarController, BLIP_FRAMES, TOI_CLEAR_LATCH_FRAMES, TOI_CLEAR_QUIET_FRAMES,
                                               TOI_CLEAR_RETRY_FRAMES)
@@ -148,6 +152,50 @@ class TestToiFaultLatchClear(unittest.TestCase):
     self._run([True] * 20, lat_active=False)
     self.assertEqual(self.controller.toi_clear_cooldown, 0)
     self.assertEqual(self.controller.toi_fault_frames, 0)
+
+
+class TestToiFaultWarning(unittest.TestCase):
+  """A latched EPAS ToiFlt is reported only once it persists, so a latch the controller clears within a few frames
+  does not flash the warning (the same 0.3 s as the angle-harness branches)."""
+
+  def setUp(self):
+    # the SP extension imports openpilot params and MADS helpers, which the Mac test venv does not have; it is not
+    # under test, so stub those modules for the import and neutralise the extension
+    stubs = {name: types.ModuleType(name) for name in ("openpilot", "openpilot.common", "openpilot.common.params",
+                                                       "openpilot.sunnypilot", "openpilot.sunnypilot.mads",
+                                                       "openpilot.sunnypilot.mads.helpers")}
+    stubs["openpilot.common.params"].Params = object
+    stubs["openpilot.sunnypilot.mads.helpers"].MadsSteeringModeOnBrake = object
+    stubs["openpilot.sunnypilot.mads.helpers"].read_steering_mode_param = lambda *a, **k: None
+    with mock.patch.dict(sys.modules, stubs):
+      from opendbc.car.rivian.carstate import CarState, TOI_FAULT_FRAMES
+      from opendbc.sunnypilot.car.rivian.carstate_ext import CarStateExt
+    for name in ("__init__", "update"):
+      patcher = mock.patch.object(CarStateExt, name, lambda *a, **k: None)
+      patcher.start()
+      self.addCleanup(patcher.stop)
+    self.toi_fault_frames_limit = TOI_FAULT_FRAMES
+    self.cp = structs.CarParams(carFingerprint=CAR.RIVIAN_R1)
+    cp_sp = structs.CarParamsSP()
+    self.cs = CarState(self.cp, cp_sp)
+    self.parsers = CarState.get_can_parsers(self.cp, cp_sp)
+    self.packer = CANPacker(DBC[CAR.RIVIAN_R1][Bus.pt])
+
+  def _frame(self, frame, toi_flt):
+    system = self.packer.make_can_msg("EPAS_SystemStatus", 0, {"EPAS_SystemStatus_Counter": frame % 16, "H_CAN_EPSS_ToiFlt": toi_flt,
+                                                               "EPAS_HandsOnLevel": 1})
+    self.parsers[Bus.pt].update([(frame * 10_000_000, [system])])
+    ret, _ = self.cs.update(self.parsers)
+    return ret.steerFaultTemporary
+
+  def test_toi_fault_reported_once_it_persists(self):
+    for frame in range(1, 4):  # let the parser see a normal hands-on level first; it is reported too
+      self._frame(frame, 0)
+    flags = [self._frame(frame, 1) for frame in range(4, 63)]
+    self.assertFalse(any(flags[:self.toi_fault_frames_limit]), "a brief ToiFlt must not raise the warning")
+    self.assertTrue(all(flags[self.toi_fault_frames_limit + 2:]), "a persistent ToiFlt must be reported")
+    self.assertTrue(self.cs.toi_fault, "the controller still sees the raw fault at once")
+    self.assertFalse(self._frame(63, 0), "the warning clears with the fault")
 
 
 if __name__ == "__main__":

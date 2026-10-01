@@ -9,6 +9,11 @@ from opendbc.sunnypilot.car.rivian.carstate_ext import CarStateExt
 
 GearShifter = structs.CarState.GearShifter
 
+# EPAS torque-overlay fault (ToiFlt) held this long: the EPAS is ignoring our torque requests. Debounced so a
+# single-frame glitch does not drop lateral, and so a latch the controller clears (within a few frames) does not
+# flash the warning.
+TOI_FAULT_FRAMES = 30  # 0.3 s at 100 Hz
+
 
 class CarState(CarStateBase, CarStateExt):
   def __init__(self, CP, CP_SP):
@@ -23,6 +28,7 @@ class CarState(CarStateBase, CarStateExt):
     self.torque_tx_refused = False
     # EPAS torque-overlay fault as reported this frame; the controller releases the TOI request to clear it
     self.toi_fault = False
+    self.toi_fault_frames = 0
 
   def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
     cp = can_parsers[Bus.pt]
@@ -54,7 +60,8 @@ class CarState(CarStateBase, CarStateExt):
     # EPAS_HandsOnLevel: 1 = normal/hands-on; any other value is a car-reported hands-off fault
     hands_on_level = cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"]
     self.toi_fault = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiFlt"] != 0
-    ret.steerFaultTemporary = self.toi_fault or hands_on_level != 1
+    self.toi_fault_frames = self.toi_fault_frames + 1 if self.toi_fault else 0
+    ret.steerFaultTemporary = self.toi_fault_frames > TOI_FAULT_FRAMES or hands_on_level != 1
 
     # Cruise state
     speed = min(int(cp_adas.vl["ACM_tsrCmd"]["ACM_tsrSpdDisClsMain"]), 85)
