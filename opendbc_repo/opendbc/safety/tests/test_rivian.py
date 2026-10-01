@@ -4,8 +4,10 @@ import numpy as np
 
 from opendbc.car.lateral import get_max_angle_delta_vm, get_max_angle_vm
 from opendbc.car.rivian.carcontroller import get_safety_CP
-from opendbc.car.rivian.ext_controller import TORQUE_PREARM_ABORT_LOCKOUT, TORQUE_PREARM_MAX_FRAMES
-from opendbc.car.rivian.values import CarControllerParams, RivianSafetyFlags
+from types import SimpleNamespace
+from opendbc.car.rivian.ext_controller import ExternalController, TORQUE_PREARM_ABORT_LOCKOUT, TORQUE_PREARM_MAX_FRAMES
+from opendbc.car.rivian.interface import CarInterface
+from opendbc.car.rivian.values import CAR, CarControllerParams, RivianSafetyFlags
 from opendbc.car.rivian.riviancan import checksum as _checksum
 from opendbc.car.structs import CarParams
 from opendbc.car.vehicle_model import VehicleModel
@@ -216,6 +218,73 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
 
     # instant resume at the pre-blip value
     self.assertTrue(self._tx(self._torque_cmd_msg(self.MAX_TORQUE, steer_req=1)))
+
+  def _torque_loop_setup(self, angle=150.0, speed=11.4, timer_offset_frames=0):
+    """the real cooperative-torque controller driving the panda model frame by frame (10 ms) at a high wheel
+    angle, where the controller blips the TOI request about every 0.9 s"""
+    fp = {i: {} for i in range(8)}
+    fp[0][0x321] = 7
+    fp[1][0x1310] = 8
+    cp = CarInterface.get_params(CAR.RIVIAN_R1, fp, [], alpha_long=False, is_release=False, docs=False)
+    self.erc = ExternalController(cp)
+    self.erc.torque_active = True
+    self.cs = SimpleNamespace(out=SimpleNamespace(vEgoRaw=speed, steeringTorque=0.0, steeringAngleDeg=angle))
+    self.safety.init_tests()
+    self.safety.set_controls_allowed(True)
+    # the panda's 250 ms real-time interval starts at its first torque message. Send one now and start the
+    # controller timer_offset_frames later so the interval timer is out of step with the controller's blip cycle
+    self.safety.set_timer(int(1e6))
+    self.assertTrue(self._tx(self._torque_cmd_msg(0, steer_req=1)))
+    self.frame = max(1, timer_offset_frames)
+    self.rx_speed = speed
+    for _ in range(10):
+      self._torque_loop_rx()
+
+  def _torque_loop_rx(self):
+    self._rx(self._speed_msg(self.rx_speed))
+    self._rx(self._speed_msg_2(self.rx_speed))
+    self._rx(self._torque_driver_msg(0))
+
+  def _torque_loop_frame(self, demand):
+    """one 10 ms controller frame sent through the panda; returns whether the panda let it through"""
+    self.safety.set_timer(int(1e6) + self.frame * 10000)
+    self.frame += 1
+    self.erc._update_torque(self.cs, SimpleNamespace(torque=demand))
+    ok = self._tx(self._torque_cmd_msg(self.erc.torque_cmd, steer_req=int(self.erc.toi_act_cmd)))
+    self._torque_loop_rx()
+    return ok
+
+  def test_torque_ramp_through_blip_is_never_blocked(self):
+    """A full-rate torque ramp that straddles the TOI blip must never be refused. The panda's real-time check
+    only refreshes its reference every 250 ms and a blip frame restarts that timer without refreshing the
+    reference, so the reference can be about 0.5 s old. A ramp at the maximum rate (3 counts per frame) then
+    climbs more than the allowed 125 counts from it, the panda refuses the frame and zeroes its torque memory,
+    and every following frame is refused too (route 4440a486580ed7c6/00000112 seg 15, 5 s lockout)."""
+    blocked = []
+    for sign in (1.0, -1.0):
+      for offset in range(0, 26, 2 if sign > 0 else 5):  # sweep the panda interval timer against the blip cycle ...
+        for start in range(0, 100, 4 if sign > 0 else 8):  # ... and the start of the ramp across the cycle
+          self._torque_loop_setup(timer_offset_frames=offset)
+          for _ in range(start):
+            self._torque_loop_frame(0.0)
+          for i in range(200):
+            if not self._torque_loop_frame(sign):
+              blocked.append((sign, offset, start, i))
+              break
+    self.assertEqual(blocked, [], f"panda refused the controller's torque at (sign, timer offset, demand start, frame): {blocked[:6]}")
+
+  def test_torque_recovers_after_panda_refusal(self):
+    """If the panda ever does refuse a frame it zeroes its torque memory. The controller, told the frame was
+    refused, must restart from zero instead of repeating a request the panda will keep refusing."""
+    self._torque_loop_setup()
+    for _ in range(80):
+      self.assertTrue(self._torque_loop_frame(0.8))
+    # force a refusal: an out-of-range request makes the panda drop its torque memory
+    self.safety.set_timer(int(1e6) + self.frame * 10000)
+    self.assertFalse(self._tx(self._torque_cmd_msg(self.MAX_TORQUE + 50, steer_req=1)))
+    self.erc.notify_torque_refused()
+    results = [self._torque_loop_frame(0.8) for _ in range(30)]
+    self.assertTrue(all(results), f"controller kept sending requests the panda refuses: {results}")
 
   def _mbb_setup(self, speed=10.0, angle=20.0):
     """settle the rx state and seed the angle command stream at the measured angle"""

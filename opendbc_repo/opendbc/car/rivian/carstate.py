@@ -2,11 +2,16 @@ import copy
 from opendbc.can import CANParser
 from opendbc.car import Bus, structs
 from opendbc.car.interfaces import CarStateBase
+from opendbc.car.rivian.torque_rt import refused_torque_parser
 from opendbc.car.rivian.values import DBC, GEAR_MAP, RivianFlags
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.sunnypilot.car.rivian.carstate_ext import CarStateExt
 
 GearShifter = structs.CarState.GearShifter
+
+# EPAS torque-overlay fault (ToiFlt) held this long while the angle channel is not steering: the EPAS is ignoring our
+# torque requests. Debounced so a single-frame glitch does not drop lateral.
+TOI_FAULT_FRAMES = 30  # 0.3 s at 100 Hz
 
 
 class CarState(CarStateBase, CarStateExt):
@@ -21,11 +26,15 @@ class CarState(CarStateBase, CarStateExt):
     self.hands_on_level = 0
     self.eac_status = 0
     self.eac_error_code = 0
+    self.toi_fault_frames = 0
+    # the panda refused a torque frame this update (its echo comes back on bus 192)
+    self.torque_tx_refused = False
 
   def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
     cp = can_parsers[Bus.pt]
     cp_cam = can_parsers[Bus.cam]
     cp_adas = can_parsers[Bus.adas]
+    cp_refused = can_parsers[Bus.main]
     ret = structs.CarState()
     ret_sp = structs.CarStateSP()
 
@@ -59,6 +68,12 @@ class CarState(CarStateBase, CarStateExt):
       eac_status = cp.vl["EPAS_AdasStatus"]["EPAS_EacStatus"]
       ret.steerFaultPermanent = eac_status == 4
       ret.steerFaultTemporary = eac_status == 2 and cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"] != 0
+      # The branch above ignores ToiFlt, so a latched torque-overlay fault was silent: the EPAS ignored every
+      # torque request for ~20 s with no alert (route 4440a486580ed7c6/00000112 seg 15-16). Report it once it
+      # persists, but not while the angle channel is steering (the torque overlay is not in use then).
+      toi_fault = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiFlt"] != 0 and eac_status != 2
+      self.toi_fault_frames = self.toi_fault_frames + 1 if toi_fault else 0
+      ret.steerFaultTemporary = ret.steerFaultTemporary or self.toi_fault_frames > TOI_FAULT_FRAMES
       # EPAS reports a dedicated error when the driver overrides the angle steering request
       ret.steeringDisengage = eac_status == 2 and cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"] == 12  # EPAS_Hands_On_Detn_Err
 
@@ -116,6 +131,7 @@ class CarState(CarStateBase, CarStateExt):
     self.eac_error_code = int(cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"])
     self.eac_status = int(cp.vl["EPAS_AdasStatus"]["EPAS_EacStatus"])
     self.hands_on_level = int(cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"])
+    self.torque_tx_refused = len(cp_refused.vl_all["ACM_lkaHbaCmd"]["ACM_lkaStrToqReq"]) > 0
 
     CarStateExt.update(self, ret, can_parsers)
 
@@ -127,5 +143,6 @@ class CarState(CarStateBase, CarStateExt):
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 0),
       Bus.adas: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 1),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 2),
+      Bus.main: refused_torque_parser(DBC[CP.carFingerprint][Bus.pt]),
       **CarStateExt.get_parser(CP, CP_SP),
     }

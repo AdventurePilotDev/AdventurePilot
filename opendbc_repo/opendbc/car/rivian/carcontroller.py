@@ -115,6 +115,8 @@ class CarController(CarControllerBase, MadsCarController):
           self._params.put("RivianAngleSteerPhase", phase)  # INT param: must be an int, not str
           self._angle_phase_last = phase
 
+    if getattr(CS, "torque_tx_refused", False):
+      self.erc.notify_torque_refused()
     self.erc.update(CS, self.mads.lat_active, actuators)
     apply_torque = self.erc.torque_cmd
 

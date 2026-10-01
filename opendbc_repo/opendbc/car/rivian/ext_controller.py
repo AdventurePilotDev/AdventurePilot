@@ -6,6 +6,7 @@ from opendbc.car.lateral import (
   apply_driver_steer_torque_limits, common_fault_avoidance,
   apply_steer_angle_limits_vm, get_max_angle_delta_vm, get_max_angle_vm,
 )
+from opendbc.car.rivian.torque_rt import TorqueRtLimiter
 from opendbc.car.rivian.values import CarControllerParams as CCP, RivianFlags
 from opendbc.car.vehicle_model import VehicleModel
 
@@ -146,6 +147,8 @@ class ExternalController:
     # decoupled from torque_active so a blip does not flip angle or feature mode
     self.toi_angle_limit_counter = 0
     self.toi_act_cmd = False     # sent into ACM_lkaActToi, low for 2 frames during a blip
+    self.rt_limiter = TorqueRtLimiter()  # keeps requests inside the panda's real-time check
+    self.torque_refused = False  # the panda refused a torque frame: it has zeroed its torque memory
 
   def update(self, CS, lat_active: bool, actuators):
     self._update_hands_on(CS)
@@ -347,13 +350,26 @@ class ExternalController:
     self.apply_angle_last = apply_angle
     self.rate_budget.push(apply_angle)
 
+  def notify_torque_refused(self):
+    """The panda refused a 0x120 frame (echoed back on bus 192). On a refusal it zeroes its rate-limit and
+    real-time memory, and refuses every request that is not within one rate step of zero, so the request must
+    restart from zero or the refusals never end."""
+    self.torque_refused = True
+
   def _update_torque(self, CS, actuators):
     if not (self.torque_active or self.torque_prearm):
       self.apply_torque_last = 0
       self.torque_cmd = 0
       self.toi_act_cmd = False
       self.toi_angle_limit_counter = 0
+      self.rt_limiter.reset()
+      self.torque_refused = False
       return
+
+    if self.torque_refused:
+      self.apply_torque_last = 0
+      self.rt_limiter.refused()
+      self.torque_refused = False
 
     v_ego = CS.out.vEgoRaw
     steer_max = round(float(np.interp(v_ego, CCP.STEER_MAX_LOOKUP[0], CCP.STEER_MAX_LOOKUP[1])))
@@ -364,6 +380,7 @@ class ExternalController:
     if abs(CS.out.steeringAngleDeg) > HIGH_ANGLE_THRESHOLD_DEG:
       cap = int(round(steer_max * HIGH_ANGLE_CAP_FRAC))
       apply_torque = max(-cap, min(cap, apply_torque))
+    apply_torque = self.rt_limiter.limit(apply_torque)
 
     # blip the TOI request when held at high angle so the EPAS does not latch ToiFlt.
     # apply_torque_last is FROZEN through the blip so torque resumes at the pre-blip value
@@ -376,5 +393,7 @@ class ExternalController:
     if toi_act:
       self.apply_torque_last = apply_torque
       self.torque_cmd = apply_torque
+      self.rt_limiter.sent(apply_torque)
     else:
       self.torque_cmd = 0
+      self.rt_limiter.blip()

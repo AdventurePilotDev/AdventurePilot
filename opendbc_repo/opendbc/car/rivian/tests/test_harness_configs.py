@@ -8,6 +8,7 @@ is derived from curvature in ext_controller. Single panda, angle TX on bus 0 onl
 import math
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 import numpy as np
 
@@ -15,13 +16,15 @@ from opendbc.can import CANPacker, CANParser
 from opendbc.car import Bus, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.rivian.carcontroller import CarController, LOW_SPEED_TORQUE_HYST_MS
+from opendbc.car.rivian.carstate import CarState, TOI_FAULT_FRAMES
 from opendbc.car.rivian.ext_controller import (ExternalController, EAC_RECOVER_FRAMES, MIN_TORQUE_FRAMES,
                                                TOI_MAX_ANGLE_FRAMES, TOI_BLIP_FRAMES, ANGLE_SAT_FRAMES)
 from opendbc.car.rivian.ext_controller import (TORQUE_PREARM_ABORT_LOCKOUT, TORQUE_PREARM_EXIT_FRAC, TORQUE_PREARM_MAX_FRAMES,
                                                TORQUE_PREARM_MIN_HOLD)
 from opendbc.car.rivian.interface import CarInterface
-from opendbc.car.rivian.values import CAR, CarControllerParams, RivianFlags, RivianSafetyFlags
+from opendbc.car.rivian.values import CAR, DBC, CarControllerParams, RivianFlags, RivianSafetyFlags
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
+from opendbc.sunnypilot.car.rivian.carstate_ext import CarStateExt
 from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
 
 GearShifter = structs.CarState.GearShifter
@@ -675,6 +678,87 @@ class TestStockAccCancelUnderOpenpilotLong(unittest.TestCase):
     a = self._run(3, 3)
     self.assertEqual(a[:3], [(1, 1)] * 3)
     self.assertEqual(a[3:], [(0, 0)] * 3)
+
+
+
+class TestTorqueLockoutVisibility(unittest.TestCase):
+  """The EPAS torque-overlay fault used to be silent in torque mode, and a panda-refused torque frame was not
+  reported to the controller (route 4440a486580ed7c6/00000112 seg 15-16)."""
+
+  def _cs_and_parsers(self):
+    # the SP extension reads openpilot params and MADS helpers; it is not under test and the openpilot package is
+    # unavailable in the Mac test venv, so neutralise it
+    for name in ("__init__", "update"):
+      patcher = mock.patch.object(CarStateExt, name, lambda *a, **k: None)
+      patcher.start()
+      self.addCleanup(patcher.stop)
+    cp = _get_cp(xnor_box=True)
+    cp_sp = structs.CarParamsSP()
+    cs = CarState(cp, cp_sp)
+    return cp, cs, CarState.get_can_parsers(cp, cp_sp)
+
+  def _feed_epas(self, cp, parsers, frame, toi_flt, eac_status=1):
+    packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+    system = packer.make_can_msg("EPAS_SystemStatus", 0, {"EPAS_SystemStatus_Counter": frame % 16, "H_CAN_EPSS_ToiFlt": toi_flt,
+                                                          "EPAS_HandsOnLevel": 1})
+    adas = packer.make_can_msg("EPAS_AdasStatus", 0, {"EPAS_AdasStatus_Counter": frame % 16, "EPAS_EacStatus": eac_status})
+    parsers[Bus.pt].update([(frame * 10_000_000, [system, adas])])
+
+  def test_toi_fault_reported_once_it_persists(self):
+    cp, cs, parsers = self._cs_and_parsers()
+    flags = []
+    for frame in range(1, 60):
+      self._feed_epas(cp, parsers, frame, toi_flt=1)
+      ret, _ = cs.update(parsers)
+      flags.append(ret.steerFaultTemporary)
+    self.assertFalse(any(flags[:TOI_FAULT_FRAMES]), "a brief ToiFlt must not drop lateral")
+    self.assertTrue(all(flags[TOI_FAULT_FRAMES + 2:]), "a persistent ToiFlt must be reported")
+
+  def test_toi_fault_clears(self):
+    cp, cs, parsers = self._cs_and_parsers()
+    for frame in range(1, 50):
+      self._feed_epas(cp, parsers, frame, toi_flt=1)
+      cs.update(parsers)
+    self._feed_epas(cp, parsers, 50, toi_flt=0)
+    ret, _ = cs.update(parsers)
+    self.assertFalse(ret.steerFaultTemporary)
+
+  def test_toi_fault_ignored_while_angle_channel_steers(self):
+    cp, cs, parsers = self._cs_and_parsers()
+    for frame in range(1, 80):
+      self._feed_epas(cp, parsers, frame, toi_flt=1, eac_status=2)
+      ret, _ = cs.update(parsers)
+      self.assertFalse(ret.steerFaultTemporary)
+
+  def test_refused_torque_frame_is_reported_once(self):
+    cp, cs, parsers = self._cs_and_parsers()
+    self._feed_epas(cp, parsers, 1, toi_flt=0)
+    cs.update(parsers)
+    self.assertFalse(cs.torque_tx_refused)
+    refused = (0x120, bytes(8), 192)  # a frame the panda refused comes back on bus 192
+    echo = (0x120, bytes(8), 128)     # an accepted frame comes back on bus 128
+    parsers[Bus.main].update([(20_000_000, [echo, refused])])
+    self._feed_epas(cp, parsers, 2, toi_flt=0)
+    cs.update(parsers)
+    self.assertTrue(cs.torque_tx_refused)
+    parsers[Bus.main].update([(30_000_000, [echo])])
+    self._feed_epas(cp, parsers, 3, toi_flt=0)
+    cs.update(parsers)
+    self.assertFalse(cs.torque_tx_refused)
+    self.assertTrue(parsers[Bus.main].can_valid, "a quiet bus 192 must not raise canError")
+
+  def test_controller_is_told_about_a_refusal(self):
+    cp = _get_cp(xnor_box=True)
+    controller = CarController({Bus.pt: "rivian_primary_actuator"}, cp, structs.CarParamsSP())
+    calls = []
+    controller.erc.notify_torque_refused = lambda: calls.append(1)
+    cs = _mock_cs(cp)
+    cc = structs.CarControl().as_reader()
+    controller.update(cc, structs.CarControlSP(), cs, 0)
+    self.assertEqual(calls, [])
+    cs.torque_tx_refused = True
+    controller.update(cc, structs.CarControlSP(), cs, 10_000_000)
+    self.assertEqual(calls, [1])
 
 
 if __name__ == "__main__":
