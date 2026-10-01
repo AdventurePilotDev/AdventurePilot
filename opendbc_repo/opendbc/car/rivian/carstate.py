@@ -27,6 +27,8 @@ class CarState(CarStateBase, CarStateExt):
     self.eac_status = 0
     self.eac_error_code = 0
     self.toi_fault_frames = 0
+    # EPAS torque-overlay fault as reported this frame; the controller releases the TOI request to clear it
+    self.toi_fault = False
     # the panda refused a torque frame this update (its echo comes back on bus 192)
     self.torque_tx_refused = False
 
@@ -59,7 +61,8 @@ class CarState(CarStateBase, CarStateExt):
 
     # EPAS_HandsOnLevel: 1 = normal/hands-on; any other value is a car-reported hands-off fault
     hands_on_level = cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"]
-    ret.steerFaultTemporary = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiFlt"] != 0 or hands_on_level != 1
+    self.toi_fault = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiFlt"] != 0
+    ret.steerFaultTemporary = self.toi_fault or hands_on_level != 1
 
     if self.CP.flags & RivianFlags.ANGLE_HARNESS:
       # angle-harness EAC fault semantics (xnor rx-dev): the stock ACM shows EAC errors while
@@ -71,7 +74,7 @@ class CarState(CarStateBase, CarStateExt):
       # The branch above ignores ToiFlt, so a latched torque-overlay fault was silent: the EPAS ignored every
       # torque request for ~20 s with no alert (route 4440a486580ed7c6/00000112 seg 15-16). Report it once it
       # persists, but not while the angle channel is steering (the torque overlay is not in use then).
-      toi_fault = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiFlt"] != 0 and eac_status != 2
+      toi_fault = self.toi_fault and eac_status != 2
       self.toi_fault_frames = self.toi_fault_frames + 1 if toi_fault else 0
       ret.steerFaultTemporary = ret.steerFaultTemporary or self.toi_fault_frames > TOI_FAULT_FRAMES
       # EPAS reports a dedicated error when the driver overrides the angle steering request

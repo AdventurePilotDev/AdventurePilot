@@ -19,6 +19,7 @@ from opendbc.car.rivian.carcontroller import CarController, LOW_SPEED_TORQUE_HYS
 from opendbc.car.rivian.carstate import CarState, TOI_FAULT_FRAMES
 from opendbc.car.rivian.ext_controller import (ExternalController, EAC_RECOVER_FRAMES, MIN_TORQUE_FRAMES,
                                                TOI_MAX_ANGLE_FRAMES, TOI_BLIP_FRAMES, ANGLE_SAT_FRAMES)
+from opendbc.car.rivian.ext_controller import TOI_CLEAR_LATCH_FRAMES, TOI_CLEAR_QUIET_FRAMES, TOI_CLEAR_RETRY_FRAMES
 from opendbc.car.rivian.ext_controller import (TORQUE_PREARM_ABORT_LOCKOUT, TORQUE_PREARM_EXIT_FRAC, TORQUE_PREARM_MAX_FRAMES,
                                                TORQUE_PREARM_MIN_HOLD)
 from opendbc.car.rivian.interface import CarInterface
@@ -747,6 +748,17 @@ class TestTorqueLockoutVisibility(unittest.TestCase):
     self.assertFalse(cs.torque_tx_refused)
     self.assertTrue(parsers[Bus.main].can_valid, "a quiet bus 192 must not raise canError")
 
+  def test_raw_toi_fault_exposed_for_the_controller(self):
+    # the controller clears a latch from the raw bit, even where the alert ignores it (angle channel steering)
+    cp, cs, parsers = self._cs_and_parsers()
+    for frame in range(1, 6):
+      self._feed_epas(cp, parsers, frame, toi_flt=1, eac_status=2)
+      cs.update(parsers)
+    self.assertTrue(cs.toi_fault)
+    self._feed_epas(cp, parsers, 6, toi_flt=0)
+    cs.update(parsers)
+    self.assertFalse(cs.toi_fault)
+
   def test_controller_is_told_about_a_refusal(self):
     cp = _get_cp(xnor_box=True)
     controller = CarController({Bus.pt: "rivian_primary_actuator"}, cp, structs.CarParamsSP())
@@ -759,6 +771,71 @@ class TestTorqueLockoutVisibility(unittest.TestCase):
     cs.torque_tx_refused = True
     controller.update(cc, structs.CarControlSP(), cs, 10_000_000)
     self.assertEqual(calls, [1])
+
+
+class TestToiFaultLatchClear(unittest.TestCase):
+  """A latched EPAS ToiFlt never times out on its own (59 s and 75 s on route 2bba20cd6136cc27/0000007a--9d80d483b8)
+  but clears ~20 ms after a frame with the TOI request low, so the controller releases the request to clear it."""
+
+  def _run(self, erc, faults, refused=(), torque=0.5):
+    out = []
+    for i, fault in enumerate(faults):
+      if i in refused:
+        erc.notify_torque_refused()
+      cs = _cs_frame()
+      cs.toi_fault = fault
+      erc.update(cs, True, _actuators(torque=torque))
+      out.append((erc.toi_act_cmd, erc.torque_cmd))
+    return out
+
+  def _released(self, out):
+    return [i for i, (toi, _) in enumerate(out) if not toi]
+
+  def test_latched_fault_is_released_once_then_torque_resumes(self):
+    erc = ExternalController(_get_cp())
+    self._run(erc, [False] * 150)  # settle at a steady torque
+    steady = erc.torque_cmd
+    self.assertGreater(steady, 0)
+    out = self._run(erc, [True] * TOI_CLEAR_LATCH_FRAMES + [False] * 20)  # the release clears it
+    rel = self._released(out)
+    self.assertEqual(rel, list(range(TOI_CLEAR_LATCH_FRAMES - 1, TOI_CLEAR_LATCH_FRAMES - 1 + TOI_BLIP_FRAMES)))
+    for i in rel:
+      self.assertEqual(out[i][1], 0, "torque is 0 while the request is released")
+    self.assertEqual(out[rel[-1] + 1], (True, steady), "torque resumes at the frozen value")
+
+  def test_brief_fault_is_not_released(self):
+    erc = ExternalController(_get_cp())
+    self._run(erc, [False] * 150)
+    out = self._run(erc, [True] * (TOI_CLEAR_LATCH_FRAMES - 1) + [False] * 20)
+    self.assertEqual(self._released(out), [])
+
+  def test_persistent_fault_is_retried_every_half_second(self):
+    erc = ExternalController(_get_cp())
+    self._run(erc, [False] * 150)
+    out = self._run(erc, [True] * 200)
+    rel = self._released(out)
+    starts = [i for i in rel if i - 1 not in rel]
+    self.assertEqual(len(rel), len(starts) * TOI_BLIP_FRAMES)
+    self.assertEqual(starts[0], TOI_CLEAR_LATCH_FRAMES - 1)
+    self.assertEqual([b - a for a, b in zip(starts, starts[1:], strict=False)], [TOI_CLEAR_RETRY_FRAMES] * (len(starts) - 1))
+
+  def test_no_release_while_the_panda_is_still_refusing(self):
+    # a release does not stick while 0x120 frames are still being refused: the EPAS loses them and latches again
+    erc = ExternalController(_get_cp())
+    self._run(erc, [False] * 150)
+    out = self._run(erc, [True] * 40, refused=range(20))
+    rel = self._released(out)
+    self.assertTrue(rel, "released once the refusals stop")
+    self.assertEqual(rel[0], 19 + TOI_CLEAR_QUIET_FRAMES)
+
+  def test_no_release_without_lateral(self):
+    erc = ExternalController(_get_cp())
+    for _ in range(20):
+      cs = _cs_frame()
+      cs.toi_fault = True
+      erc.update(cs, False, _actuators(torque=0.5))
+    self.assertEqual(erc.toi_clear_cooldown, 0)
+    self.assertEqual(erc.toi_fault_frames, 0)
 
 
 if __name__ == "__main__":

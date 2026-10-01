@@ -34,6 +34,17 @@ TOI_MAX_ANGLE_DEG = 90
 TOI_MAX_ANGLE_FRAMES = 89        # frames held high before a blip (~0.9s)
 TOI_BLIP_FRAMES = 2              # frames to release ACM_lkaActToi
 
+# A latched EPAS ToiFlt does not time out: the EPAS ignored torque for 59 s and 75 s on route
+# 2bba20cd6136cc27/0000007a--9d80d483b8 while openpilot showed engaged. It clears ~20 ms after any frame with the
+# TOI request low (5 of 5 times on that route), so release the request for a blip once it has latched. Not while the
+# panda is still refusing torque frames: the EPAS loses 0x120 again and the fault comes straight back.
+TOI_CLEAR_LATCH_FRAMES = 3       # ToiFlt seen this many frames in a row before releasing
+TOI_CLEAR_QUIET_FRAMES = 5       # and no panda refusal for this many frames
+TOI_CLEAR_RETRY_FRAMES = 50      # at most one release every 0.5 s while it stays latched
+# A release is itself a blip. Two blips inside one 250 ms panda interval leave its real-time reference older than
+# TorqueRtLimiter allows for, and the resume is refused, so keep every release at least this far from any other blip.
+TOI_CLEAR_BLIP_GAP_FRAMES = 30
+
 # Above this wheel angle the rack is saturated >75% of the time (route data); cap output so the
 # controller can recover from saturation faster when geometry eases
 HIGH_ANGLE_THRESHOLD_DEG = 90
@@ -149,6 +160,11 @@ class ExternalController:
     self.toi_act_cmd = False     # sent into ACM_lkaActToi, low for 2 frames during a blip
     self.rt_limiter = TorqueRtLimiter()  # keeps requests inside the panda's real-time check
     self.torque_refused = False  # the panda refused a torque frame: it has zeroed its torque memory
+    # releasing the TOI request to clear a latched EPAS ToiFlt
+    self.toi_fault_frames = 0
+    self.frames_since_refusal = TOI_CLEAR_QUIET_FRAMES
+    self.toi_clear_frames = 0    # release frames still to send
+    self.toi_clear_cooldown = 0
 
   def update(self, CS, lat_active: bool, actuators):
     self._update_hands_on(CS)
@@ -356,6 +372,23 @@ class ExternalController:
     restart from zero or the refusals never end."""
     self.torque_refused = True
 
+  def _toi_clear_release(self, CS, toi_act: bool) -> bool:
+    """True on the frames where the TOI request must be released to clear a latched EPAS ToiFlt. The release goes out
+    as a blip (torque 0, request low), which the panda accepts at any time: it is not a steer_req mismatch."""
+    self.toi_fault_frames = self.toi_fault_frames + 1 if getattr(CS, "toi_fault", False) else 0
+    self.toi_clear_cooldown = max(self.toi_clear_cooldown - 1, 0)
+    if (self.toi_clear_frames == 0 and self.toi_clear_cooldown == 0 and self.toi_fault_frames >= TOI_CLEAR_LATCH_FRAMES and
+        self.frames_since_refusal >= TOI_CLEAR_QUIET_FRAMES and toi_act and
+        self.rt_limiter.frames_since_blip >= TOI_CLEAR_BLIP_GAP_FRAMES):
+      self.toi_clear_frames = TOI_BLIP_FRAMES
+      self.toi_clear_cooldown = TOI_CLEAR_RETRY_FRAMES
+      # the release also serves the high-angle blip, so restart that count: the next one is a full interval away
+      self.toi_angle_limit_counter = 0
+    if self.toi_clear_frames > 0:
+      self.toi_clear_frames -= 1
+      return True
+    return False
+
   def _update_torque(self, CS, actuators):
     if not (self.torque_active or self.torque_prearm):
       self.apply_torque_last = 0
@@ -364,12 +397,18 @@ class ExternalController:
       self.toi_angle_limit_counter = 0
       self.rt_limiter.reset()
       self.torque_refused = False
+      self.toi_fault_frames = 0
+      self.toi_clear_frames = 0
+      self.toi_clear_cooldown = 0
       return
 
     if self.torque_refused:
       self.apply_torque_last = 0
       self.rt_limiter.refused()
       self.torque_refused = False
+      self.frames_since_refusal = 0
+    else:
+      self.frames_since_refusal = min(self.frames_since_refusal + 1, TOI_CLEAR_QUIET_FRAMES)
 
     v_ego = CS.out.vEgoRaw
     steer_max = round(float(np.interp(v_ego, CCP.STEER_MAX_LOOKUP[0], CCP.STEER_MAX_LOOKUP[1])))
@@ -389,6 +428,8 @@ class ExternalController:
     self.toi_angle_limit_counter, toi_act = common_fault_avoidance(
       abs(CS.out.steeringAngleDeg) >= TOI_MAX_ANGLE_DEG, self.torque_active or self.torque_prearm,
       self.toi_angle_limit_counter, TOI_MAX_ANGLE_FRAMES, TOI_BLIP_FRAMES)
+    if self._toi_clear_release(CS, toi_act):
+      toi_act = False
     self.toi_act_cmd = toi_act
     if toi_act:
       self.apply_torque_last = apply_torque
