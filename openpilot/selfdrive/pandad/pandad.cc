@@ -101,7 +101,7 @@ void can_send_thread(Panda *panda, bool fake_send) {
 
   // Rivian: fill short sendcan gaps so the EPAS/VDM don't latch a fault, see rivian_keepalive.h
   const int IDLE_TIMEOUT_MS = 100;
-  const int KEEPALIVE_TIMEOUT_MS = 5;
+  const int KEEPALIVE_TIMEOUT_MS = 2;
   const bool keepalive_allowed = getenv("NO_RIVIAN_KEEPALIVE") == nullptr;
   Params params;
   RivianKeepalive keepalive;
