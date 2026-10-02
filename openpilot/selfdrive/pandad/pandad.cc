@@ -16,6 +16,7 @@
 #include "common/timing.h"
 #include "common/util.h"
 #include "common/hardware/hw.h"
+#include "selfdrive/pandad/rivian_keepalive.h"
 
 #define MAX_IR_PANDA_VAL 50
 #define CUTOFF_IL 400
@@ -68,6 +69,27 @@ Panda *connect(std::string serial) {
   return panda.release();
 }
 
+// true if the car openpilot is currently controlling is a Rivian
+static bool is_rivian(Params &params) {
+  std::string cp_bytes = params.get("CarParams");
+  if (cp_bytes.empty()) return false;
+
+  AlignedBuffer aligned_buf;
+  capnp::FlatArrayMessageReader cmsg(aligned_buf.align(cp_bytes.data(), cp_bytes.size()));
+  return cmsg.getRoot<cereal::CarParams>().getBrand() == kj::StringPtr("rivian");
+}
+
+static void send_keepalive_frames(Panda *panda, const std::vector<KeepaliveFrame> &frames) {
+  MessageBuilder msg;
+  auto out = msg.initEvent().initSendcan(frames.size());
+  for (size_t i = 0; i < frames.size(); ++i) {
+    out[i].setAddress(frames[i].addr);
+    out[i].setSrc(frames[i].bus);
+    out[i].setDat(kj::arrayPtr(frames[i].dat, frames[i].len));
+  }
+  panda->can_send(out.asReader());
+}
+
 void can_send_thread(Panda *panda, bool fake_send) {
   util::set_thread_name("pandad_can_send");
 
@@ -77,10 +99,35 @@ void can_send_thread(Panda *panda, bool fake_send) {
   assert(subscriber != NULL);
   subscriber->setTimeout(100);
 
+  // Rivian: fill short sendcan gaps so the EPAS/VDM don't latch a fault, see rivian_keepalive.h
+  const int IDLE_TIMEOUT_MS = 100;
+  const int KEEPALIVE_TIMEOUT_MS = 5;
+  const bool keepalive_allowed = getenv("NO_RIVIAN_KEEPALIVE") == nullptr;
+  Params params;
+  RivianKeepalive keepalive;
+  bool keepalive_on = false;
+  uint64_t last_sendcan_ns = 0;
+  uint64_t last_brand_check_ns = 0;
+  int brand_checks = 0;
+
   // run as fast as messages come in
   while (!do_exit && check_connected(panda)) {
     std::unique_ptr<Message> msg(subscriber->receive());
     if (!msg) {
+      if (keepalive_on) {
+        const uint64_t now = nanos_since_boot();
+        if (now - last_sendcan_ns > 2000000000ULL) {
+          // sendcan is gone (offroad or card restarted), start over on the next drive
+          keepalive_on = false;
+          keepalive = RivianKeepalive();
+          subscriber->setTimeout(IDLE_TIMEOUT_MS);
+        } else {
+          const auto frames = keepalive.fill(now);
+          if (!frames.empty()) {
+            send_keepalive_frames(panda, frames);
+          }
+        }
+      }
       continue;
     }
 
@@ -88,10 +135,65 @@ void can_send_thread(Panda *panda, bool fake_send) {
     cereal::Event::Reader event = cmsg.getRoot<cereal::Event>();
 
     // Don't send if older than 1 second
-    if ((nanos_since_boot() - event.getLogMonoTime() < 1e9) && !fake_send) {
+    const uint64_t now = nanos_since_boot();
+    if ((now - event.getLogMonoTime() < 1e9) && !fake_send) {
+      if (now - last_sendcan_ns > 2000000000ULL) {
+        brand_checks = 0;  // new drive
+      }
+      // CarParams is written before card starts sending: look it up on the first few seconds of each drive
+      if (keepalive_allowed && !keepalive_on && brand_checks < 10 && (now - last_brand_check_ns > 1000000000ULL)) {
+        last_brand_check_ns = now;
+        brand_checks++;
+        if (is_rivian(params)) {
+          keepalive_on = true;
+          subscriber->setTimeout(KEEPALIVE_TIMEOUT_MS);
+          LOGW("rivian sendcan keepalive on");
+        }
+      }
+      last_sendcan_ns = now;
+
+      const auto frames = event.getSendcan();
       LOGT("sending sendcan to panda: %s", (panda->hw_serial()).c_str());
-      panda->can_send(event.getSendcan());
+      if (!keepalive_on) {
+        panda->can_send(frames);
+      } else if (!keepalive.needs_rewrite()) {
+        // nothing has been filled yet: remember the control frames and pass the message through untouched
+        for (const auto &f : frames) {
+          const auto dat = f.getDat();
+          uint8_t buf[8];
+          if (dat.size() <= sizeof(buf)) {
+            memcpy(buf, dat.begin(), dat.size());
+            keepalive.on_frame(f.getAddress(), f.getSrc(), buf, dat.size(), now);
+          }
+        }
+        panda->can_send(frames);
+      } else {
+        // a fill moved the counters on: shift the counters of the control frames to match
+        MessageBuilder out_msg;
+        auto out = out_msg.initEvent().initSendcan(frames.size());
+        for (size_t i = 0; i < frames.size(); ++i) {
+          const auto dat = frames[i].getDat();
+          out[i].setAddress(frames[i].getAddress());
+          out[i].setSrc(frames[i].getSrc());
+          uint8_t buf[8];
+          if (dat.size() <= sizeof(buf)) {
+            memcpy(buf, dat.begin(), dat.size());
+            keepalive.on_frame(frames[i].getAddress(), frames[i].getSrc(), buf, dat.size(), now);
+            out[i].setDat(kj::arrayPtr(buf, dat.size()));
+          } else {
+            out[i].setDat(dat);
+          }
+        }
+        panda->can_send(out.asReader());
+      }
       LOGT("sendcan sent to panda: %s", (panda->hw_serial()).c_str());
+
+      if (keepalive_on) {
+        const int filled = keepalive.on_real_message(now);
+        if (filled > 0) {
+          LOGE("rivian sendcan keepalive: filled %d frames, sendcan gap %.1f ms", filled, keepalive.last_gap() / 1e6);
+        }
+      }
     } else {
       LOGE("sendcan too old to send: %" PRIu64 ", %" PRIu64, nanos_since_boot(), event.getLogMonoTime());
     }
