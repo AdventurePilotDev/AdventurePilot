@@ -135,12 +135,50 @@ int main() {
       memcpy(d, REFS[0].c3, 8);
       assert(!ka.on_frame(0x110, 0, d, 8, t * MS));
       assert(!ka.on_frame(0x110, 2, d, 8, t * MS));
-      assert(!ka.on_frame(0x162, 2, d, 8, t * MS));
+      assert(!ka.on_frame(0x163, 2, d, 8, t * MS));
+      assert(!ka.on_frame(0x162, 0, d, 8, t * MS));  // the VDM's own frame on bus 0 is not ours
       assert(!ka.on_frame(0x160, 0, d, 8, t * MS));  // wrong length
       ka.on_real_message(t * MS);
     }
     auto f = ka.fill(1125 * MS);
     assert(f.size() == 1 && f[0].addr == 0x110);
+  }
+
+  {
+    // VDM_AdasSts relay on bus 2, real frames from c17ea97dc5472650/0000008d (VDM counters 4, 5, 6 with an
+    // unchanged payload): the fill after counter 4 must be exactly the frame the VDM sent next
+    const uint8_t v4[8] = {0x38, 0x04, 0x10, 0x01, 0x03, 0xfe, 0x04, 0x08};
+    const uint8_t v5[8] = {0x65, 0x05, 0x10, 0x01, 0x03, 0xfe, 0x04, 0x08};
+    const uint8_t v6[8] = {0x82, 0x06, 0x10, 0x01, 0x03, 0xfe, 0x04, 0x08};
+    assert(KA::checksum(v4, 8, 0xD1) == v4[0] && KA::checksum(v6, 8, 0xD1) == v6[0]);
+
+    KA ka;
+    uint8_t d[8];
+    memcpy(d, v4, 8);
+    assert(!ka.on_frame(0x162, 2, d, 8, 1000 * MS));
+    ka.on_real_message(1000 * MS);
+
+    auto f = ka.fill(1025 * MS);
+    assert(f.size() == 1 && f[0].addr == 0x162 && f[0].bus == 2 && f[0].len == 8);
+    assert(memcmp(f[0].dat, v5, 8) == 0);
+    f = ka.fill(1035 * MS);
+    assert(f.size() == 1 && memcmp(f[0].dat, v6, 8) == 0);
+  }
+
+  {
+    // fills stay on a 10 ms grid when the poll comes a little late (2 ms poll: 25, 35, 45 ... not 27, 37, 47)
+    KA ka;
+    uint8_t buf[4][8];
+    real_message(ka, 3, 1000 * MS, buf);
+    ka.on_real_message(1000 * MS);
+    int fills = 0;
+    for (uint64_t t = 1001; t < 1100; t += 2) {  // odd milliseconds only, so every poll is 1 ms late
+      if (!ka.fill(t * MS).empty()) {
+        fills++;
+        assert(t == 1025 + 10 * (uint64_t)(fills - 1) || t == 1026 + 10 * (uint64_t)(fills - 1));
+      }
+    }
+    assert(fills == 8);  // 25, 35, ..., 95 ms
   }
 
   printf("ok\n");

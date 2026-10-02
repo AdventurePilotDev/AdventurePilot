@@ -9,7 +9,9 @@
 // Rivian: short keep-alive for openpilot's 100 Hz control frames.
 //
 // The EPAS and VDM latch a fault that only clears when the car sleeps if ACM_SteeringControl (0x110) or
-// ACM_longitudinalRequest (0x160) drop out for roughly 60-80 ms while active. Device-wide stalls of ~100 ms
+// ACM_longitudinalRequest (0x160) drop out for roughly 60-80 ms while active. The stock ACM leaves ACC if the
+// VDM_AdasSts (0x162) card relays to it on bus 2 stops for more than ~100 ms, which ends the engagement and
+// makes the panda reject the 0x160 fills. Device-wide stalls of ~100 ms
 // have been seen right after the first engage of a drive; they freeze card (and most other processes) but
 // not pandad. While sendcan is quiet, pandad repeats the last frame of each control message with the
 // counter advanced and the checksum recomputed, for at most MAX_FILL_FRAMES frames per gap.
@@ -101,7 +103,8 @@ public:
 
     if (!out.empty()) {
       fills_in_gap++;
-      last_fill_ns = now_ns;
+      // stay on a 10 ms grid when polled a little late, so the poll interval doesn't stretch the period
+      last_fill_ns = (now_ns - due_ns < PERIOD_NS) ? due_ns : now_ns;
     }
     return out;
   }
@@ -117,12 +120,13 @@ private:
     uint64_t last_ns = 0;
   };
 
-  // all four are sent by card every 10 ms on bus 0: checksum in byte 0, counter in the low nibble of byte 1
-  std::array<Slot, 4> slots = {{
+  // all are sent by card at 100 Hz: checksum in byte 0, counter (0-14) in the low nibble of byte 1
+  std::array<Slot, 5> slots = {{
     {0x100, 0, 8, 0x5F},  // ACM_Status
     {0x110, 0, 8, 0x41},  // ACM_SteeringControl
     {0x120, 0, 8, 0x63},  // ACM_lkaHbaCmd
     {0x160, 0, 5, 0x12},  // ACM_longitudinalRequest
+    {0x162, 2, 8, 0xD1},  // VDM_AdasSts, the VDM's status relayed to the stock ACM
   }};
 
   uint64_t last_real_ns = 0;
