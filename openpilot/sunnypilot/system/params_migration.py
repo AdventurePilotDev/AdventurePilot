@@ -84,6 +84,24 @@ def _migrate_tesla_mads_screen_button(_params):
     cloudlog.exception(f"Error migrating TeslaMadsScreenButton: {e}")
 
 
+def _migrate_rivian_enhanced_mads(_params):
+  # RivianEnhancedMads defaults to Off for fresh installs, but AdventurePilot always ran the enhanced
+  # Rivian MADS before the setting existed. Seed existing Rivian installs with On to keep that.
+  # A fresh install has no known brand yet, so it is skipped and keeps the default; manager_init then
+  # writes that default, so this never seeds after the first boot.
+  try:
+    if _params.get("RivianEnhancedMads") is not None:
+      return
+
+    if _resolve_brand(_params) != "rivian":
+      return
+
+    _params.put_bool("RivianEnhancedMads", True, block=True)
+    cloudlog.info("params_migration: seeded RivianEnhancedMads with On to preserve existing behavior")
+  except Exception as e:
+    cloudlog.exception(f"Error migrating RivianEnhancedMads: {e}")
+
+
 def _migrate_model_bundle_slots(_params):
   # Pre-split, a chestnut user's big-model selection lived in the single
   # ActiveBundle. Seed both slots; validation drops whichever does not match
@@ -139,6 +157,9 @@ def run_migration(_params):
 
   # seed TeslaMadsScreenButton for existing Tesla installs
   _migrate_tesla_mads_screen_button(_params)
+
+  # seed RivianEnhancedMads for existing Rivian installs
+  _migrate_rivian_enhanced_mads(_params)
 
   # seed the chestnut model slot from the pre-split single slot
   _migrate_model_bundle_slots(_params)
