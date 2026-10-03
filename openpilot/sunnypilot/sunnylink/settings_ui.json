@@ -39,6 +39,23 @@
               },
               "items": [
                 {
+                  "key": "RivianEnhancedMads",
+                  "widget": "toggle",
+                  "needs_onroad_cycle": true,
+                  "title": "Use enhanced Rivian MADS",
+                  "description": "Adds to MADS on Rivian: one click up on the stalk turns steering assist on or off, every brake mode can be chosen, shifting into Park or Reverse or a full stalk pull switches MADS off, and a minimum speed to engage can be set. When off, MADS works as in stock sunnypilot: the brake turns steering assist off and it comes back with cruise.",
+                  "enablement": [
+                    {
+                      "type": "offroad_only"
+                    },
+                    {
+                      "type": "capability",
+                      "field": "brand",
+                      "equals": "rivian"
+                    }
+                  ]
+                },
+                {
                   "key": "MadsMainCruiseAllowed",
                   "widget": "toggle",
                   "title": "Toggle with Main Cruise",
@@ -135,20 +152,43 @@
                         {
                           "type": "not",
                           "condition": {
-                            "type": "all",
+                            "type": "any",
                             "conditions": [
                               {
-                                "type": "capability",
-                                "field": "brand",
-                                "equals": "tesla"
+                                "type": "all",
+                                "conditions": [
+                                  {
+                                    "type": "capability",
+                                    "field": "brand",
+                                    "equals": "tesla"
+                                  },
+                                  {
+                                    "type": "not",
+                                    "condition": {
+                                      "type": "capability",
+                                      "field": "tesla_has_vehicle_bus",
+                                      "equals": true
+                                    }
+                                  }
+                                ]
                               },
                               {
-                                "type": "not",
-                                "condition": {
-                                  "type": "capability",
-                                  "field": "tesla_has_vehicle_bus",
-                                  "equals": true
-                                }
+                                "type": "all",
+                                "conditions": [
+                                  {
+                                    "type": "capability",
+                                    "field": "brand",
+                                    "equals": "rivian"
+                                  },
+                                  {
+                                    "type": "not",
+                                    "condition": {
+                                      "type": "param",
+                                      "key": "RivianEnhancedMads",
+                                      "equals": true
+                                    }
+                                  }
+                                ]
                               }
                             ]
                           }
@@ -162,20 +202,43 @@
                         {
                           "type": "not",
                           "condition": {
-                            "type": "all",
+                            "type": "any",
                             "conditions": [
                               {
-                                "type": "capability",
-                                "field": "brand",
-                                "equals": "tesla"
+                                "type": "all",
+                                "conditions": [
+                                  {
+                                    "type": "capability",
+                                    "field": "brand",
+                                    "equals": "tesla"
+                                  },
+                                  {
+                                    "type": "not",
+                                    "condition": {
+                                      "type": "capability",
+                                      "field": "tesla_has_vehicle_bus",
+                                      "equals": true
+                                    }
+                                  }
+                                ]
                               },
                               {
-                                "type": "not",
-                                "condition": {
-                                  "type": "capability",
-                                  "field": "tesla_has_vehicle_bus",
-                                  "equals": true
-                                }
+                                "type": "all",
+                                "conditions": [
+                                  {
+                                    "type": "capability",
+                                    "field": "brand",
+                                    "equals": "rivian"
+                                  },
+                                  {
+                                    "type": "not",
+                                    "condition": {
+                                      "type": "param",
+                                      "key": "RivianEnhancedMads",
+                                      "equals": true
+                                    }
+                                  }
+                                ]
                               }
                             ]
                           }
@@ -214,6 +277,11 @@
                       "type": "capability",
                       "field": "brand",
                       "equals": "rivian"
+                    },
+                    {
+                      "type": "param",
+                      "key": "RivianEnhancedMads",
+                      "equals": true
                     }
                   ]
                 }
