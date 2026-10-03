@@ -8,11 +8,10 @@ import math
 from enum import StrEnum
 
 from opendbc.car import Bus, structs
-from openpilot.common.params import Params
-from openpilot.sunnypilot.mads.helpers import MadsSteeringModeOnBrake, read_steering_mode_param
 from opendbc.can.parser import CANParser
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.rivian.values import DBC
+from opendbc.safety import ALTERNATIVE_EXPERIENCE
 from opendbc.sunnypilot.car.rivian.acc_fault_recorder import AccFaultRecorder
 from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
 
@@ -36,16 +35,8 @@ class CarStateExt:
     self.vdm_user_adas_request = 0
     self._lkas_pending = False
     self.acc_fault_recorder = AccFaultRecorder()
-    # First-ever drive on this device: seed the Rivian default of DISENGAGE.
-    # CarParamsPersistent is written by card.py AFTER the CarInterface (and so this constructor) is built, and it has
-    # no registered default, so manager_init's "fill unset params with their default" loop never touches it. It is
-    # therefore unset only on a device that has never completed a drive, which is the one moment we can be sure the
-    # user has never had a MadsSteeringMode to lose. Also guarded on the value still being the stock default, so a
-    # choice made in settings while parked, before that first drive, is not overwritten either.
-    params = Params()
-    if params.get("CarParamsPersistent") is None and params.get("MadsSteeringMode", return_default=True) == MadsSteeringModeOnBrake.REMAIN_ACTIVE:
-      params.put("MadsSteeringMode", MadsSteeringModeOnBrake.DISENGAGE, block=True)
-    self.steering_mode_on_brake = read_steering_mode_param(CP, CP_SP, params)
+    # lazy openpilot import: opendbc must stay importable standalone (safety test suite)
+    from openpilot.common.params import Params
 
     self._resume_enabled: bool = Params().get_bool("RivianResumeEnabled")
     self.last_active_set_speed: float | None = None
@@ -74,8 +65,10 @@ class CarStateExt:
     # In DISENGAGE mode with ACC active, suppress: UP_1 cancels Rivian ACC natively
     # and pcmDisable is stripped by mads.update_events(), leaving MADS in Mode B.
     # Generating lkas here would also fire manualSteeringRequired and kill MADS.
+    # The brake mode comes from alternativeExperience, which card sets after this object is built.
+    disengage_on_brake = bool(self.CP.alternativeExperience & ALTERNATIVE_EXPERIENCE.MADS_DISENGAGE_LATERAL_ON_BRAKE)
     if vdm == 1 and self.vdm_user_adas_request not in (1, 2):
-      if not (self.steering_mode_on_brake == MadsSteeringModeOnBrake.DISENGAGE and ret.cruiseState.enabled):
+      if not (disengage_on_brake and ret.cruiseState.enabled):
         self._lkas_pending = True
 
     # Signal UP_2 state via altButton2 so car_specific.py can fire lkasDisable
@@ -204,7 +197,9 @@ class CarStateExt:
     # Silent on a healthy drive; see acc_fault_recorder.py for what it emits and why.
     self.acc_fault_recorder.update(ret, can_parsers[Bus.pt], can_parsers[Bus.cam])
 
-    button_events.extend(self.update_stalk_controls(ret, can_parsers))
+    # The MADS stalk is part of "Use enhanced Rivian MADS". Off, MADS is stock: no stalk toggle.
+    if self.CP_SP.flags & RivianFlagsSP.ENHANCED_MADS:
+      button_events.extend(self.update_stalk_controls(ret, can_parsers))
     ret.buttonEvents = button_events
 
   @staticmethod
