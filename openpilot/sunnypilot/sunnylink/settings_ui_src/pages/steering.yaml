@@ -49,6 +49,17 @@ sections:
       key: Mads
       equals: true
     items:
+    - key: RivianEnhancedMads
+      widget: toggle
+      title: Use enhanced Rivian MADS
+      description: 'Adds to MADS on Rivian: one click up on the stalk turns steering assist on or off, every brake mode
+        can be chosen, shifting into Park or Reverse or a full stalk pull switches MADS off, and a minimum speed to engage
+        can be set. When off, MADS works as in stock sunnypilot: the brake turns steering assist off and it comes back
+        with cruise.'
+      needs_onroad_cycle: true
+      enablement:
+      - $ref: '#/macros/offroad'
+      - {type: capability, field: brand, equals: rivian}
     - key: MadsMainCruiseAllowed
       widget: toggle
       title: Toggle with Main Cruise
@@ -94,7 +105,7 @@ sections:
       needs_onroad_cycle: true
       enablement:
       - $ref: '#/macros/offroad'
-      - {type: capability, field: brand, equals: rivian}
+      - $ref: '#/macros/rivian_enhanced_mads'
 - id: lane_centering
   title: Lane Centering
   description: Keep the car in the middle of the painted lane

@@ -131,6 +131,21 @@ class TestMadsBrandGates(OpenpilotTestCase):
     assert item is not None
     assert _references_capability_field(item.get("enablement"), "brand")
 
+  def test_rivian_enhanced_mads_toggle_has_rivian_gate(self, schema):
+    """RivianEnhancedMads sets the panda safety param, so it is Rivian-only, offroad-only and needs an onroad cycle."""
+    item = _find_item(schema, "RivianEnhancedMads")
+    assert item is not None
+    assert item.get("widget") == "toggle"
+    assert item.get("needs_onroad_cycle") is True
+    assert _references_capability_field(item.get("enablement"), "brand")
+    assert any(r.get("type") == "offroad_only" for r in item.get("enablement", []))
+
+  def test_mads_min_engage_speed_needs_rivian_enhanced_mads(self, schema):
+    """The minimum engage speed is part of "Use enhanced Rivian MADS"."""
+    item = _find_item(schema, "MadsMinEngageSpeed")
+    assert item is not None
+    assert {"type": "param", "key": "RivianEnhancedMads", "equals": True} in item.get("enablement", [])
+
   def test_rivian_enable_angle_steering_has_rivian_gate(self, schema):
     """RivianEnableAngleSteering must be a Rivian-only toggle."""
     item = _find_item(schema, "RivianEnableAngleSteering")

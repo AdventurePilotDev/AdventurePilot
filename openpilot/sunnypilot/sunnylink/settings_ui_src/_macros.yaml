@@ -47,16 +47,28 @@ macros:
               - type: not
                 condition: {type: capability, field: tesla_has_vehicle_bus, equals: true}
 
-  # Like mads_full_platforms but does not exclude Rivian — Rivian supports all
-  # three MadsSteeringMode options (only Tesla-no-bus is limited to Disengage).
+  # Like mads_full_platforms but Rivian is only excluded while "Use enhanced Rivian MADS"
+  # is off. With it on, Rivian supports all three MadsSteeringMode options.
   mads_steering_full_platforms:
     - type: not
       condition:
-        type: all
+        type: any
         conditions:
-          - {type: capability, field: brand, equals: tesla}
-          - type: not
-            condition: {type: capability, field: tesla_has_vehicle_bus, equals: true}
+          - type: all
+            conditions:
+              - {type: capability, field: brand, equals: tesla}
+              - type: not
+                condition: {type: capability, field: tesla_has_vehicle_bus, equals: true}
+          - type: all
+            conditions:
+              - {type: capability, field: brand, equals: rivian}
+              - type: not
+                condition: {type: param, key: RivianEnhancedMads, equals: true}
+
+  # Rivian with "Use enhanced Rivian MADS" on.
+  rivian_enhanced_mads:
+    - {type: capability, field: brand, equals: rivian}
+    - {type: param, key: RivianEnhancedMads, equals: true}
 
   # Inverse of mads_full_platforms: present only on the limited platforms.
   # Useful for "show this only on rivian/tesla-no-bus" toggles.

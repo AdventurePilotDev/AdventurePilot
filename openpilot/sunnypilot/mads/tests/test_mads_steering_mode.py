@@ -13,6 +13,7 @@ from openpilot.selfdrive.selfdrived.events import Events
 from openpilot.sunnypilot.selfdrive.selfdrived.events import EventsSP
 from openpilot.sunnypilot.mads.helpers import MadsSteeringModeOnBrake, read_steering_mode_param
 from openpilot.sunnypilot.mads.mads import ModularAssistiveDrivingSystem
+from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
 from opendbc.sunnypilot.car.tesla.values import MadsScreenButtonType, TeslaFlagsSP
 from openpilot.common.test import OpenpilotTestCase
 
@@ -221,6 +222,14 @@ class TestBrandSteeringModeRestrictions(OpenpilotTestCase):
     params = mocker.MagicMock()
     assert read_steering_mode_param(CP, CP_SP, params) == MadsSteeringModeOnBrake.DISENGAGE
     params.get.assert_not_called()
+
+  def test_rivian_enhanced_mads_uses_param(self, mocker):
+    CP = structs.CarParams()
+    CP.brand = "rivian"
+    CP_SP = structs.CarParamsSP()
+    CP_SP.flags = RivianFlagsSP.ENHANCED_MADS
+    params = make_params_mock(mocker, {"MadsSteeringMode": MadsSteeringModeOnBrake.PAUSE})
+    assert read_steering_mode_param(CP, CP_SP, params) == MadsSteeringModeOnBrake.PAUSE
 
   def test_tesla_without_vehicle_bus_forced_to_disengage(self, mocker):
     CP = structs.CarParams()
