@@ -95,7 +95,9 @@ sections:
     - key: MadsMinEngageSpeed
       widget: option
       title: Minimum Speed to Engage MADS
-      description: Minimum vehicle speed required to (re-)engage MADS lateral control. 0 = no minimum.
+      description: Minimum vehicle speed required to (re-)engage MADS lateral control. In Pause mode this also applies
+        to resuming after the brake is released, so steering assist comes back once the car reaches this speed. 0 = no
+        minimum.
       min: 0
       max: 20
       step: 1
