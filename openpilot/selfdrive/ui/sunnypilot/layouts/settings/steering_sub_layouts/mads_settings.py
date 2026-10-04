@@ -84,8 +84,10 @@ class MadsSettingsLayout(Widget):
       min_value=0,
       max_value=20,
       value_change_step=1,
-      description=lambda: tr("Minimum vehicle speed required to (re-)engage MADS lateral control. "
-                             "0 = no minimum. Value is in mph; shown in km/h when metric is active. "
+      description=lambda: tr("Minimum vehicle speed required to (re-)engage MADS lateral control. " +
+                             "In Pause mode this also applies to resuming after the brake is released, " +
+                             "so steering assist comes back once the car reaches this speed. " +
+                             "0 = no minimum. Value is in mph; shown in km/h when metric is active. " +
                              "Takes effect after changing from OffRoad to OnRoad."),
       label_callback=lambda speed: f'{round(speed * 1.60934)} km/h' if ui_state.is_metric else f'{speed} mph',
     )
