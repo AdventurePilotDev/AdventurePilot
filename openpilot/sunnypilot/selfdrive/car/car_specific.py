@@ -88,6 +88,8 @@ class CarSpecificEventsSP:
     elif self.CP.brand == 'rivian':
       if self._rivian_enhanced_mads:
         in_park = CS.gearShifter == GearShifter.park
+        # Set on frames where UP_2, Park or Reverse switches MADS off, so the brake PAUSE below stands aside.
+        full_disable = False
         for be in CS.buttonEvents:
           if be.type == ButtonType.altButton2:
             self._rivian_up2_active = be.pressed
@@ -96,9 +98,11 @@ class CarSpecificEventsSP:
             # and works from any active MADS state (enabled, overriding, etc.).
             if be.pressed:
               events_sp.add(EventNameSP.lkasDisable)
+              full_disable = True
         # Park entry: full MADS disengage, same as UP_2.
         if in_park and not self._rivian_prev_in_park:
           events_sp.add(EventNameSP.lkasDisable)
+          full_disable = True
           self._rivian_park_disable_pending = True
         elif in_park and self._rivian_park_disable_pending:
           # HACK: fire lkasDisable a second time so that State.disabled wins over State.paused.
@@ -115,6 +119,7 @@ class CarSpecificEventsSP:
           # hardLkasDisable) that unconditionally maps to State.disabled without checking for
           # silentLkasDisable. Both approaches would not be Rivian-specific.
           events_sp.add(EventNameSP.lkasDisable)
+          full_disable = True
           self._rivian_park_disable_pending = False
         if not in_park:
           self._rivian_park_disable_pending = False
@@ -126,9 +131,11 @@ class CarSpecificEventsSP:
         in_reverse = CS.gearShifter == GearShifter.reverse
         if in_reverse and not self._rivian_prev_in_reverse:
           events_sp.add(EventNameSP.lkasDisable)
+          full_disable = True
           self._rivian_reverse_disable_pending = True
         elif in_reverse and self._rivian_reverse_disable_pending:
           events_sp.add(EventNameSP.lkasDisable)
+          full_disable = True
           self._rivian_reverse_disable_pending = False
         if not in_reverse:
           self._rivian_reverse_disable_pending = False
@@ -142,7 +149,10 @@ class CarSpecificEventsSP:
         # silentLkasEnable (ET.ENABLE) that mads.py adds, because ET.USER_DISABLE is
         # checked first in the MADS state machine. This fixes both the standstill
         # case (where pedalPressed event stops firing) and Mode A (ACC+MADS active).
-        if CS.brakePressed and self._rivian_steering_mode_on_brake == MadsSteeringModeOnBrake.PAUSE:
+        # Skipped on full-disable frames: the state machine turns lkasDisable into a pause whenever
+        # silentLkasDisable is also present, so shifting into Park or Reverse (or a full stalk pull)
+        # with the brake held would only pause MADS, and it would resume once Drive is selected.
+        if CS.brakePressed and self._rivian_steering_mode_on_brake == MadsSteeringModeOnBrake.PAUSE and not full_disable:
           events_sp.add(EventNameSP.silentLkasDisable)
 
         # Minimum speed to (re-)engage MADS lateral via the standalone MADS stalk.
