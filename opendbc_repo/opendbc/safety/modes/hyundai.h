@@ -250,6 +250,7 @@ static bool hyundai_tx_hook(const CANPacket_t *msg) {
 
     int aeb_decel_cmd = msg->data[2];
     bool aeb_req = GET_BIT(msg, 54U);
+    bool aeb_stop_req = GET_BIT(msg, 55U);
 
     bool violation = false;
 
@@ -258,6 +259,7 @@ static bool hyundai_tx_hook(const CANPacket_t *msg) {
     if (!hyundai_escc) {
       violation |= (aeb_decel_cmd != 0);
       violation |= aeb_req;
+      violation |= aeb_stop_req;
     }
 
     if (violation) {

@@ -115,7 +115,7 @@
 |Honda|Fit 2018-20|Honda Sensing|[Upstream](#upstream)|
 |Honda|Freed 2020|Honda Sensing|[Upstream](#upstream)|
 |Honda|HR-V 2019-22|Honda Sensing|[Upstream](#upstream)|
-|Honda|HR-V 2023-25|All|[Upstream](#upstream)|
+|Honda|HR-V 2023-27|All|[Upstream](#upstream)|
 |Honda|Insight 2019-22|All|[Upstream](#upstream)|
 |Honda|Inspire 2018|All|[Upstream](#upstream)|
 |Honda|N-Box 2018|All|[Upstream](#upstream)|
@@ -304,8 +304,8 @@
 |Tesla|Model 3 (with HW3) 2019-23|All|[Upstream](#upstream)|
 |Tesla|Model 3 (with HW4) 2024-25|All|[Upstream](#upstream)|
 |Tesla|Model X (with HW4) 2024|All|[Dashcam mode](#dashcam)|
-|Tesla|Model Y (with HW3) 2020-23|All|[Upstream](#upstream)|
-|Tesla|Model Y (with HW4) 2024-25|All|[Upstream](#upstream)|
+|Tesla|Model Y (with HW3) 2020-24|All|[Upstream](#upstream)|
+|Tesla|Model Y (with HW4) 2023-25|All|[Upstream](#upstream)|
 |Toyota|Alphard 2019-20|All|[Upstream](#upstream)|
 |Toyota|Alphard Hybrid 2021|All|[Upstream](#upstream)|
 |Toyota|Avalon 2016|Toyota Safety Sense P|[Upstream](#upstream)|
