@@ -201,8 +201,8 @@ class CruiseLayout(Widget):
         self.scc_v_toggle.action_item.set_enabled(True)
         self.scc_m_toggle.action_item.set_enabled(True)
         # Curve Speed Control feeds the longitudinal planner, so it only does anything with openpilot
-        # longitudinal active -- gate it like the DEC toggle (and like the mici UI, which hides both on
-        # has_longitudinal_control) instead of leaving it always-on here.
+        # longitudinal active -- gate it like the mici UI, which hides it on has_longitudinal_control,
+        # instead of leaving it always-on here.
         self.curve_speed_toggle.action_item.set_enabled(has_long)
         self.following_time_offset.action_item.set_enabled(has_long and ui_state.is_offroad())
         self.stop_distance_option.action_item.set_enabled(has_long and ui_state.is_offroad())
