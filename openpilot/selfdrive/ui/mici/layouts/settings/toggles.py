@@ -53,6 +53,7 @@ class TogglesLayoutMici(NavScroller):
                                                    "Set speed is a maximum, not a target.\n" +
                                                    "These are alpha features. Expect mistakes.\n" +
                                                    "The path colors show acceleration and braking.")
+    self._dec_toggle = BigParamControl("dynamic experimental control", "DynamicExperimentalControl")
     self._curve_speed_toggle = BigParamControl("curve speed control", "CurveSpeedControl")
     is_metric_toggle = BigParamControl("use metric units", "IsMetric")
     ldw_toggle = BigParamControl("lane departure warnings", "IsLdwEnabled",
@@ -75,6 +76,7 @@ class TogglesLayoutMici(NavScroller):
     self._scroller.add_widgets([
       self._personality_toggle,
       self._experimental_btn,
+      self._dec_toggle,
       self._curve_speed_toggle,
       is_metric_toggle,
       ldw_toggle,
@@ -88,6 +90,7 @@ class TogglesLayoutMici(NavScroller):
     # Toggle lists
     self._refresh_toggles = (
       ("ExperimentalMode", self._experimental_btn),
+      ("DynamicExperimentalControl", self._dec_toggle),
       ("CurveSpeedControl", self._curve_speed_toggle),
       ("IsMetric", is_metric_toggle),
       ("IsLdwEnabled", ldw_toggle),
@@ -129,7 +132,7 @@ class TogglesLayoutMici(NavScroller):
     # sunnylink); the refresh loop below mirrors the param back into the widget when it's shown again.
     if ui_state.CP is not None:
       long_avail = ui_state.has_longitudinal_control
-      for w in (self._experimental_btn, self._personality_toggle, self._curve_speed_toggle):
+      for w in (self._experimental_btn, self._personality_toggle, self._dec_toggle, self._curve_speed_toggle):
         w.set_visible(long_avail)
 
     # Refresh toggles from params to mirror external changes
