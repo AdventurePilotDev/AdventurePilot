@@ -5,6 +5,7 @@ import ctypes
 from functools import cached_property
 import os
 os.environ['GMMU'] = '0' # for chestnut fast loading, noop for qcom
+os.environ.setdefault('AM_PERF_LEVEL', 'high')
 from tinygrad.device import Buffer, Device
 from tinygrad.dtype import DType, dtypes
 from tinygrad.tensor import Tensor
