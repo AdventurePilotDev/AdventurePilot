@@ -131,6 +131,11 @@ class CruiseLayout(Widget):
       callback=lambda: self._set_current_panel(PanelType.SLA)
     )
 
+    self.dec_toggle = toggle_item_sp(
+      title=tr("Enable Dynamic Experimental Control"),
+      description=tr("Enable toggle to allow the model to determine when to use sunnypilot ACC or sunnypilot End to End Longitudinal."),
+      param="DynamicExperimentalControl")
+
     self.rivian_resume_toggle = toggle_item_sp(
       title=tr("Rivian: Enable Resume"),
       description=tr('When enabled a full stalk down action held for at least 0.5s, provided activation of ACC is available on stock Rivian, will set the cruise speed to be equal to that from the last time cruise was deactivated. If cruise has never been activated it will set the cruise speed to the current vehicle speed. It is recommended to disable the stock Rivian feature: "Set to speed limit on divided highways", which uses the same activation mechanism.'),
@@ -139,6 +144,7 @@ class CruiseLayout(Widget):
 
     items = [
       self.icbm_toggle,
+      self.dec_toggle,
       self.scc_v_toggle,
       self.scc_m_toggle,
       self.curve_speed_toggle,
@@ -198,21 +204,24 @@ class CruiseLayout(Widget):
 
       if has_long or has_icbm:
         self.custom_acc_toggle.action_item.set_enabled(((has_long and not ui_state.CP.pcmCruise) or has_icbm) and ui_state.is_offroad())
+        self.dec_toggle.action_item.set_enabled(has_long)
         self.scc_v_toggle.action_item.set_enabled(True)
         self.scc_m_toggle.action_item.set_enabled(True)
         # Curve Speed Control feeds the longitudinal planner, so it only does anything with openpilot
-        # longitudinal active -- gate it like the mici UI, which hides it on has_longitudinal_control,
-        # instead of leaving it always-on here.
+        # longitudinal active -- gate it like the DEC toggle (and like the mici UI, which hides both on
+        # has_longitudinal_control) instead of leaving it always-on here.
         self.curve_speed_toggle.action_item.set_enabled(has_long)
         self.following_time_offset.action_item.set_enabled(has_long and ui_state.is_offroad())
         self.stop_distance_option.action_item.set_enabled(has_long and ui_state.is_offroad())
         self.stop_distance_personality.action_item.set_enabled(has_long and ui_state.is_offroad())
       else:
         ui_state.params.remove("CustomAccIncrementsEnabled")
+        ui_state.params.remove("DynamicExperimentalControl")
         ui_state.params.remove("SmartCruiseControlVision")
         ui_state.params.remove("SmartCruiseControlMap")
         ui_state.params.remove("CurveSpeedControl")
         self.custom_acc_toggle.action_item.set_enabled(False)
+        self.dec_toggle.action_item.set_enabled(False)
         self.scc_v_toggle.action_item.set_enabled(False)
         self.scc_m_toggle.action_item.set_enabled(False)
         self.curve_speed_toggle.action_item.set_enabled(False)
