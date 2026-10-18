@@ -7,6 +7,7 @@ from opendbc.car.rivian.angle_toggle import AngleSteerToggle
 from opendbc.car.rivian.ext_controller import ExternalController, get_safety_CP  # noqa: F401
 from opendbc.car.rivian.riviancan import create_angle_steering, create_lka_steering, create_longitudinal, create_wheel_touch, create_adas_status, create_acm_status
 from opendbc.car.rivian.values import CarControllerParams, RivianFlags
+from opendbc.safety import ALTERNATIVE_EXPERIENCE
 
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
 
@@ -18,6 +19,9 @@ ANGLE_TX_BUSES = (0,)
 # below the set speed (the guarantee the feature exists for), release only once 3 mph above it so
 # cruise ripple at min-speed ~= set speed cannot chatter the tint / forced-torque channel.
 LOW_SPEED_TORQUE_HYST_MS = 3 * CV.MPH_TO_MS
+
+# MADS modes in which the panda revokes lateral on a brake press (mads.h, MADS_DISENGAGE_REASON_BRAKE)
+BRAKE_DROPS_LATERAL = ALTERNATIVE_EXPERIENCE.MADS_DISENGAGE_LATERAL_ON_BRAKE | ALTERNATIVE_EXPERIENCE.MADS_PAUSE_LATERAL_ON_BRAKE
 
 
 class CarController(CarControllerBase, MadsCarController):
@@ -65,6 +69,14 @@ class CarController(CarControllerBase, MadsCarController):
 
   def update(self, CC, CC_SP, CS, now_nanos):
     MadsCarController.update(self, CC, CC_SP, CS)
+    # Stop steering on this frame's brake press when MADS drops lateral on the brake. The panda reads the
+    # pedal straight off the bus and revokes lateral at once, a few frames before carControl catches up,
+    # and rejects every 0x110 still asking for angle in between. The EPAS sees those missing frames as a
+    # counter jump and latches EPAS_Angle_Control_Cntr_Err ("LKAS Fault: Restart the car"), seen on a brake
+    # at walking pace with the angle channel active (route f4741a2f2621ce11/00000011--86a8e0bc99 seg 5).
+    # Agreeing with the panda here keeps the 0x110 stream unbroken, as the 0x160 path below already does.
+    if self.mads.lat_active and CS.out.brakePressed and (self.CP.alternativeExperience & BRAKE_DROPS_LATERAL):
+      self.mads = self.mads._replace(lat_active=False)
     actuators = CC.actuators
     can_sends = []
 

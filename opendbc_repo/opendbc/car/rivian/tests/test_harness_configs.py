@@ -24,6 +24,7 @@ from opendbc.car.rivian.ext_controller import (TORQUE_PREARM_ABORT_LOCKOUT, TORQ
                                                TORQUE_PREARM_MIN_HOLD)
 from opendbc.car.rivian.interface import CarInterface
 from opendbc.car.rivian.values import CAR, DBC, CarControllerParams, RivianFlags, RivianSafetyFlags
+from opendbc.safety import ALTERNATIVE_EXPERIENCE
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
 from opendbc.sunnypilot.car.rivian.carstate_ext import CarStateExt
 from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
@@ -202,6 +203,47 @@ class TestCarControllerTxMatrix(unittest.TestCase):
     for _ in range(ANGLE_SAT_FRAMES + 5):
       controller.update(cc, cc_sp, _mock_cs(cp, v_ego=15, eac_status=2), 0)
     self.assertTrue(writes.get("RivianAngleSaturated"))
+
+
+class TestBrakeDropsAngleSameFrame(unittest.TestCase):
+  """With MADS set to disengage or pause lateral on the brake, the panda revokes lateral on the press it
+  reads off the bus and rejects any 0x110 still asking for angle. carControl lags a few frames, and the
+  rejected frames show up at the EPAS as a counter jump (EPAS_Angle_Control_Cntr_Err, latched until
+  restart). The 0x110 sent on the brake frame itself must already have angle control off."""
+
+  @staticmethod
+  def _eac_enabled(can_sends):
+    dat = next(m[1] for m in can_sends if m[0] == 0x110)
+    return (dat[1] >> 4) & 1  # bit 12, the bit the panda reads as lka_active
+
+  def _brake_frame(self, alternative_experience):
+    cp = _get_cp(xnor_box=True)
+    cp.alternativeExperience = alternative_experience
+    controller = CarController({Bus.pt: "rivian_primary_actuator"}, cp, structs.CarParamsSP())
+    cc = structs.CarControl()
+    cc.latActive = True  # carControl has not caught up with the brake yet
+    cc.enabled = True
+    cc = cc.as_reader()
+    cc_sp = structs.CarControlSP()
+    cc_sp.mads.available = True
+    _, sends = controller.update(cc, cc_sp, _mock_cs(cp, eac_status=1), 0)  # engage on angle
+    self.assertEqual(self._eac_enabled(sends), 1)
+    cs = _mock_cs(cp, eac_status=2)
+    cs.out.brakePressed = True
+    _, sends = controller.update(cc, cc_sp, cs, 0)
+    return self._eac_enabled(sends)
+
+  def test_disengage_on_brake_drops_angle(self):
+    exp = ALTERNATIVE_EXPERIENCE.ENABLE_MADS | ALTERNATIVE_EXPERIENCE.MADS_DISENGAGE_LATERAL_ON_BRAKE
+    self.assertEqual(self._brake_frame(exp), 0)
+
+  def test_pause_on_brake_drops_angle(self):
+    exp = ALTERNATIVE_EXPERIENCE.ENABLE_MADS | ALTERNATIVE_EXPERIENCE.MADS_PAUSE_LATERAL_ON_BRAKE
+    self.assertEqual(self._brake_frame(exp), 0)
+
+  def test_remain_active_keeps_angle(self):
+    # MADS "remain active": the panda keeps lateral through the brake, so must we
+    self.assertEqual(self._brake_frame(ALTERNATIVE_EXPERIENCE.ENABLE_MADS), 1)
 
 
 def _cs_frame(angle=0.0, rate=0.0, torque=0.0, pressed=False, v_ego=10.0, eac_status=1, hands_on_level=1, gen2=False):
