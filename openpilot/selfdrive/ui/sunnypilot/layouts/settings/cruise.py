@@ -73,6 +73,14 @@ class CruiseLayout(Widget):
                      "steering's limits. Uses the vision path; no map data required."),
       param="CurveSpeedControl")
 
+    self.acceleration_control_toggle = toggle_item_sp(
+      title=tr("Acceleration Control"),
+      description=tr("Helps the car reach the set speed when the driving model holds back for no reason. Adds a fixed "
+                     "amount of acceleration to the model's request, set by the driving personality (Relaxed 0.1, "
+                     "Standard 0.2, Aggressive 0.3 m/s²), above 10 mph and only while the model is not slowing down. "
+                     "It never passes the set speed or closes on a lead car."),
+      param="AccelerationControl")
+
     self.custom_acc_toggle = toggle_item_sp(
       title=tr("Custom ACC Speed Increments"),
       description="",
@@ -142,6 +150,7 @@ class CruiseLayout(Widget):
       self.scc_v_toggle,
       self.scc_m_toggle,
       self.curve_speed_toggle,
+      self.acceleration_control_toggle,
       self.custom_acc_toggle,
       self.custom_acc_short_increment,
       self.custom_acc_long_increment,
@@ -205,6 +214,7 @@ class CruiseLayout(Widget):
         # instead of leaving it always-on here.
         self.curve_speed_toggle.action_item.set_enabled(has_long)
         self.following_time_offset.action_item.set_enabled(has_long and ui_state.is_offroad())
+        self.acceleration_control_toggle.action_item.set_enabled(has_long and ui_state.is_offroad())
         self.stop_distance_option.action_item.set_enabled(has_long and ui_state.is_offroad())
         self.stop_distance_personality.action_item.set_enabled(has_long and ui_state.is_offroad())
       else:
@@ -217,11 +227,13 @@ class CruiseLayout(Widget):
         self.scc_m_toggle.action_item.set_enabled(False)
         self.curve_speed_toggle.action_item.set_enabled(False)
         self.following_time_offset.action_item.set_enabled(False)
+        self.acceleration_control_toggle.action_item.set_enabled(False)
         self.stop_distance_option.action_item.set_enabled(False)
         self.stop_distance_personality.action_item.set_enabled(False)
 
       if not has_long:
         ui_state.params.remove("SPFollowingTimeOffset")
+        ui_state.params.remove("AccelerationControl")
         ui_state.params.remove("SPStopDistance")
         ui_state.params.remove("SPStopDistancePersonality")
 
@@ -236,6 +248,7 @@ class CruiseLayout(Widget):
       self.icbm_toggle.set_description(tr(ONROAD_ONLY_DESCRIPTION))
       self.rivian_resume_toggle.action_item.set_enabled(False)
       self.following_time_offset.action_item.set_enabled(False)
+      self.acceleration_control_toggle.action_item.set_enabled(False)
       self.stop_distance_option.action_item.set_enabled(False)
       self.stop_distance_personality.action_item.set_enabled(False)
 

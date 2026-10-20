@@ -315,6 +315,9 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     // Following Distance
     {"SPFollowingTimeOffset", {PERSISTENT | BACKUP, INT, "0"}},
 
+    // Acceleration Control
+    {"AccelerationControl", {PERSISTENT | BACKUP, BOOL, "0"}},
+
     // Smart Cruise Control
     {"MapTargetVelocities", {CLEAR_ON_ONROAD_TRANSITION, STRING}},
     {"SmartCruiseControlMap", {PERSISTENT | BACKUP, BOOL, "0"}},
