@@ -1,6 +1,6 @@
 import numpy as np
 from opendbc.can import CANPacker
-from opendbc.car import Bus
+from opendbc.car import Bus, structs
 from opendbc.car.lateral import apply_driver_steer_torque_limits, common_fault_avoidance
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.rivian.riviancan import create_lka_steering, create_longitudinal, create_wheel_touch, create_adas_status
@@ -8,6 +8,8 @@ from opendbc.car.rivian.torque_rt import TorqueRtLimiter
 from opendbc.car.rivian.values import CarControllerParams, RivianFlags
 
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
+
+GearShifter = structs.CarState.GearShifter
 
 MAX_ANGLE_DEG = 90
 MAX_ANGLE_FRAMES = 89
@@ -168,8 +170,11 @@ class CarController(CarControllerBase, MadsCarController):
       block_engage = not self.openpilot_engageable and not CS.out.cruiseState.enabled
       if CS.vdm_adas_status:
         engage_request = any(msg["VDM_UserAdasRequest"] in (3, 4) for msg in CS.vdm_adas_status)
+        # VDM_UserAdasRequest: 0=IDLE, 1=UP_1, 2=UP_2, 3=DOWN_1, 4=DOWN_2. The ACC stalk is also the gear selector, so
+        # only a stalk-down while already in Drive is an ACC press; a stalk-down out of R/N/P is a gear change.
+        in_drive = CS.out.gearShifter == GearShifter.drive
         # rising edge of a blocked request: card surfaces it so selfdrived shows the noEntry reason
-        if block_engage and engage_request and not self.engage_request_prev:
+        if block_engage and engage_request and in_drive and not self.engage_request_prev:
           self.engage_request_blocked = True
         self.engage_request_prev = engage_request
       for msg in CS.vdm_adas_status:
