@@ -27,8 +27,6 @@ def checksum(msg):
     ret[0] = _checksum(ret[1:], 0x1D, 0x9A)
   elif addr == 0x162:
     ret[0] = _checksum(ret[1:], 0x1D, 0xD1)
-  elif addr == 0x162:
-    ret[0] = _checksum(ret[1:], 0x1D, 0xD1)
 
   return addr, ret, bus
 
