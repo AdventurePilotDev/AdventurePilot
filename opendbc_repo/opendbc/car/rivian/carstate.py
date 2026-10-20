@@ -29,6 +29,8 @@ class CarState(CarStateBase, CarStateExt):
     # EPAS torque-overlay fault as reported this frame; the controller releases the TOI request to clear it
     self.toi_fault = False
     self.toi_fault_frames = 0
+    # not 0 while the ACM is not ready to take ACC (e.g. the first ~60 s after the truck wakes), see carcontroller
+    self.acm_fault_supervisor_state = 0
 
   def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
     cp = can_parsers[Bus.pt]
@@ -108,6 +110,7 @@ class CarState(CarStateBase, CarStateExt):
     ret.stockAeb = cp_cam.vl["ACM_AebRequest"]["ACM_EnableRequest"] != 0
 
     # Messages needed by carcontroller
+    self.acm_fault_supervisor_state = int(cp_cam.vl["ACM_Status"]["ACM_FaultSupervisorState"])
     self.acm_lka_hba_cmd = copy.copy(cp_cam.vl["ACM_lkaHbaCmd"])
     if not (self.CP.flags & RivianFlags.GEN2):
       self.sccm_wheel_touch = copy.copy(cp.vl["SCCM_WheelTouch"])
