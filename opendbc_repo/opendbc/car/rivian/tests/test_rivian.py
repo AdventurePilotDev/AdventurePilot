@@ -1,10 +1,13 @@
+import sys
+import types
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
-from opendbc.car import structs
+from opendbc.car import gen_empty_fingerprint, structs
 from opendbc.car.rivian.carcontroller import CarController
 from opendbc.car.rivian.fingerprints import FW_VERSIONS
-from opendbc.car.rivian.values import CAR, FW_QUERY_CONFIG, WMI, ModelLine, ModelYear
+from opendbc.car.rivian.values import CAR, FW_QUERY_CONFIG, WMI, ModelLine, ModelYear, RivianSafetyFlags
 
 GearShifter = structs.CarState.GearShifter
 
@@ -72,3 +75,35 @@ class TestBlockedEngagePress(unittest.TestCase):
     # openpilot can engage: the press goes to the ACM, nothing to report
     self.assertEqual(self._run([(D, 0), (D, 4), (D, 0)], engageable=True), [])
 
+
+class TestLongitudinalNeedsHarness(unittest.TestCase):
+  """A leftover AlphaLongitudinalEnabled must not turn on openpilot longitudinal without the longitudinal harness:
+  panda would drop the 0x162 cancel path while nothing on the truck accepts the 0x160 request."""
+
+  @staticmethod
+  def _get(fingerprint_bus1):
+    # the SP extension imports openpilot params and MADS helpers, which the Mac test venv does not have
+    stubs = {name: types.ModuleType(name) for name in ("openpilot", "openpilot.common", "openpilot.common.params",
+                                                       "openpilot.sunnypilot", "openpilot.sunnypilot.mads",
+                                                       "openpilot.sunnypilot.mads.helpers")}
+    stubs["openpilot.common.params"].Params = object
+    stubs["openpilot.sunnypilot.mads.helpers"].MadsSteeringModeOnBrake = object
+    stubs["openpilot.sunnypilot.mads.helpers"].read_steering_mode_param = lambda *a, **k: None
+    with mock.patch.dict(sys.modules, stubs):
+      from opendbc.car.rivian.interface import CarInterface
+    fingerprint = gen_empty_fingerprint()
+    fingerprint[0] = {0x321: 7}
+    fingerprint[1] = dict.fromkeys(fingerprint_bus1, 8)
+    CP = CarInterface.get_params(CAR.RIVIAN_R1, fingerprint, [], True, False, False)
+    CarInterface.get_params_sp(CP, CAR.RIVIAN_R1, fingerprint, [], True, False, False)
+    return CP
+
+  def test_no_harness_no_openpilot_long(self):
+    CP = self._get([0x1310])
+    self.assertFalse(CP.openpilotLongitudinalControl)
+    self.assertFalse(CP.safetyConfigs[0].safetyParam & RivianSafetyFlags.LONG_CONTROL)
+
+  def test_harness_allows_openpilot_long(self):
+    CP = self._get([0x1310, 0x131a])
+    self.assertTrue(CP.openpilotLongitudinalControl)
+    self.assertTrue(CP.safetyConfigs[0].safetyParam & RivianSafetyFlags.LONG_CONTROL)
