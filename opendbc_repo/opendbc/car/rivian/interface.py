@@ -44,9 +44,7 @@ class CarInterface(CarInterfaceBase):
 
     # TODO: pending finding/handling missing set speed
     ret.alphaLongitudinalAvailable = False
-    if alpha_long:
-      ret.openpilotLongitudinalControl = True
-      ret.safetyConfigs[0].safetyParam |= RivianSafetyFlags.LONG_CONTROL.value
+    # openpilot longitudinal is turned on in _get_params_sp, and only when the longitudinal harness (0x131a) is present
 
     # Measured command->aEgo lag = 0.26-0.38 s (xcorr across routes c17ea97d 0000000b/00000002, corr 0.98;
     # tools plant_tracking.py). 0.2 was UNDER the plant delay, so the planner under-anticipated the VDM ->
