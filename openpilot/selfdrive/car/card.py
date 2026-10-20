@@ -201,6 +201,17 @@ class Car:
     if getattr(self.CI.CC, 'engage_request_blocked', False):
       self.CI.CC.engage_request_blocked = False
       CS.buttonEnable = True
+
+    # An ACC engage press openpilot passed on but the stock cruise ECU declined (Rivian ACM not ready yet, or below
+    # its minimum speed without a lead). Surface it the same way with a NO_ENTRY reason, so the driver sees why.
+    refused = getattr(self.CI.CC, 'engage_request_refused', None)
+    if refused is not None:
+      self.CI.CC.engage_request_refused = None
+      CS.buttonEnable = True
+      if refused == 'notReady':
+        CS.carNotReady = True
+      else:
+        CS.blockPcmEnable = True
     CS_SP = convert_to_capnp(CS_SP)
 
     # Update radar tracks from CAN

@@ -75,7 +75,16 @@ def startup_master_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubM
   return StartupAlert("WARNING: This branch is not tested", branch, alert_status=AlertStatus.userPrompt)
 
 def below_engage_speed_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
+  if CP.brand == 'rivian':
+    # the stock ACM, which openpilot engages through, refuses ACC below 20 mph unless it has a lead
+    return NoEntryAlert(f"ACC Needs {get_display_speed(20 * CV.MPH_TO_MS, metric)} or a Lead Car")
   return NoEntryAlert(f"Drive above {get_display_speed(CP.minEnableSpeed, metric)} to engage")
+
+
+def car_not_ready_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
+  if CP.brand == 'rivian':
+    return NoEntryAlert("Rivian ACC Not Ready Yet")
+  return NoEntryAlert("Car Not Ready")
 
 
 def below_steer_speed_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
@@ -576,7 +585,7 @@ EVENTS: dict[int, dict[str, Alert | AlertCallbackType]] = {
   },
 
   EventName.carNotReady: {
-    ET.NO_ENTRY: NoEntryAlert("Car Not Ready"),
+    ET.NO_ENTRY: car_not_ready_alert,
   },
 
   EventName.wrongCruiseMode: {

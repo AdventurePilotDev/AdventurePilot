@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from opendbc.car import gen_empty_fingerprint, structs
-from opendbc.car.rivian.carcontroller import CarController
+from opendbc.car.rivian.carcontroller import ACM_ENGAGE_TIMEOUT_FRAMES, CarController
 from opendbc.car.rivian.fingerprints import FW_VERSIONS
 from opendbc.car.rivian.values import CAR, FW_QUERY_CONFIG, WMI, ModelLine, ModelYear, RivianSafetyFlags
 
@@ -50,7 +50,8 @@ class TestBlockedEngagePress(unittest.TestCase):
                          sccm_wheel_touch={"SCCM_WheelTouch_Counter": 0, "SCCM_WheelTouch_HandsOn": 0,
                                            "SCCM_WheelTouch_CapacitiveValue": 0, "SCCM_WheelTouch_Calibration": 100,
                                            "SCCM_WheelTouch_ResistiveValue": 0},
-                         toi_fault=False, torque_tx_refused=False, hands_on_level=1, eac_status=1, eac_error_code=0)
+                         toi_fault=False, torque_tx_refused=False, hands_on_level=1, eac_status=1, eac_error_code=0,
+                         acm_fault_supervisor_state=0)
     raised = []
     for frame, (gear, request) in enumerate(seq):
       CS.out = structs.CarState(gearShifter=gear, vEgo=0.3, vEgoRaw=0.3)
@@ -107,3 +108,53 @@ class TestLongitudinalNeedsHarness(unittest.TestCase):
     CP = self._get([0x1310, 0x131a])
     self.assertTrue(CP.openpilotLongitudinalControl)
     self.assertTrue(CP.safetyConfigs[0].safetyParam & RivianSafetyFlags.LONG_CONTROL)
+
+class TestDeclinedEngagePress(unittest.TestCase):
+  """An ACC press openpilot passed on but the stock ACM did not take: report the likely reason once, after 0.5 s."""
+
+  ADAS_SIGNALS = TestBlockedEngagePress.ADAS_SIGNALS
+
+  def _run(self, seq, v_ego=5.0, supervisor_state=0, acc_engages_at=None):
+    # seq: (gear, VDM_UserAdasRequest) per frame, padded with idle frames in Drive. Returns (frame, reason) reports.
+    CP = structs.CarParams(carFingerprint=CAR.RIVIAN_R1, openpilotLongitudinalControl=True)
+    CC = CarController({"pt": "rivian_primary_actuator"}, CP, structs.CarParamsSP())
+    CS = SimpleNamespace(acm_lka_hba_cmd={"ACM_hbaSysState": 0, "ACM_hbaLamp": 0, "ACM_hbaOnOffState": 0, "ACM_slifOnOffState": 0},
+                         sccm_wheel_touch={"SCCM_WheelTouch_Counter": 0, "SCCM_WheelTouch_HandsOn": 0,
+                                           "SCCM_WheelTouch_CapacitiveValue": 0, "SCCM_WheelTouch_Calibration": 100,
+                                           "SCCM_WheelTouch_ResistiveValue": 0},
+                         toi_fault=False, torque_tx_refused=False, hands_on_level=1, eac_status=1, eac_error_code=0,
+                         acm_fault_supervisor_state=supervisor_state)
+    seq = list(seq) + [(GearShifter.drive, 0)] * (ACM_ENGAGE_TIMEOUT_FRAMES + 10)
+    reports = []
+    for frame, (gear, request) in enumerate(seq):
+      engaged = acc_engages_at is not None and frame >= acc_engages_at
+      CS.out = structs.CarState(gearShifter=gear, vEgo=v_ego, vEgoRaw=v_ego)
+      CS.out.cruiseState.enabled = engaged
+      CS.vdm_adas_status = [dict(dict.fromkeys(self.ADAS_SIGNALS, 0), VDM_UserAdasRequest=request)]
+      CC.update(structs.CarControl().as_reader(), structs.CarControlSP(), CS, 0)
+      if CC.engage_request_refused is not None:
+        reports.append((frame, CC.engage_request_refused))
+        CC.engage_request_refused = None
+    return reports
+
+  def test_low_speed_refusal_is_reported_once(self):
+    D = GearShifter.drive
+    # press on frame 1, reported ~0.5 s later
+    self.assertEqual(self._run([(D, 0), (D, 4), (D, 0)]), [(ACM_ENGAGE_TIMEOUT_FRAMES, 'lowSpeed')])
+
+  def test_not_ready_wins_over_low_speed(self):
+    D = GearShifter.drive
+    self.assertEqual([r for _, r in self._run([(D, 0), (D, 4), (D, 0)], supervisor_state=3)], ['notReady'])
+
+  def test_acm_takes_the_press(self):
+    D = GearShifter.drive
+    self.assertEqual(self._run([(D, 0), (D, 4), (D, 0)], acc_engages_at=4), [])
+
+  def test_refused_above_min_speed_for_another_reason_stays_silent(self):
+    D = GearShifter.drive
+    self.assertEqual(self._run([(D, 0), (D, 4), (D, 0)], v_ego=15.0), [])
+
+  def test_gear_change_out_of_reverse_is_not_watched(self):
+    # stalk-down out of R is a gear change, not an ACC press: no "ACC Needs 20 mph" alert after shifting into Drive
+    R, D = GearShifter.reverse, GearShifter.drive
+    self.assertEqual(self._run([(R, 0), (R, 4), (D, 4), (D, 0)]), [])
