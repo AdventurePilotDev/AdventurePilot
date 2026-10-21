@@ -308,6 +308,29 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest,
     self.assertEqual(blocked, [], f"panda refused around a ToiFlt release at (sign, timer offset, latch start, frame): {blocked[:6]}")
     self.assertEqual(no_release, [], f"latch was never released: {no_release[:6]}")
 
+  def test_toi_dropout_release_is_never_refused(self):
+    """The same release, sent because the EPAS stopped taking torque with no ToiFlt (route
+    2bba20cd6136cc27/000000ea--8e6d69adcc: ignored for 231 s), must pass the panda wherever it lands, and so must the resume."""
+    blocked = []
+    no_release = []
+    for sign in (1.0, -1.0):
+      for offset in range(0, 26, 5):  # panda interval timer against the blip cycle
+        for start in range(0, 100, 7):  # where in the ramp / blip cycle the dropout lands
+          self._torque_loop_setup(timer_offset_frames=offset)
+          released_at = None
+          for i in range(250):
+            # like the EPAS: stops taking torque at start and only takes it again a couple of frames after a release
+            self.cs.toi_active = i < start or (released_at is not None and i >= released_at + 2)
+            if not self._torque_loop_frame(sign):
+              blocked.append((sign, offset, start, i))
+              break
+            if released_at is None and i >= start and self.erc.toi_clear_cooldown > 0:
+              released_at = i
+          if released_at is None:
+            no_release.append((sign, offset, start))
+    self.assertEqual(blocked, [], f"panda refused around a dropout release at (sign, timer offset, dropout start, frame): {blocked[:6]}")
+    self.assertEqual(no_release, [], f"dropout was never released: {no_release[:6]}")
+
   def _mbb_setup(self, speed=10.0, angle=20.0):
     """settle the rx state and seed the angle command stream at the measured angle"""
     self.safety.init_tests()

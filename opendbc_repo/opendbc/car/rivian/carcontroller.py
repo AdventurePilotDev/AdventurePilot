@@ -144,6 +144,8 @@ class CarController(CarControllerBase, MadsCarController):
       self.erc.notify_torque_refused()
     self.erc.update(CS, self.mads.lat_active, actuators)
     apply_torque = self.erc.torque_cmd
+    # the EPAS is ignoring our torque and releasing the request has not brought it back: carstate reports it next frame
+    CS.toi_dropout_warn = self.erc.toi_dropout_warn
 
     # send steering command; torque is 0 and toi_act_cmd low during a ToiFlt-avoidance blip
     # (erc freezes its rate-limiter memory through the blip so assist resumes instantly)
