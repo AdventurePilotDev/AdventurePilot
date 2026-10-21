@@ -1,6 +1,7 @@
 import numpy as np
 from opendbc.can import CANPacker
-from opendbc.car import Bus
+from opendbc.car import Bus, structs
+from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.lateral import apply_driver_steer_torque_limits, common_fault_avoidance
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.rivian.riviancan import create_lka_steering, create_longitudinal, create_wheel_touch, create_adas_status
@@ -8,6 +9,8 @@ from opendbc.car.rivian.torque_rt import TorqueRtLimiter
 from opendbc.car.rivian.values import CarControllerParams, RivianFlags
 
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
+
+GearShifter = structs.CarState.GearShifter
 
 MAX_ANGLE_DEG = 90
 MAX_ANGLE_FRAMES = 89
@@ -28,6 +31,18 @@ TOI_CLEAR_RETRY_FRAMES = 50      # at most one release every 0.5 s while it stay
 # A release is itself a blip. Two blips inside one 250 ms panda interval leave its real-time reference older than
 # TorqueRtLimiter allows for, and the resume is refused, so keep every release at least this far from any other blip.
 TOI_CLEAR_BLIP_GAP_FRAMES = 30
+# The EPAS can also stop taking torque with no ToiFlt: when the driver overpowers it (EPAS_HandsOnLevel 2) it drops
+# ToiActive and ignores torque until the request is released and sent again (231 s on route
+# 2bba20cd6136cc27/000000ea--8e6d69adcc), so the same release re-arms it.
+TOI_DROPOUT_FRAMES = 30          # rack not taking torque this long, after it had taken it on this torque stint
+TOI_START_FRAMES = 150           # the EPAS takes up to 1.1 s to start after a fresh request (route data): wait longer
+TOI_DROPOUT_WARN_FRAMES = 70     # still not taking torque this long after the release point: warn the driver
+TOI_DROPOUT_WARN_HOLD_FRAMES = 300  # keep the warning up at least this long: it turns lateral off, which ends the torque
+                                    # stint and would clear it the next frame (route 4440a486580ed7c6/00000038, 20 ms)
+# The stock ACM answers an ACC stalk press within ~30 ms when it takes it. If it hasn't after this long, it declined.
+ACM_ENGAGE_TIMEOUT_FRAMES = 50  # 0.5 s
+# The stock ACM refuses ACC below this speed unless it has a lead
+ACM_MIN_ENGAGE_SPEED = 20 * CV.MPH_TO_MS
 
 
 class CarController(CarControllerBase, MadsCarController):
@@ -41,6 +56,12 @@ class CarController(CarControllerBase, MadsCarController):
     # set here when a driver ACC engage request was hidden from the ACM; card reads and clears it
     self.engage_request_blocked = False
     self.engage_request_prev = False
+    # set here when the ACM declined a driver ACC engage press that openpilot passed on; card reads and clears it.
+    # 'notReady': the ACM was not ready (ACM_FaultSupervisorState != 0), 'lowSpeed': below its minimum speed, no lead
+    self.engage_request_refused = None
+    self.engage_press_frames = 0
+    self.engage_press_not_ready = False
+    self.engage_press_low_speed = False
     self.angle_limit_counter = 0
     self.cancel_frames = 0
     self.rt_limiter = TorqueRtLimiter()  # keeps torque requests inside the panda's real-time check
@@ -49,18 +70,50 @@ class CarController(CarControllerBase, MadsCarController):
     self.frames_since_refusal = TOI_CLEAR_QUIET_FRAMES
     self.toi_clear_frames = 0    # release frames still to send
     self.toi_clear_cooldown = 0
+    # re-arming an EPAS that stopped taking torque without a ToiFlt
+    self.toi_act_sent = False    # the TOI request as sent last frame
+    self.toi_seen_active = False  # the EPAS has taken torque since lateral came on
+    self.toi_inactive_frames = 0
+    self.toi_dropout_warn = False  # releases have not brought it back: carstate reports a steering fault
+    self.toi_dropout_warn_hold = 0
+
+  def _update_toi_dropout(self, CS) -> bool:
+    """True once the EPAS has not been taking the torque we request for long enough to release the request."""
+    rack_active = getattr(CS, "toi_active", True)
+    self.toi_seen_active = self.toi_seen_active or rack_active
+    if rack_active:
+      self.toi_inactive_frames = 0
+    elif self.toi_act_sent:
+      # counts only frames that followed a sent request; our own release frames hold the count
+      self.toi_inactive_frames += 1
+    limit = TOI_DROPOUT_FRAMES if self.toi_seen_active else TOI_START_FRAMES
+    if self.toi_inactive_frames >= limit + TOI_DROPOUT_WARN_FRAMES:
+      self.toi_dropout_warn_hold = TOI_DROPOUT_WARN_HOLD_FRAMES
+    elif rack_active:
+      self.toi_dropout_warn_hold = 0
+    self._count_down_toi_dropout_warn()
+    return self.toi_inactive_frames >= limit
+
+  def _count_down_toi_dropout_warn(self):
+    # the warning outlives the lateral stint it was raised in, and clears early only once the EPAS takes torque again
+    self.toi_dropout_warn = self.toi_dropout_warn_hold > 0
+    self.toi_dropout_warn_hold = max(self.toi_dropout_warn_hold - 1, 0)
 
   def _toi_clear_release(self, CS, lka_act_toi: bool) -> bool:
-    """True on the frames where the TOI request must be released to clear a latched EPAS ToiFlt. The release goes out
-    as a blip (torque 0, request low), which the panda accepts at any time: it is not a steer_req mismatch."""
+    """True on the frames where the TOI request must be released to clear a latched EPAS ToiFlt, or to re-arm an EPAS
+    that stopped taking torque without one. The release goes out as a blip (torque 0, request low), which the panda accepts at any time: it is not a steer_req mismatch."""
     if not self.mads.lat_active:
       self.toi_fault_frames = 0
       self.toi_clear_frames = 0
       self.toi_clear_cooldown = 0
+      self.toi_seen_active = False
+      self.toi_inactive_frames = 0
+      self._count_down_toi_dropout_warn()
       return False
     self.toi_fault_frames = self.toi_fault_frames + 1 if getattr(CS, "toi_fault", False) else 0
     self.toi_clear_cooldown = max(self.toi_clear_cooldown - 1, 0)
-    if (self.toi_clear_frames == 0 and self.toi_clear_cooldown == 0 and self.toi_fault_frames >= TOI_CLEAR_LATCH_FRAMES and
+    dropout = self._update_toi_dropout(CS)
+    if (self.toi_clear_frames == 0 and self.toi_clear_cooldown == 0 and (self.toi_fault_frames >= TOI_CLEAR_LATCH_FRAMES or dropout) and
         self.frames_since_refusal >= TOI_CLEAR_QUIET_FRAMES and lka_act_toi and
         self.rt_limiter.frames_since_blip >= TOI_CLEAR_BLIP_GAP_FRAMES):
       self.toi_clear_frames = BLIP_FRAMES
@@ -108,6 +161,9 @@ class CarController(CarControllerBase, MadsCarController):
     )
     if self._toi_clear_release(CS, lka_act_toi):
       lka_act_toi = False
+    self.toi_act_sent = lka_act_toi
+    # the EPAS is ignoring our torque and releasing the request has not brought it back: carstate reports it next frame
+    CS.toi_dropout_warn = self.toi_dropout_warn
 
     blip = self.mads.lat_active and not lka_act_toi
     send_torque = 0 if blip else apply_torque
@@ -168,10 +224,33 @@ class CarController(CarControllerBase, MadsCarController):
       block_engage = not self.openpilot_engageable and not CS.out.cruiseState.enabled
       if CS.vdm_adas_status:
         engage_request = any(msg["VDM_UserAdasRequest"] in (3, 4) for msg in CS.vdm_adas_status)
+        # VDM_UserAdasRequest: 0=IDLE, 1=UP_1, 2=UP_2, 3=DOWN_1, 4=DOWN_2. The ACC stalk is also the gear selector, so
+        # only a stalk-down while already in Drive is an ACC press; a stalk-down out of R/N/P is a gear change.
+        in_drive = CS.out.gearShifter == GearShifter.drive
         # rising edge of a blocked request: card surfaces it so selfdrived shows the noEntry reason
-        if block_engage and engage_request and not self.engage_request_prev:
+        if block_engage and engage_request and in_drive and not self.engage_request_prev:
           self.engage_request_blocked = True
+
+        # an ACC-on press (stalk down in Drive) that openpilot passes to the ACM: watch whether the ACM takes it
+        if engage_request and in_drive and not self.engage_request_prev and not block_engage and not CS.out.cruiseState.enabled:
+          self.engage_press_frames = 1
+          self.engage_press_not_ready = False
+          self.engage_press_low_speed = CS.out.vEgo < ACM_MIN_ENGAGE_SPEED
         self.engage_request_prev = engage_request
+
+      # the ACM declined the press: tell the driver the likely reason, the truck only says ACC is not available
+      if self.engage_press_frames > 0:
+        if CS.out.cruiseState.enabled:
+          self.engage_press_frames = 0
+        else:
+          self.engage_press_not_ready |= CS.acm_fault_supervisor_state != 0
+          self.engage_press_frames += 1
+          if self.engage_press_frames > ACM_ENGAGE_TIMEOUT_FRAMES:
+            self.engage_press_frames = 0
+            if self.engage_press_not_ready:
+              self.engage_request_refused = 'notReady'
+            elif self.engage_press_low_speed:
+              self.engage_request_refused = 'lowSpeed'
       for msg in CS.vdm_adas_status:
         can_sends.append(create_adas_status(self.packer, msg, interface_status, block_engage, cancel_request=True))
     else:

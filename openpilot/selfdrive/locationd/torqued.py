@@ -214,6 +214,34 @@ class TorqueEstimator(ParameterEstimator, TorqueEstimatorExt):
           if self.track_all_points:
             self.all_torque_points.append([steer, lateral_acc])
 
+  def get_bucket_diagnostics(self):
+    # read-only snapshot of why the estimate is (not) valid yet, logged about once a minute
+    fp = self.filtered_points
+    points = [len(v) for v in fp.buckets.values()]
+    min_points = [float(m) for m in fp.buckets_min_points.values()]
+    fill = [n / m if m > 0 else 1.0 for n, m in zip(points, min_points, strict=True)]
+    min_bucket = int(np.argmin(fill))
+    return {
+      'points': points,
+      'min_points': min_points,
+      'min_bucket': min_bucket,
+      'min_bucket_perc': round(min(fill[min_bucket], 1.0) * 100, 1),
+      'total_points': int(sum(points)),
+      'min_points_total': int(fp.min_points_total),
+      'cal_perc': int(fp.get_valid_percent()),
+      'buckets_valid': bool(fp.is_valid()),
+      'use_params': bool(self.use_params),
+      'factor_filtered': round(float(self.filtered_params['latAccelFactor'].x), 4),
+      'friction_filtered': round(float(self.filtered_params['frictionCoefficient'].x), 4),
+      'factor_offline': round(float(self.offline_latAccelFactor), 4),
+      'friction_offline': round(float(self.offline_friction), 4),
+      'factor_band': [round(float(self.min_lataccel_factor), 4), round(float(self.max_lataccel_factor), 4)],
+      'friction_band': [round(float(self.min_friction), 4), round(float(self.max_friction), 4)],
+      'enforce_torque_control': bool(self.enforce_torque_control_toggle),
+      'decay': round(float(self.decay), 1),
+      'resets': int(self.resets),
+    }
+
   def get_msg(self, valid=True, with_points=False):
     msg = messaging.new_message('lateralTorqueParameters')
     msg.valid = valid
@@ -281,6 +309,10 @@ def main(demo=False):
     if sm.frame % 240 == 0:
       msg = estimator.get_msg(valid=sm.all_checks(), with_points=True)
       params.put("LiveTorqueParameters", msg.to_bytes())
+      try:
+        cloudlog.event("torqued bucket fill", **estimator.get_bucket_diagnostics())
+      except Exception:
+        cloudlog.exception("torqued bucket diagnostics failed")
 
 
 if __name__ == "__main__":
