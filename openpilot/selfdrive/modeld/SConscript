@@ -7,6 +7,7 @@ from openpilot.common.file_chunker import chunk_file, get_chunk_targets, get_exi
 from openpilot.common.transformations.camera import _ar_ox_fisheye, _os_fisheye
 from openpilot.common.transformations.model import MEDMODEL_INPUT_SIZE, DM_INPUT_SIZE
 from openpilot.selfdrive.modeld.constants import ModelConstants
+from openpilot.selfdrive.modeld.compile_helpers import estimate_pickle_max_size
 from openpilot.selfdrive.modeld.helpers import TG_INPUT_DEVICES_PATH, chestnut_present, modeld_pkl_path
 
 
@@ -17,11 +18,6 @@ lenv = env.Clone()
 tinygrad_root = env.Dir("#").abspath
 tinygrad_files = ["#"+x for x in glob.glob(env.Dir("#tinygrad_repo").relpath + "/**", recursive=True, root_dir=tinygrad_root)
                   if 'pycache' not in x and os.path.isfile(os.path.join(tinygrad_root, x))]
-
-def estimate_pickle_max_size(onnx_size):
-  # QCOM programs for models with spatial recurrent features can approach 2x
-  # the ONNX size. Overestimating only adds an empty trailing chunk.
-  return 2.0 * onnx_size + 10 * 1024 * 1024
 
 camera_configs = [(c.width, c.height) for c in (_ar_ox_fisheye, _os_fisheye)]
 
@@ -82,7 +78,7 @@ if not os.getenv('SKIP_TINYGRAD_COMPILE'):
           f'--onnx {File(f"models/{file_prefix}driving_supercombo.onnx").abspath} '
           f'--output {target_pkl_path} --frame-skip {frame_skip}')
     onnx_sizes_sum = sum(os.path.getsize(f) for f in driving_onnx_deps)
-    chunk_targets = get_chunk_targets(target_pkl_path, estimate_pickle_max_size(onnx_sizes_sum))
+    chunk_targets = get_chunk_targets(target_pkl_path, estimate_pickle_max_size(onnx_sizes_sum, len(camera_configs)))
     def do_compile(target, source, env, command=cmd, pkl=target_pkl_path, chunks=chunk_targets):
       from openpilot.system.hardware.chestnut.flash import link_up
       # chestnut can enumerate before its PCIe link is up due to varying 12V power behavior across cars
