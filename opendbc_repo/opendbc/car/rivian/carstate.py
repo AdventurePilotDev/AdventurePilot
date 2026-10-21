@@ -29,6 +29,10 @@ class CarState(CarStateBase, CarStateExt):
     # EPAS torque-overlay fault as reported this frame; the controller releases the TOI request to clear it
     self.toi_fault = False
     self.toi_fault_frames = 0
+    # EPAS taking torque (ToiActive); the controller releases the TOI request when it stops without a ToiFlt
+    self.toi_active = False
+    # set by the controller: the EPAS has been ignoring our torque and releasing the request did not bring it back
+    self.toi_dropout_warn = False
     # not 0 while the ACM is not ready to take ACC (e.g. the first ~60 s after the truck wakes), see carcontroller
     self.acm_fault_supervisor_state = 0
 
@@ -63,7 +67,8 @@ class CarState(CarStateBase, CarStateExt):
     hands_on_level = cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"]
     self.toi_fault = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiFlt"] != 0
     self.toi_fault_frames = self.toi_fault_frames + 1 if self.toi_fault else 0
-    ret.steerFaultTemporary = self.toi_fault_frames > TOI_FAULT_FRAMES or hands_on_level != 1
+    self.toi_active = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiActive"] != 0
+    ret.steerFaultTemporary = self.toi_fault_frames > TOI_FAULT_FRAMES or self.toi_dropout_warn or hands_on_level != 1
 
     # Cruise state
     speed = min(int(cp_adas.vl["ACM_tsrCmd"]["ACM_tsrSpdDisClsMain"]), 85)
