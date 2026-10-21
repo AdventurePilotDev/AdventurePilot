@@ -15,7 +15,7 @@ import os
 import unittest
 from types import SimpleNamespace
 
-from opendbc.car.rivian.ext_controller import ExternalController, TOI_CLEAR_RETRY_FRAMES
+from opendbc.car.rivian.ext_controller import ExternalController, TOI_CLEAR_RETRY_FRAMES, TOI_DROPOUT_FRAMES
 from opendbc.car.rivian.interface import CarInterface
 from opendbc.car.rivian.values import CAR
 from opendbc.car.structs import CarParams
@@ -115,6 +115,101 @@ class TestRivianRouteReplay(unittest.TestCase):
           refused, releases = self._replay(ep, phase_ms, use_controller=True)
           self.assertEqual(refused, [])
           self.assertGreater(releases, 0, "the logged ToiFlt latch should have been released")
+
+
+DROPOUT_FIXTURE = os.path.join(os.path.dirname(__file__), "data", "rivian_toi_dropout_route_replay.json.gz")
+RACK_REARM_FRAMES = 2  # the EPAS took torque again 10-40 ms after a release on every logged occurrence
+
+
+class TestRivianToiDropoutReplay(unittest.TestCase):
+  """Route 2bba20cd6136cc27/000000ea--8e6d69adcc (dev-a 4e805938d): in a turn the driver overpowered the wheel (3.46 Nm,
+  EPAS_HandsOnLevel 1 -> 2) and the EPAS dropped ToiActive with no ToiFlt. openpilot kept requesting torque, never released
+  the request, and the EPAS ignored it for 231 s with no alert until a high-angle blip re-armed it.
+
+  The fixture holds 8 s around the dropout: what the controller saw, what openpilot sent, the bus 0 messages the panda reads
+  and the logged ToiActive. The EPAS is modelled from the log: as logged until the dropout, then not taking torque until a
+  release, as on the road (12 of 12 such dropouts across 3 trucks came back only after a release)."""
+
+  @classmethod
+  def setUpClass(cls):
+    with gzip.open(DROPOUT_FIXTURE) as f:
+      cls.ep = json.load(f)
+    cls.packer = CANPackerSafety("rivian_primary_actuator")
+    cls.safety = libsafety_py.libsafety
+    fp = {i: {} for i in range(8)}
+    fp[0][0x321] = 7
+    fp[1][0x1310] = 8
+    cls.CP = CarInterface.get_params(CAR.RIVIAN_R1, fp, [], alpha_long=False, is_release=False, docs=False)
+
+  def _tx(self, t_us, torque, req):
+    self.safety.set_timer(TIMER_BASE_US + t_us)
+    msg = self.packer.make_can_msg_safety("ACM_lkaHbaCmd", 0, {"ACM_lkaStrToqReq": torque, "ACM_lkaActToi": req})
+    return self.safety.safety_tx_hook(msg)
+
+  def _replay(self, phase_ms):
+    """(refused send times, frame indexes where a release starts, frame index of the dropout, any warning raised)"""
+    self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, 0)
+    self.safety.init_tests()
+    self.safety.set_controls_allowed_lateral(True)
+    erc = ExternalController(self.CP)
+    rx = self.ep["rx"]
+    rx_i = 0
+    refused, release_starts = [], []
+    dropout_at = rearm_at = None
+    warned = False
+    for n, (t, v_ego, driver_torque, angle, lat, demand, logged_torque, _, logged_active) in enumerate(self.ep["frames"]):
+      while rx_i < len(rx) and rx[rx_i][0] <= t:
+        rt, addr, dat = rx[rx_i]
+        self.safety.set_timer(TIMER_BASE_US + rt)
+        self.safety.safety_rx_hook(libsafety_py.make_CANPacket(addr, 0, bytes.fromhex(dat)))
+        rx_i += 1
+      if n == 0:
+        self.safety.set_desired_torque_last(logged_torque)
+        self.safety.set_rt_torque_last(logged_torque)
+        self.assertTrue(self._tx(t - phase_ms * 1000, logged_torque, 1))
+        erc.apply_torque_last = logged_torque
+        erc.torque_cmd = logged_torque
+        erc.toi_act_cmd = True
+        erc.rt_limiter.sent(logged_torque)
+
+      if dropout_at is None and t >= self.ep["onset_us"]:
+        dropout_at = n
+      if dropout_at is None:
+        rack_active = bool(logged_active)
+      else:
+        rack_active = rearm_at is not None and n >= rearm_at
+
+      erc.torque_active = bool(lat)
+      cs = SimpleNamespace(out=SimpleNamespace(vEgoRaw=v_ego, steeringTorque=driver_torque, steeringAngleDeg=angle),
+                           toi_fault=False, toi_active=rack_active)
+      erc._update_torque(cs, SimpleNamespace(torque=demand))
+      if erc.toi_clear_cooldown == TOI_CLEAR_RETRY_FRAMES:
+        release_starts.append(n)
+        if dropout_at is not None and rearm_at is None:
+          rearm_at = n + RACK_REARM_FRAMES
+      warned = warned or erc.toi_dropout_warn
+      if not self._tx(t, erc.torque_cmd, int(erc.toi_act_cmd)):
+        refused.append(t)
+    return refused, release_starts, dropout_at, warned
+
+  def test_logged_build_never_released(self):
+    # keeps the replay honest: openpilot held the request the whole time while the EPAS ignored it
+    frames = self.ep["frames"]
+    self.assertTrue(all(f[7] == 1 for f in frames))
+    after = [f[8] for f in frames if f[0] > self.ep["onset_us"] + 20_000]
+    self.assertTrue(after and not any(after), "the EPAS stays off for the rest of the window in the log")
+    self.assertEqual(self.ep["real_refused_us"], [])
+
+  def test_controller_rearms_the_epas_and_is_never_refused(self):
+    for phase_ms in range(0, 260, 10):
+      with self.subTest(phase_ms=phase_ms):
+        refused, release_starts, dropout_at, warned = self._replay(phase_ms)
+        self.assertEqual(refused, [])
+        after = [n for n in release_starts if n >= dropout_at]
+        self.assertTrue(after, "the controller never released the request")
+        # the EPAS reports ~10 ms behind what we send, so allow a few frames over the release point
+        self.assertLessEqual(after[0] - dropout_at, TOI_DROPOUT_FRAMES + 3)
+        self.assertFalse(warned, "a dropout the release cleared must not warn the driver")
 
 
 if __name__ == "__main__":

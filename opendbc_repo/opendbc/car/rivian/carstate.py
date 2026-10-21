@@ -28,10 +28,16 @@ class CarState(CarStateBase, CarStateExt):
     self.eac_status = 0
     self.eac_error_code = 0
     self.toi_fault_frames = 0
+    # not 0 while the ACM is not ready to take ACC (e.g. the first ~60 s after the truck wakes), see carcontroller
+    self.acm_fault_supervisor_state = 0
     # EPAS torque-overlay fault as reported this frame; the controller releases the TOI request to clear it
     self.toi_fault = False
     # the panda refused a torque frame this update (its echo comes back on bus 192)
     self.torque_tx_refused = False
+    # EPAS taking torque (ToiActive); the controller releases the TOI request when it stops without a ToiFlt
+    self.toi_active = False
+    # set by the controller: the EPAS has been ignoring our torque and releasing the request did not bring it back
+    self.toi_dropout_warn = False
 
   def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
     cp = can_parsers[Bus.pt]
@@ -70,7 +76,8 @@ class CarState(CarStateBase, CarStateExt):
     if self.CP.flags & RivianFlags.ANGLE_HARNESS:
       toi_fault = toi_fault and cp.vl["EPAS_AdasStatus"]["EPAS_EacStatus"] != 2
     self.toi_fault_frames = self.toi_fault_frames + 1 if toi_fault else 0
-    toi_fault_persists = self.toi_fault_frames > TOI_FAULT_FRAMES
+    toi_fault_persists = self.toi_fault_frames > TOI_FAULT_FRAMES or self.toi_dropout_warn
+    self.toi_active = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiActive"] != 0
     ret.steerFaultTemporary = toi_fault_persists or hands_on_level != 1
 
     if self.CP.flags & RivianFlags.ANGLE_HARNESS:
@@ -128,6 +135,7 @@ class CarState(CarStateBase, CarStateExt):
     ret.stockAeb = cp_cam.vl["ACM_AebRequest"]["ACM_EnableRequest"] != 0
 
     # Messages needed by carcontroller
+    self.acm_fault_supervisor_state = int(cp_cam.vl["ACM_Status"]["ACM_FaultSupervisorState"])
     self.acm_lka_hba_cmd = copy.copy(cp_cam.vl["ACM_lkaHbaCmd"])
     if not (self.CP.flags & RivianFlags.GEN2):
       self.sccm_wheel_touch = copy.copy(cp.vl["SCCM_WheelTouch"])

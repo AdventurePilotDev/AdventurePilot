@@ -1,14 +1,17 @@
 import numpy as np
 from opendbc.can import CANPacker
-from opendbc.car import Bus
+from opendbc.car import Bus, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.rivian.angle_toggle import AngleSteerToggle
 from opendbc.car.rivian.ext_controller import ExternalController, get_safety_CP  # noqa: F401
 from opendbc.car.rivian.riviancan import create_angle_steering, create_lka_steering, create_longitudinal, create_wheel_touch, create_adas_status, create_acm_status
 from opendbc.car.rivian.values import CarControllerParams, RivianFlags
+from opendbc.safety import ALTERNATIVE_EXPERIENCE
 
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
+
+GearShifter = structs.CarState.GearShifter
 
 # single-panda xnor-box branch: angle stream on the car-side bus only. (The dual-intercept
 # variant mirrors these on bus 4 for the EPAS 2-of-2 voter - see archive/unified-4h.)
@@ -18,6 +21,14 @@ ANGLE_TX_BUSES = (0,)
 # below the set speed (the guarantee the feature exists for), release only once 3 mph above it so
 # cruise ripple at min-speed ~= set speed cannot chatter the tint / forced-torque channel.
 LOW_SPEED_TORQUE_HYST_MS = 3 * CV.MPH_TO_MS
+
+# MADS modes in which the panda revokes lateral on a brake press (mads.h, MADS_DISENGAGE_REASON_BRAKE)
+BRAKE_DROPS_LATERAL = ALTERNATIVE_EXPERIENCE.MADS_DISENGAGE_LATERAL_ON_BRAKE | ALTERNATIVE_EXPERIENCE.MADS_PAUSE_LATERAL_ON_BRAKE
+
+# The stock ACM answers an ACC stalk press within ~30 ms when it takes it. If it hasn't after this long, it declined.
+ACM_ENGAGE_TIMEOUT_FRAMES = 50  # 0.5 s
+# The stock ACM refuses ACC below this speed unless it has a lead
+ACM_MIN_ENGAGE_SPEED = 20 * CV.MPH_TO_MS
 
 
 class CarController(CarControllerBase, MadsCarController):
@@ -31,6 +42,12 @@ class CarController(CarControllerBase, MadsCarController):
     # set here when a driver ACC engage request was hidden from the ACM; card reads and clears it
     self.engage_request_blocked = False
     self.engage_request_prev = False
+    # set here when the ACM declined a driver ACC engage press that openpilot passed on; card reads and clears it.
+    # 'notReady': the ACM was not ready (ACM_FaultSupervisorState != 0), 'lowSpeed': below its minimum speed, no lead
+    self.engage_request_refused = None
+    self.engage_press_frames = 0
+    self.engage_press_not_ready = False
+    self.engage_press_low_speed = False
     self.cancel_frames = 0
     self.erc = ExternalController(CP)
     self.angle_harness = bool(CP.flags & RivianFlags.ANGLE_HARNESS)
@@ -65,6 +82,14 @@ class CarController(CarControllerBase, MadsCarController):
 
   def update(self, CC, CC_SP, CS, now_nanos):
     MadsCarController.update(self, CC, CC_SP, CS)
+    # Stop steering on this frame's brake press when MADS drops lateral on the brake. The panda reads the
+    # pedal straight off the bus and revokes lateral at once, a few frames before carControl catches up,
+    # and rejects every 0x110 still asking for angle in between. The EPAS sees those missing frames as a
+    # counter jump and latches EPAS_Angle_Control_Cntr_Err ("LKAS Fault: Restart the car"), seen on a brake
+    # at walking pace with the angle channel active (route f4741a2f2621ce11/00000011--86a8e0bc99 seg 5).
+    # Agreeing with the panda here keeps the 0x110 stream unbroken, as the 0x160 path below already does.
+    if self.mads.lat_active and CS.out.brakePressed and (self.CP.alternativeExperience & BRAKE_DROPS_LATERAL):
+      self.mads = self.mads._replace(lat_active=False)
     actuators = CC.actuators
     can_sends = []
 
@@ -119,6 +144,8 @@ class CarController(CarControllerBase, MadsCarController):
       self.erc.notify_torque_refused()
     self.erc.update(CS, self.mads.lat_active, actuators)
     apply_torque = self.erc.torque_cmd
+    # the EPAS is ignoring our torque and releasing the request has not brought it back: carstate reports it next frame
+    CS.toi_dropout_warn = self.erc.toi_dropout_warn
 
     # send steering command; torque is 0 and toi_act_cmd low during a ToiFlt-avoidance blip
     # (erc freezes its rate-limiter memory through the blip so assist resumes instantly)
@@ -192,10 +219,33 @@ class CarController(CarControllerBase, MadsCarController):
       block_engage = not self.openpilot_engageable and not CS.out.cruiseState.enabled
       if CS.vdm_adas_status:
         engage_request = any(msg["VDM_UserAdasRequest"] in (3, 4) for msg in CS.vdm_adas_status)
+        # VDM_UserAdasRequest: 0=IDLE, 1=UP_1, 2=UP_2, 3=DOWN_1, 4=DOWN_2. The ACC stalk is also the gear selector, so
+        # only a stalk-down while already in Drive is an ACC press; a stalk-down out of R/N/P is a gear change.
+        in_drive = CS.out.gearShifter == GearShifter.drive
         # rising edge of a blocked request: card surfaces it so selfdrived shows the noEntry reason
-        if block_engage and engage_request and not self.engage_request_prev:
+        if block_engage and engage_request and in_drive and not self.engage_request_prev:
           self.engage_request_blocked = True
+
+        # an ACC-on press (stalk down in Drive) that openpilot passes to the ACM: watch whether the ACM takes it
+        if engage_request and in_drive and not self.engage_request_prev and not block_engage and not CS.out.cruiseState.enabled:
+          self.engage_press_frames = 1
+          self.engage_press_not_ready = False
+          self.engage_press_low_speed = CS.out.vEgo < ACM_MIN_ENGAGE_SPEED
         self.engage_request_prev = engage_request
+
+      # the ACM declined the press: tell the driver the likely reason, the truck only says ACC is not available
+      if self.engage_press_frames > 0:
+        if CS.out.cruiseState.enabled:
+          self.engage_press_frames = 0
+        else:
+          self.engage_press_not_ready |= CS.acm_fault_supervisor_state != 0
+          self.engage_press_frames += 1
+          if self.engage_press_frames > ACM_ENGAGE_TIMEOUT_FRAMES:
+            self.engage_press_frames = 0
+            if self.engage_press_not_ready:
+              self.engage_request_refused = 'notReady'
+            elif self.engage_press_low_speed:
+              self.engage_request_refused = 'lowSpeed'
       for msg in CS.vdm_adas_status:
         can_sends.append(create_adas_status(self.packer, msg, interface_status, block_engage))
     else:

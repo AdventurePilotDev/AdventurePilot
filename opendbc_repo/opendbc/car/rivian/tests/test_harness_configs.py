@@ -20,10 +20,12 @@ from opendbc.car.rivian.carstate import CarState, TOI_FAULT_FRAMES
 from opendbc.car.rivian.ext_controller import (ExternalController, EAC_RECOVER_FRAMES, MIN_TORQUE_FRAMES,
                                                TOI_MAX_ANGLE_FRAMES, TOI_BLIP_FRAMES, ANGLE_SAT_FRAMES)
 from opendbc.car.rivian.ext_controller import TOI_CLEAR_LATCH_FRAMES, TOI_CLEAR_QUIET_FRAMES, TOI_CLEAR_RETRY_FRAMES
+from opendbc.car.rivian.ext_controller import TOI_DROPOUT_FRAMES, TOI_DROPOUT_WARN_FRAMES, TOI_DROPOUT_WARN_HOLD_FRAMES, TOI_START_FRAMES
 from opendbc.car.rivian.ext_controller import (TORQUE_PREARM_ABORT_LOCKOUT, TORQUE_PREARM_EXIT_FRAC, TORQUE_PREARM_MAX_FRAMES,
                                                TORQUE_PREARM_MIN_HOLD)
 from opendbc.car.rivian.interface import CarInterface
 from opendbc.car.rivian.values import CAR, DBC, CarControllerParams, RivianFlags, RivianSafetyFlags
+from opendbc.safety import ALTERNATIVE_EXPERIENCE
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
 from opendbc.sunnypilot.car.rivian.carstate_ext import CarStateExt
 from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
@@ -202,6 +204,47 @@ class TestCarControllerTxMatrix(unittest.TestCase):
     for _ in range(ANGLE_SAT_FRAMES + 5):
       controller.update(cc, cc_sp, _mock_cs(cp, v_ego=15, eac_status=2), 0)
     self.assertTrue(writes.get("RivianAngleSaturated"))
+
+
+class TestBrakeDropsAngleSameFrame(unittest.TestCase):
+  """With MADS set to disengage or pause lateral on the brake, the panda revokes lateral on the press it
+  reads off the bus and rejects any 0x110 still asking for angle. carControl lags a few frames, and the
+  rejected frames show up at the EPAS as a counter jump (EPAS_Angle_Control_Cntr_Err, latched until
+  restart). The 0x110 sent on the brake frame itself must already have angle control off."""
+
+  @staticmethod
+  def _eac_enabled(can_sends):
+    dat = next(m[1] for m in can_sends if m[0] == 0x110)
+    return (dat[1] >> 4) & 1  # bit 12, the bit the panda reads as lka_active
+
+  def _brake_frame(self, alternative_experience):
+    cp = _get_cp(xnor_box=True)
+    cp.alternativeExperience = alternative_experience
+    controller = CarController({Bus.pt: "rivian_primary_actuator"}, cp, structs.CarParamsSP())
+    cc = structs.CarControl()
+    cc.latActive = True  # carControl has not caught up with the brake yet
+    cc.enabled = True
+    cc = cc.as_reader()
+    cc_sp = structs.CarControlSP()
+    cc_sp.mads.available = True
+    _, sends = controller.update(cc, cc_sp, _mock_cs(cp, eac_status=1), 0)  # engage on angle
+    self.assertEqual(self._eac_enabled(sends), 1)
+    cs = _mock_cs(cp, eac_status=2)
+    cs.out.brakePressed = True
+    _, sends = controller.update(cc, cc_sp, cs, 0)
+    return self._eac_enabled(sends)
+
+  def test_disengage_on_brake_drops_angle(self):
+    exp = ALTERNATIVE_EXPERIENCE.ENABLE_MADS | ALTERNATIVE_EXPERIENCE.MADS_DISENGAGE_LATERAL_ON_BRAKE
+    self.assertEqual(self._brake_frame(exp), 0)
+
+  def test_pause_on_brake_drops_angle(self):
+    exp = ALTERNATIVE_EXPERIENCE.ENABLE_MADS | ALTERNATIVE_EXPERIENCE.MADS_PAUSE_LATERAL_ON_BRAKE
+    self.assertEqual(self._brake_frame(exp), 0)
+
+  def test_remain_active_keeps_angle(self):
+    # MADS "remain active": the panda keeps lateral through the brake, so must we
+    self.assertEqual(self._brake_frame(ALTERNATIVE_EXPERIENCE.ENABLE_MADS), 1)
 
 
 def _cs_frame(angle=0.0, rate=0.0, torque=0.0, pressed=False, v_ego=10.0, eac_status=1, hands_on_level=1, gen2=False):
@@ -850,6 +893,154 @@ class TestToiFaultLatchClear(unittest.TestCase):
       erc.update(cs, False, _actuators(torque=0.5))
     self.assertEqual(erc.toi_clear_cooldown, 0)
     self.assertEqual(erc.toi_fault_frames, 0)
+
+
+class TestToiDropoutRelease(unittest.TestCase):
+  """The EPAS can stop taking torque with no ToiFlt (driver overpowering it, EPAS_HandsOnLevel 2) and then ignores torque
+  until the request is released (231 s on route 2bba20cd6136cc27/000000ea--8e6d69adcc), so the controller releases it."""
+
+  def _run(self, erc, active, eac_status=1, lat_active=True):
+    out = []
+    for a in active:
+      cs = _cs_frame(eac_status=eac_status)
+      cs.toi_fault = False
+      cs.toi_active = a
+      erc.update(cs, lat_active, _actuators(torque=0.5))
+      out.append((erc.toi_act_cmd, erc.torque_cmd, erc.toi_dropout_warn))
+    return out
+
+  def _released(self, out):
+    return [i for i, (toi, _, _) in enumerate(out) if not toi]
+
+  def _settled(self):
+    erc = ExternalController(_get_cp())
+    self._run(erc, [True] * 150)
+    self.assertGreater(erc.torque_cmd, 0)
+    return erc
+
+  def test_dropout_is_released_then_torque_resumes(self):
+    erc = self._settled()
+    steady = erc.torque_cmd
+    out = self._run(erc, [False] * TOI_DROPOUT_FRAMES + [True] * 20)
+    rel = self._released(out)
+    self.assertEqual(rel, list(range(TOI_DROPOUT_FRAMES - 1, TOI_DROPOUT_FRAMES - 1 + TOI_BLIP_FRAMES)))
+    for i in rel:
+      self.assertEqual(out[i][1], 0, "torque is 0 while the request is released")
+    self.assertEqual(out[rel[-1] + 1][:2], (True, steady), "torque resumes at the frozen value")
+    self.assertFalse(any(w for _, _, w in out), "a dropout the release cleared must not warn")
+
+  def test_brief_dropout_is_not_released(self):
+    erc = self._settled()
+    out = self._run(erc, [False] * (TOI_DROPOUT_FRAMES - 2) + [True] * 20)
+    self.assertEqual(self._released(out), [])
+
+  def test_slow_start_is_not_released(self):
+    # the EPAS takes up to 1.1 s to start taking torque after a fresh request: releasing then would restart it
+    erc = ExternalController(_get_cp())
+    out = self._run(erc, [False] * 115 + [True] * 50)
+    self.assertEqual(self._released(out), [])
+
+  def test_epas_that_never_starts_is_released(self):
+    erc = ExternalController(_get_cp())
+    out = self._run(erc, [False] * (TOI_START_FRAMES + 5))
+    self.assertEqual(self._released(out)[0], TOI_START_FRAMES)
+
+  def test_persistent_dropout_is_retried_then_warned(self):
+    erc = self._settled()
+    out = self._run(erc, [False] * 200)
+    rel = self._released(out)
+    starts = [i for i in rel if i - 1 not in rel]
+    self.assertEqual(starts[0], TOI_DROPOUT_FRAMES - 1)
+    self.assertEqual([b - a for a, b in zip(starts, starts[1:], strict=False)], [TOI_CLEAR_RETRY_FRAMES] * (len(starts) - 1))
+    warn = [i for i, (_, _, w) in enumerate(out) if w]
+    # release frames hold the count, so the warning lands a frame per release frame after the nominal point
+    first = warn[0]
+    self.assertGreaterEqual(first, TOI_DROPOUT_FRAMES + TOI_DROPOUT_WARN_FRAMES - 1)
+    self.assertLessEqual(first, TOI_DROPOUT_FRAMES + TOI_DROPOUT_WARN_FRAMES - 1 + 2 * TOI_BLIP_FRAMES)
+    self.assertTrue(all(w for _, _, w in out[first:]))
+    # and it clears as soon as the EPAS takes torque again
+    out = self._run(erc, [True])
+    self.assertFalse(out[0][2])
+
+  def test_warning_holds_while_it_keeps_lateral_off(self):
+    # the warning sets steerFaultTemporary and controlsd turns lateral off the next frame. That ended the torque stint
+    # and cleared the warning, so lateral came straight back after 20 ms (route 4440a486580ed7c6/00000038 at 0:28.51)
+    erc = self._settled()
+    warn, lat_active = [], True
+    for _ in range(TOI_DROPOUT_FRAMES + TOI_DROPOUT_WARN_FRAMES + TOI_DROPOUT_WARN_HOLD_FRAMES + 50):
+      cs = _cs_frame()
+      cs.toi_fault = False
+      cs.toi_active = False
+      erc.update(cs, lat_active, _actuators(torque=0.5))
+      warn.append(erc.toi_dropout_warn)
+      lat_active = not erc.toi_dropout_warn  # what controlsd does with steerFaultTemporary
+    first = warn.index(True)
+    self.assertEqual(warn[first:first + TOI_DROPOUT_WARN_HOLD_FRAMES], [True] * TOI_DROPOUT_WARN_HOLD_FRAMES)
+    self.assertFalse(warn[first + TOI_DROPOUT_WARN_HOLD_FRAMES], "then it lets lateral retry with a fresh request")
+
+  def test_held_warning_clears_once_the_epas_takes_torque(self):
+    erc = self._settled()
+    out = self._run(erc, [False] * 200)
+    self.assertTrue(out[-1][2])
+    out = self._run(erc, [False] * 20, lat_active=False)
+    self.assertTrue(all(w for _, _, w in out), "held while lateral is off")
+    out = self._run(erc, [True] * 3)
+    self.assertFalse(out[0][2])
+
+  def test_not_counted_while_the_angle_servo_steers(self):
+    erc = self._settled()
+    out = self._run(erc, [False] * 200, eac_status=2)
+    self.assertEqual(self._released(out), [])
+    self.assertFalse(any(w for _, _, w in out))
+
+  def test_not_counted_without_lateral(self):
+    erc = ExternalController(_get_cp())
+    out = self._run(erc, [False] * 200, lat_active=False)
+    self.assertEqual(erc.toi_inactive_frames, 0)
+    self.assertFalse(any(w for _, _, w in out))
+
+  def test_carstate_reports_the_warning_and_exposes_toi_active(self):
+    for xnor_box in (True, False):
+      with self.subTest(xnor_box=xnor_box):
+        for name in ("__init__", "update"):
+          patcher = mock.patch.object(CarStateExt, name, lambda *a, **k: None)
+          patcher.start()
+          self.addCleanup(patcher.stop)
+        cp = _get_cp(xnor_box=xnor_box)
+        cs = CarState(cp, structs.CarParamsSP())
+        parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
+        packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+
+        def feed(frame, toi_active):
+          system = packer.make_can_msg("EPAS_SystemStatus", 0, {"EPAS_SystemStatus_Counter": frame % 16, "EPAS_HandsOnLevel": 1,
+                                                                "H_CAN_EPSS_ToiActive": toi_active})
+          adas = packer.make_can_msg("EPAS_AdasStatus", 0, {"EPAS_AdasStatus_Counter": frame % 16, "EPAS_EacStatus": 1})
+          parsers[Bus.pt].update([(frame * 10_000_000, [system, adas])])
+          return cs.update(parsers)[0]
+
+        for frame in range(1, 4):
+          ret = feed(frame, 1)
+        self.assertTrue(cs.toi_active)
+        self.assertFalse(ret.steerFaultTemporary)
+        ret = feed(4, 0)
+        self.assertFalse(cs.toi_active)
+        self.assertFalse(ret.steerFaultTemporary, "the rack alone does not warn; the controller decides")
+        cs.toi_dropout_warn = True
+        self.assertTrue(feed(5, 0).steerFaultTemporary)
+        cs.toi_dropout_warn = False
+        self.assertFalse(feed(6, 1).steerFaultTemporary)
+
+  def test_controller_hands_the_warning_to_carstate(self):
+    cp = _get_cp(xnor_box=True)
+    controller = CarController({Bus.pt: "rivian_primary_actuator"}, cp, structs.CarParamsSP())
+    cs = _mock_cs(cp)
+    cc = structs.CarControl().as_reader()
+    controller.erc.toi_dropout_warn = False
+    controller.update(cc, structs.CarControlSP(), cs, 0)
+    self.assertFalse(cs.toi_dropout_warn)
+    with mock.patch.object(ExternalController, "update", lambda self, *a: setattr(self, "toi_dropout_warn", True)):
+      controller.update(cc, structs.CarControlSP(), cs, 10_000_000)
+    self.assertTrue(cs.toi_dropout_warn)
 
 
 if __name__ == "__main__":

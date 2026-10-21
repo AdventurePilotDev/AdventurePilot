@@ -8,6 +8,7 @@ See the LICENSE.md file in the root directory for more details.
 from openpilot.cereal import messaging, custom
 from opendbc.car import structs
 from openpilot.common.constants import CV
+from openpilot.common.params import Params
 from openpilot.selfdrive.car.cruise import V_CRUISE_MAX
 from openpilot.sunnypilot.selfdrive.controls.lib.dec.dec import DynamicExperimentalController
 from openpilot.sunnypilot.selfdrive.controls.lib.e2e_alerts_helper import E2EAlertsHelper
@@ -35,6 +36,14 @@ class LongitudinalPlannerSP:
 
     self.output_v_target = 0.
     self.output_a_target = 0.
+
+    if CP.openpilotLongitudinalControl:
+      _params = Params()
+      raw_stop = _params.get("SPStopDistance", return_default=True)
+      mpc.stop_distance = max(30, min(60, raw_stop)) / 10.0
+      mpc.personality_linked = _params.get_bool("SPStopDistancePersonality")
+      raw_offset = _params.get("SPFollowingTimeOffset", return_default=True)
+      mpc.t_follow_offset_pct = max(-20, min(20, raw_offset))
 
   def is_e2e(self, sm: messaging.SubMaster) -> bool:
     experimental_mode = sm['selfdriveState'].experimentalMode
@@ -95,6 +104,14 @@ class LongitudinalPlannerSP:
     # Throttle-fade interlock: don't add throttle while the steering is near/at its lateral limit.
     if self.output_a_target > 0.0:
       self.output_a_target *= self.scc.governor.throttle_scale()
+
+    # Hand the winning cruise target to the MPC, which gates the reduced stop distance on it. The MPC
+    # used to read this straight off its own v_cruise argument; upstream removed that argument along
+    # with the cruise obstacle, so it is forwarded from here instead. This is the same number that
+    # used to be passed down, so a speed-limit or curve cap still brings the shorter gap in as before.
+    # The threshold itself stays in the MPC, beside the stop distance constants it belongs with.
+    self.mpc.v_cruise_for_stop_gate = self.output_v_target
+
     return self.output_v_target, self.output_a_target
 
   def update(self, sm: messaging.SubMaster) -> None:

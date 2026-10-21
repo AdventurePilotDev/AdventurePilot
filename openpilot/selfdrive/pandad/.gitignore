@@ -1,3 +1,4 @@
 pandad
 pandad_api_impl.cpp
 tests/test_pandad_canprotocol
+tests/test_rivian_keepalive

@@ -8,3 +8,4 @@ if arch != "Darwin":
 
   if GetOption('extras'):
     env.Program('tests/test_pandad_canprotocol', ['tests/test_pandad_canprotocol.cc'], LIBS=[panda] + libs)
+    env.Program('tests/test_rivian_keepalive', ['tests/test_rivian_keepalive.cc'])

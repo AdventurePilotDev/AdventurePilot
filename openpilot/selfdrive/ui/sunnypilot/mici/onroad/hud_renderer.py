@@ -25,6 +25,7 @@ class HudRendererSP(HudRenderer):
     self._params = Params()
     self._angle_tap_armed = False
     self._angle_tap_consumed = False
+    self._sp_engaged: bool = False
 
   def _update_state(self) -> None:
     super()._update_state()
@@ -32,6 +33,11 @@ class HudRendererSP(HudRenderer):
     self.lane_centering_indicator.update()
     lateral_mode.update()
     self.wheel_tint = lateral_mode.wheel_tint
+
+    sp_engaged = ui_state.engaged
+    if sp_engaged != self._sp_engaged:
+      self._chestnut_fade_time = rl.get_time() if sp_engaged else 0
+    self._sp_engaged = sp_engaged
 
   def _render(self, rect: rl.Rectangle) -> None:
     super()._render(rect)
