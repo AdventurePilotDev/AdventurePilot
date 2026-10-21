@@ -201,6 +201,21 @@ jobs:
           [ "$fail" = "0" ] || exit 1
           echo "OK: every NEEDED shared lib resolves on-device."
 
+      - name: Guard - models for both camera types must be present
+        run: |
+          # A 3X-only build can pass on the runner but fail driver monitoring on a comma four.
+          # Check the staged output that will be shipped, not the compiler's working directory.
+          fail=0
+          for resolution in 1928x1208 1344x760; do
+            model="${OUTPUT_DIR}/openpilot/selfdrive/modeld/models/dm_warp_${resolution}_tinygrad.pkl"
+            if [ ! -s "$model" ]; then
+              echo "::error::Missing or empty camera model: $model"
+              fail=1
+            fi
+          done
+          [ "$fail" = "0" ] || exit 1
+          echo "OK: driver-monitoring models for comma 3/3X and comma four are present."
+
       - name: Guard - fail on any LFS pointer stub
         run: |
           # An LFS pointer stub is a tiny text file whose FIRST line is exactly
