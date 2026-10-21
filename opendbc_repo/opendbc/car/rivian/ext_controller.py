@@ -52,6 +52,8 @@ TOI_CLEAR_BLIP_GAP_FRAMES = 30
 TOI_DROPOUT_FRAMES = 30          # rack not taking torque this long, after it had taken it on this torque stint
 TOI_START_FRAMES = 150           # the EPAS takes up to 1.1 s to start after a fresh request (route data): wait longer
 TOI_DROPOUT_WARN_FRAMES = 70     # still not taking torque this long after the release point: warn the driver
+TOI_DROPOUT_WARN_HOLD_FRAMES = 300  # keep the warning up at least this long: it turns lateral off, which ends the torque
+                                    # stint and would clear it the next frame (route 4440a486580ed7c6/00000038, 20 ms)
 
 # Above this wheel angle the rack is saturated >75% of the time (route data); cap output so the
 # controller can recover from saturation faster when geometry eases
@@ -177,6 +179,7 @@ class ExternalController:
     self.toi_seen_active = False  # the EPAS has taken torque since the torque channel came on
     self.toi_inactive_frames = 0
     self.toi_dropout_warn = False  # releases have not brought it back: carstate reports a steering fault
+    self.toi_dropout_warn_hold = 0
 
   def update(self, CS, lat_active: bool, actuators):
     self._update_hands_on(CS)
@@ -394,8 +397,17 @@ class ExternalController:
       # counts only frames that followed a sent request; our own release frames hold the count
       self.toi_inactive_frames += 1
     limit = TOI_DROPOUT_FRAMES if self.toi_seen_active else TOI_START_FRAMES
-    self.toi_dropout_warn = self.toi_inactive_frames >= limit + TOI_DROPOUT_WARN_FRAMES
+    if self.toi_inactive_frames >= limit + TOI_DROPOUT_WARN_FRAMES:
+      self.toi_dropout_warn_hold = TOI_DROPOUT_WARN_HOLD_FRAMES
+    elif rack_active:
+      self.toi_dropout_warn_hold = 0
+    self._count_down_toi_dropout_warn()
     return self.toi_inactive_frames >= limit
+
+  def _count_down_toi_dropout_warn(self):
+    # the warning outlives the torque stint it was raised in, and clears early only once the EPAS takes torque again
+    self.toi_dropout_warn = self.toi_dropout_warn_hold > 0
+    self.toi_dropout_warn_hold = max(self.toi_dropout_warn_hold - 1, 0)
 
   def _toi_clear_release(self, CS, toi_act: bool) -> bool:
     """True on the frames where the TOI request must be released to clear a latched EPAS ToiFlt, or to re-arm an EPAS
@@ -429,7 +441,7 @@ class ExternalController:
       self.toi_clear_cooldown = 0
       self.toi_seen_active = False
       self.toi_inactive_frames = 0
-      self.toi_dropout_warn = False
+      self._count_down_toi_dropout_warn()
       return
 
     if self.torque_refused:

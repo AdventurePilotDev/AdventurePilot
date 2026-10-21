@@ -20,7 +20,7 @@ from opendbc.car.rivian.carstate import CarState, TOI_FAULT_FRAMES
 from opendbc.car.rivian.ext_controller import (ExternalController, EAC_RECOVER_FRAMES, MIN_TORQUE_FRAMES,
                                                TOI_MAX_ANGLE_FRAMES, TOI_BLIP_FRAMES, ANGLE_SAT_FRAMES)
 from opendbc.car.rivian.ext_controller import TOI_CLEAR_LATCH_FRAMES, TOI_CLEAR_QUIET_FRAMES, TOI_CLEAR_RETRY_FRAMES
-from opendbc.car.rivian.ext_controller import TOI_DROPOUT_FRAMES, TOI_DROPOUT_WARN_FRAMES, TOI_START_FRAMES
+from opendbc.car.rivian.ext_controller import TOI_DROPOUT_FRAMES, TOI_DROPOUT_WARN_FRAMES, TOI_DROPOUT_WARN_HOLD_FRAMES, TOI_START_FRAMES
 from opendbc.car.rivian.ext_controller import (TORQUE_PREARM_ABORT_LOCKOUT, TORQUE_PREARM_EXIT_FRAC, TORQUE_PREARM_MAX_FRAMES,
                                                TORQUE_PREARM_MIN_HOLD)
 from opendbc.car.rivian.interface import CarInterface
@@ -960,6 +960,31 @@ class TestToiDropoutRelease(unittest.TestCase):
     self.assertTrue(all(w for _, _, w in out[first:]))
     # and it clears as soon as the EPAS takes torque again
     out = self._run(erc, [True])
+    self.assertFalse(out[0][2])
+
+  def test_warning_holds_while_it_keeps_lateral_off(self):
+    # the warning sets steerFaultTemporary and controlsd turns lateral off the next frame. That ended the torque stint
+    # and cleared the warning, so lateral came straight back after 20 ms (route 4440a486580ed7c6/00000038 at 0:28.51)
+    erc = self._settled()
+    warn, lat_active = [], True
+    for _ in range(TOI_DROPOUT_FRAMES + TOI_DROPOUT_WARN_FRAMES + TOI_DROPOUT_WARN_HOLD_FRAMES + 50):
+      cs = _cs_frame()
+      cs.toi_fault = False
+      cs.toi_active = False
+      erc.update(cs, lat_active, _actuators(torque=0.5))
+      warn.append(erc.toi_dropout_warn)
+      lat_active = not erc.toi_dropout_warn  # what controlsd does with steerFaultTemporary
+    first = warn.index(True)
+    self.assertEqual(warn[first:first + TOI_DROPOUT_WARN_HOLD_FRAMES], [True] * TOI_DROPOUT_WARN_HOLD_FRAMES)
+    self.assertFalse(warn[first + TOI_DROPOUT_WARN_HOLD_FRAMES], "then it lets lateral retry with a fresh request")
+
+  def test_held_warning_clears_once_the_epas_takes_torque(self):
+    erc = self._settled()
+    out = self._run(erc, [False] * 200)
+    self.assertTrue(out[-1][2])
+    out = self._run(erc, [False] * 20, lat_active=False)
+    self.assertTrue(all(w for _, _, w in out), "held while lateral is off")
+    out = self._run(erc, [True] * 3)
     self.assertFalse(out[0][2])
 
   def test_not_counted_while_the_angle_servo_steers(self):
