@@ -49,6 +49,16 @@ def e2e_authority_label(value: int) -> str:
   return f"{value}%"
 
 
+def single_line_distance_label(value: int) -> str:
+  # Stored in the model's own distances, where 1.5 m is the car's normal place in a lane, so it is
+  # shown as a step either side of normal rather than as a gap to the paint
+  if value == 150:
+    return tr("normal")
+  step = abs(value - 150)
+  amount = f"{step} cm" if ui_state.is_metric else f"{step / 2.54:.1f} in"
+  return f"{amount} " + (tr("further from the line") if value > 150 else tr("closer to the line"))
+
+
 class LaneCenteringSettingsLayout(Widget):
   def __init__(self, back_btn_callback: Callable):
     super().__init__()
@@ -114,6 +124,39 @@ class LaneCenteringSettingsLayout(Widget):
       label_callback=deadband_label,
     )
 
+    self._single_line = toggle_item_sp(
+      param="LaneCenteringSingleLine",
+      title=lambda: tr("One-Line Mode"),
+      description=lambda: tr("When only one lane line is clearly visible, such as on an on-ramp with a faded edge line or a town " +
+                             "street with a center line and a bare curb, keep the car from sitting too close to that line. It only " +
+                             "ever moves the car away from the visible line, never past the middle of the lane, and not at all " +
+                             "when it cannot see anything on the other side. Position in Lane and Let the Model Sit Off Center " +
+                             "do not apply in this mode. Experimental."),
+    )
+    self._edge_distance = option_item_sp(
+      param="LaneCenteringSingleLineEdgeDist",
+      title=lambda: tr("One-Line Mode: Edge Line"),
+      min_value=120,
+      max_value=180,
+      value_change_step=5,
+      description=lambda: tr("How far One-Line Mode keeps the car from a visible line at the edge of the road, as a step " +
+                             "either side of the car's normal place in a lane."),
+      use_float_scaling=True,
+      label_callback=single_line_distance_label,
+    )
+    self._lane_distance = option_item_sp(
+      param="LaneCenteringSingleLineLaneDist",
+      title=lambda: tr("One-Line Mode: Center or Lane Line"),
+      min_value=120,
+      max_value=180,
+      value_change_step=5,
+      description=lambda: tr("How far One-Line Mode keeps the car from a visible center line or line between lanes, as a step " +
+                             "either side of the car's normal place in a lane. When it cannot tell which kind of line it is, " +
+                             "the closer of the two settings is used."),
+      use_float_scaling=True,
+      label_callback=single_line_distance_label,
+    )
+
     self._display = toggle_item_sp(
       param="LaneCenteringDisplay",
       title=lambda: tr("Show Correction On Screen"),
@@ -131,8 +174,20 @@ class LaneCenteringSettingsLayout(Widget):
       LineSeparatorSP(40),
       self._deadband,
       LineSeparatorSP(40),
+      self._single_line,
+      LineSeparatorSP(40),
+      self._edge_distance,
+      LineSeparatorSP(40),
+      self._lane_distance,
+      LineSeparatorSP(40),
       self._display,
     ]
+
+  def _update_state(self):
+    super()._update_state()
+    single_line = self._single_line.action_item.get_state()
+    self._edge_distance.set_visible(single_line)
+    self._lane_distance.set_visible(single_line)
 
   def _render(self, rect):
     self._back_button.set_position(self._rect.x, self._rect.y + 20)

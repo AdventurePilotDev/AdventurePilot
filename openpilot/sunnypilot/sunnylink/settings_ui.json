@@ -230,7 +230,7 @@
               "key": "LaneCenteringEnabled",
               "widget": "toggle",
               "title": "Lane Centering",
-              "description": "Keep the car in the middle of the painted lane instead of wherever the driving model chooses to sit. Only acts when both lane lines are clearly visible, and steps aside for lane changes and turn signals.",
+              "description": "Keep the car in the middle of the painted lane instead of wherever the driving model chooses to sit. Only acts when both lane lines are clearly visible (unless One-Line Mode is on), and steps aside for lane changes and turn signals.",
               "details": "Corrections are deliberately small and are smoothed in over about half a second, so this should read as the car\nsitting straighter rather than as active steering. Whenever the lane lines become unreliable, a lane change starts\nor a turn signal comes on, the correction fades away rather than being dropped in one go."
             }
           ],
@@ -307,6 +307,54 @@
                     {
                       "type": "param",
                       "key": "LaneCenteringEnabled",
+                      "equals": true
+                    }
+                  ]
+                },
+                {
+                  "key": "LaneCenteringSingleLine",
+                  "widget": "toggle",
+                  "title": "One-Line Mode",
+                  "description": "When only one lane line is clearly visible, such as on an on-ramp with a faded edge line or a town street with a center line and a bare curb, keep the car from sitting too close to that line. It only ever moves the car away from the visible line, never past the middle of the lane, and not at all when it cannot see anything on the other side.",
+                  "details": "Experimental. It never aims at a lane middle it cannot see. Anything the driving model is unsure of on the far side,\nsuch as a faint line or the edge of the tarmac, can only make the move smaller. It does not follow a line that\nbends away from the car's path, such as the line at a highway exit. Position in Lane and Let the Model Sit Off Center\ndo not apply in this mode.",
+                  "enablement": [
+                    {
+                      "type": "param",
+                      "key": "LaneCenteringEnabled",
+                      "equals": true
+                    }
+                  ]
+                },
+                {
+                  "key": "LaneCenteringSingleLineEdgeDist",
+                  "widget": "option",
+                  "title": "One-Line Mode, Distance From an Edge Line",
+                  "description": "How far One-Line Mode keeps the car from a visible line at the edge of the road. 1.5 is the car's normal position in a lane. Smaller sits closer to the line, larger moves further away from it. These are the driving model's own distances, not a measured gap between tire and paint.",
+                  "min": 1.2,
+                  "max": 1.8,
+                  "step": 0.05,
+                  "unit": "meters",
+                  "enablement": [
+                    {
+                      "type": "param",
+                      "key": "LaneCenteringSingleLine",
+                      "equals": true
+                    }
+                  ]
+                },
+                {
+                  "key": "LaneCenteringSingleLineLaneDist",
+                  "widget": "option",
+                  "title": "One-Line Mode, Distance From a Center or Lane Line",
+                  "description": "How far One-Line Mode keeps the car from a visible center line or line between lanes. 1.5 is the car's normal position in a lane. Smaller sits closer to the line, larger moves further away from it. When it cannot tell which kind of line it is, the smaller of the two distances is used.",
+                  "min": 1.2,
+                  "max": 1.8,
+                  "step": 0.05,
+                  "unit": "meters",
+                  "enablement": [
+                    {
+                      "type": "param",
+                      "key": "LaneCenteringSingleLine",
                       "equals": true
                     }
                   ]
