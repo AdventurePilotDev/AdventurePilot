@@ -20,7 +20,8 @@ LaneChangeState = log.LaneChangeState
 MIN_V_EGO = 5.0                # m/s, below this the lane lines are not worth trusting
 MIN_LANE_PROB = 0.6            # both lines must be at least this likely to be real
 MAX_LANE_STD = 0.3             # m, and no more uncertain than this
-MIN_LANE_WIDTH = 2.6           # m, rejects merges, splits and junk detections
+MIN_LANE_WIDTH = 2.3           # m, rejects merges, splits and junk detections. Narrow country and town lanes
+                               # measure 2.4-2.6 m with both lines sure, and none in the logs come in under 2.2
 MAX_LANE_WIDTH = 4.8           # m
 MAX_OFFSET = 0.3               # m, largest deliberate offset from center the driver can ask for
 MIN_CENTER_TO_LINE = 1.1       # m, never aim closer than this to either line
@@ -53,6 +54,7 @@ SINGLE_LINE_NEAR_X = 4.0            # m, where the trusted line is checked again
 SINGLE_LINE_PARALLEL_TOL = 0.3      # m, a line peeling away from the path (an exit gore) is not followed
 EDGE_LINE_MAX_GAP = 2.5             # m, less road than this beyond the line makes it an edge line, not a lane line
 MAX_ROAD_EDGE_STD = 1.0             # m, a road edge more uncertain than this is not used at all
+SINGLE_LINE_MIN_WIDTH = 2.6         # m, stricter than MIN_LANE_WIDTH because this width leans on the untrusted line
 FAR_EDGE_MIN_DISTANCE = 1.8         # m, car center to the far road edge after the push, about 0.8 m from the tire
 
 
@@ -276,7 +278,7 @@ class LaneCenteringController:
       return False, 0.0
     if math.isfinite(far_line):
       width = dist + far_line
-      if width < MIN_LANE_WIDTH:
+      if width < SINGLE_LINE_MIN_WIDTH:
         return False, 0.0
       push = min(push, max(0.0, min(min_dist, 0.5 * width) - dist))
     if math.isfinite(far_edge):
