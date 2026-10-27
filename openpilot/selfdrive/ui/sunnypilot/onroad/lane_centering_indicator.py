@@ -21,8 +21,9 @@ When One-Line Mode is in charge (only one lane line is trusted and the car is ke
 the bar fills light blue instead of mint, an upright mark like a painted line stands at the end of
 the bar on the side that line is on, and the distance off center gives way to "one line": in this
 mode the controller reports how far it is pushing away from the line, which is not a distance off
-center. The mark and the words are latched like every other word, so a line that flickers in and
-out of trust at the moment it appears or fades does not flash them.
+center. The blue, the mark and the words all follow the latched half second summary rather than the
+live frame: on the first road test most One-Line Mode episodes lasted under 0.2 s, as a line
+flickered in and out of trust, and a live blue flashed the bar about 200 times in 17 minutes.
 
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
@@ -142,20 +143,7 @@ class LaneCenteringIndicator:
     push = float(lc.correction) * v_ego * v_ego if lc.active else 0.0
     self._push_filter.update(push)
 
-    # The bar is live every frame. That is deliberate: a lane gate dropout lasting a few frames
-    # shows as a flash of gray, and spotting those through bends is one reason the widget exists.
-    if not lc.active:
-      self._color = GRAY
-    elif lc.clipped:
-      self._color = RED
-    elif abs(self._push_filter.x) >= AMBER_ABOVE:
-      self._color = AMBER
-    elif lc.singleLine:
-      self._color = LIGHT_BLUE
-    elif lc.holding:
-      self._color = DIM_WHITE
-    else:
-      self._color = MINT
+    self._color = self._bar_color(lc)
 
     self._sample(lc, push)
 
@@ -163,6 +151,23 @@ class LaneCenteringIndicator:
     if now >= self._next_commit:
       self._commit_window()
       self._start_window(now + TEXT_REFRESH)
+
+  def _bar_color(self, lc) -> rl.Color:
+    """The bar's color is live every frame. That is deliberate: a lane gate dropout lasting a few
+    frames shows as a flash of gray, and spotting those through bends is one reason the widget
+    exists. The One-Line Mode blue is the exception and follows the latched summary, so it changes no
+    more often than the words beside it."""
+    if not lc.active:
+      return GRAY
+    if lc.clipped:
+      return RED
+    if abs(self._push_filter.x) >= AMBER_ABOVE:
+      return AMBER
+    if self._shown_single_line:
+      return LIGHT_BLUE
+    if lc.holding:
+      return DIM_WHITE
+    return MINT
 
   # --- the half second window behind every figure on screen ---
 

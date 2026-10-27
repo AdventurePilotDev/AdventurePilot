@@ -9,7 +9,7 @@ import pytest
 pytest.importorskip("pyray")
 
 from openpilot.selfdrive.ui.sunnypilot.onroad.lane_centering_indicator import (
-  CORRECTING, GATED, HOLDING, LIGHT_BLUE, MINT, RED, LaneCenteringIndicator)
+  CORRECTING, DIM_WHITE, GATED, GRAY, HOLDING, LIGHT_BLUE, MINT, RED, LaneCenteringIndicator)
 
 
 def _indicator():
@@ -74,3 +74,22 @@ def test_ordinary_centering_is_unchanged():
   assert not ind._shown_single_line
   assert ind._shown_line_side == 0
   assert ind._shown_color == MINT
+
+
+def test_bar_blue_follows_the_latched_window_not_the_live_frame():
+  # A frame or two of One-Line Mode inside ordinary centering leaves the bar mint
+  ind = _window([_frame()] * 10)
+  ind._push_filter = SimpleNamespace(x=0.1)
+  assert ind._bar_color(_frame(single_line=True, line_side=1)) == MINT
+  # Once the window says One-Line Mode, the bar stays blue through a frame that briefly is not
+  ind = _window([_frame(single_line=True, line_side=1)] * 10)
+  ind._push_filter = SimpleNamespace(x=0.1)
+  assert ind._bar_color(_frame()) == LIGHT_BLUE
+  assert ind._bar_color(_frame(holding=True)) == LIGHT_BLUE
+
+
+def test_bar_gray_and_holding_stay_live():
+  ind = _window([_frame()] * 10)
+  ind._push_filter = SimpleNamespace(x=0.0)
+  assert ind._bar_color(_frame(active=False)) == GRAY
+  assert ind._bar_color(_frame(holding=True)) == DIM_WHITE
