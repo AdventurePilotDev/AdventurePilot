@@ -409,7 +409,7 @@
                   "key": "LaneCenteringDisplay",
                   "widget": "toggle",
                   "title": "Show Correction On Screen",
-                  "description": "Draws a small bar while driving showing which way lane centering is nudging the car and how hard. The bar fills to the side the car is being pulled, stays dim while the car is already close enough to the middle, and turns gray when the lane lines cannot be trusted.",
+                  "description": "Draws a small bar while driving showing which way lane centering is nudging the car and how hard. The bar fills to the side the car is being pulled, stays dim while the car is already close enough to the middle, and turns gray when the lane lines cannot be trusted. While One-Line Mode is keeping the car clear of a single line the bar turns light blue, a mark at its end shows which side that line is on, and the screen says \"one line\".",
                   "enablement": [
                     {
                       "type": "param",

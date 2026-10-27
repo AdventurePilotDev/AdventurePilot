@@ -17,6 +17,13 @@ and the distance, share a size and a color so they read as a pair; every word an
 them is plain white. It is all one face: the units were set in the medium weight and read as an
 afterthought beside two bold numbers, so they are bold too, and only size separates them now.
 
+When One-Line Mode is in charge (only one lane line is trusted and the car is kept clear of it),
+the bar fills light blue instead of mint, an upright mark like a painted line stands at the end of
+the bar on the side that line is on, and the distance off center gives way to "one line": in this
+mode the controller reports how far it is pushing away from the line, which is not a distance off
+center. The mark and the words are latched like every other word, so a line that flickers in and
+out of trust at the moment it appears or fades does not flash them.
+
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
@@ -62,6 +69,7 @@ GRAY = rl.Color(145, 155, 149, 255)
 DIM_WHITE = rl.Color(255, 255, 255, 200)
 MINT = rl.Color(128, 216, 166, 255)
 AMBER = rl.Color(255, 188, 0, 255)
+LIGHT_BLUE = rl.Color(120, 190, 255, 255)  # One-Line Mode, so mint keeps meaning ordinary two-line centering
 RED = rl.Color(226, 86, 75, 255)
 
 TRACK = rl.Color(255, 255, 255, 70)
@@ -97,10 +105,14 @@ class LaneCenteringIndicator:
     self._shown_push = 0.0
     self._shown_offset = 0.0
     self._shown_color = GRAY
+    self._shown_single_line = False
+    self._shown_line_side = 0
 
     self._counts = {GATED: 0, HOLDING: 0, CORRECTING: 0}
     self._n_valid = 0
     self._n_clipped = 0
+    self._n_single_line = 0
+    self._sum_line_side = 0
     self._sum_push = 0.0
     self._sum_offset = 0.0
     self._next_commit = 0.0
@@ -134,12 +146,14 @@ class LaneCenteringIndicator:
     # shows as a flash of gray, and spotting those through bends is one reason the widget exists.
     if not lc.active:
       self._color = GRAY
-    elif lc.holding:
-      self._color = DIM_WHITE
     elif lc.clipped:
       self._color = RED
     elif abs(self._push_filter.x) >= AMBER_ABOVE:
       self._color = AMBER
+    elif lc.singleLine:
+      self._color = LIGHT_BLUE
+    elif lc.holding:
+      self._color = DIM_WHITE
     else:
       self._color = MINT
 
@@ -156,6 +170,8 @@ class LaneCenteringIndicator:
     self._counts = dict.fromkeys(self._counts, 0)
     self._n_valid = 0
     self._n_clipped = 0
+    self._n_single_line = 0
+    self._sum_line_side = 0
     self._sum_push = 0.0
     self._sum_offset = 0.0
     self._next_commit = next_commit
@@ -170,6 +186,9 @@ class LaneCenteringIndicator:
     self._counts[HOLDING if lc.holding else CORRECTING] += 1
     self._n_valid += 1
     self._n_clipped += bool(lc.clipped)
+    if lc.singleLine:
+      self._n_single_line += 1
+      self._sum_line_side += int(lc.lineSide)
     self._sum_push += push
     self._sum_offset += float(lc.offset)
 
@@ -179,15 +198,21 @@ class LaneCenteringIndicator:
     self._shown_offset = self._sum_offset / self._n_valid if self._n_valid else 0.0
     # whichever state held for most of the window, so a flicker across the tolerance settles
     self._shown_state = max(self._counts, key=self._counts.__getitem__)
+    # One-Line Mode counts if it ran on most of the frames where the gates passed, and its line then
+    # sits on whichever side it was on for most of those
+    self._shown_single_line = self._shown_state != GATED and self._n_single_line * 2 > self._n_valid
+    self._shown_line_side = (self._sum_line_side > 0) - (self._sum_line_side < 0) if self._shown_single_line else 0
 
     if self._shown_state == GATED:
       self._shown_color = GRAY
     elif self._shown_state == HOLDING:
-      self._shown_color = DIM_WHITE
+      self._shown_color = LIGHT_BLUE if self._shown_single_line else DIM_WHITE
     elif self._n_clipped * 2 > self._n_valid:
       self._shown_color = RED
     elif abs(self._shown_push) >= AMBER_ABOVE:
       self._shown_color = AMBER
+    elif self._shown_single_line:
+      self._shown_color = LIGHT_BLUE
     else:
       self._shown_color = MINT
 
@@ -235,11 +260,19 @@ class LaneCenteringIndicator:
       # holding is a deliberate state so it reads as ordinary white; gated keeps its gray, because
       # "not acting because there are no lines" is the one the driver most needs to tell apart
       holding = self._shown_state == HOLDING
-      label = tr("centered") if holding else tr("no lines")
+      if not holding:
+        label = tr("no lines")
+      elif self._shown_single_line:
+        label = tr("clear of line")
+      else:
+        label = tr("centered")
       self._draw_text(self._font_bold, label, rl.Vector2(left, text_y + 6), SMALL_SIZE + 9, 0,
                       WHITE if holding else self._shown_color)
 
-    self._draw_offset(x + PILL_W - PAD, text_y)
+    if self._shown_single_line:
+      self._draw_one_line(x + PILL_W - PAD, text_y)
+    else:
+      self._draw_offset(x + PILL_W - PAD, text_y)
 
     self._draw_bar(x + PAD, y + PILL_H - 30 - BAR_H, PILL_W - 2 * PAD, BAR_H)
 
@@ -262,6 +295,13 @@ class LaneCenteringIndicator:
     self._draw_text(self._font_bold, amount, rl.Vector2(amount_x, text_y), VALUE_SIZE, 0, self._shown_color)
     self._draw_text(self._font_bold, unit, rl.Vector2(amount_x + amount_w + UNIT_GAP, text_y + VALUE_SIZE - UNIT_SIZE),
                     UNIT_SIZE, 0, WHITE)
+
+  def _draw_one_line(self, right: float, text_y: float) -> None:
+    """Stands where the distance off center would, right aligned to `right`, in the One-Line Mode color."""
+    label = tr("one line")
+    size = SMALL_SIZE + 9
+    label_w = measure_text_cached(self._font_bold, label, size).x
+    self._draw_text(self._font_bold, label, rl.Vector2(right - label_w, text_y + 6), size, 0, LIGHT_BLUE)
 
   def _draw_arrow(self, cx: float, cy: float, r: float, pointing_right: bool) -> None:
     self._arrow_triangle(cx + SHADOW_OFF, cy + SHADOW_OFF, r, pointing_right, SHADOW)
@@ -312,6 +352,15 @@ class LaneCenteringIndicator:
     # the detent sits on top so the center stays readable at any fill
     detent_w = max(2.0, h * 0.14)
     rl.draw_rectangle(int(cx - detent_w / 2), int(y - h * 0.3), int(detent_w), int(h * 1.6), DETENT)
+
+    if self._shown_line_side:
+      # One-Line Mode: a painted line standing just beyond the end of the bar on the side its line is on
+      mark_w = max(3.0, h * 0.3)
+      gap = max(4.0, h * 0.4)
+      mark_x = x + w + gap if self._shown_line_side > 0 else x - gap - mark_w
+      mark = rl.Rectangle(mark_x, y - h * 0.5, mark_w, h * 2.0)
+      rl.draw_rectangle_rounded(rl.Rectangle(mark.x + SHADOW_OFF, mark.y + SHADOW_OFF, mark.width, mark.height), 1.0, 8, SHADOW)
+      rl.draw_rectangle_rounded(mark, 1.0, 8, WHITE)
 
   def _offset_parts(self) -> tuple[str, str]:
     """The distance off center, split into the part that takes the value color and the part that
