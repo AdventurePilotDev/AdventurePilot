@@ -2,7 +2,13 @@
 
 Lane Centering keeps the car in the middle of the two painted lines, instead of letting it settle wherever the driving model happens to put it. It is a small, continuous trim on top of normal steering, not a separate steering mode, and it is eased in and out rather than switched on and off. Done properly you should not be able to feel it working - the car simply sits straighter in its lane.
 
-**Where it has landed:** the `geo-lane-a` test branch, moving onto the `dev` and `dev-a` development trunks now. It is not in any prebuilt yet. It works on any car, but everything measured so far was measured on a Rivian R1S. It is **off by default**.
+**Where it has landed:** Lane Centering itself is in the `stg` and `stg-a` prebuilts and on the `dev` and `dev-a` development trunks. The October 2026 update below - **One-Line Mode**, centering in **narrow lanes**, and the One-Line Mode display - is on `dev` and `dev-a` only so far. None of it is on `rel` / `rel-a`. It works on any car, but everything measured so far was measured on a Rivian R1S. It is **off by default**, and so is One-Line Mode.
+
+### New in the October 2026 update (dev and dev-a)
+
+- **One-Line Mode** (optional, off by default). On roads where only one lane line is clearly visible - an on-ramp with a faded edge line, a town street with a center line and a bare curb - Lane Centering used to do nothing at all. With One-Line Mode on, it keeps the car from sitting too close to the line it can see. See [One-Line Mode](#one-line-mode).
+- **Narrow lanes.** Lane Centering now keeps working in lanes down to **2.3 m** wide when both lines are clear. Before, anything under 2.6 m was rejected, so on narrow country and town roads the readout went gray even though both lines were plainly visible.
+- **On screen**, the readout shows when One-Line Mode is in charge: a light blue bar, a mark on the side of the line it is keeping clear of, and the words "one line". See [One-Line Mode on screen](#one-line-mode-on-screen).
 
 ## Why it exists
 
@@ -36,7 +42,7 @@ A hundred times a second it looks about one second of travel ahead, works out wh
 
 1. Open **Settings > sunnypilot > Steering**.
 2. Turn on **Lane Centering**.
-3. The four adjustments live behind **Customize Lane Centering**, which becomes available once the feature is on.
+3. The adjustments live behind **Customize Lane Centering**, which becomes available once the feature is on. **One-Line Mode** is in the same menu; its two distance settings appear once it is turned on.
 
 The same settings appear in Sunnylink under **Steering**, in their own **Lane Centering** section, with the adjustments in a **Lane Centering Settings** sub-panel.
 
@@ -86,9 +92,19 @@ Distances are shown in inches or centimeters according to your units setting - t
 
 ![Red: correction cut back to the cap](images/lane-centering-3x-red.png)
 
+### One-Line Mode on screen
+
+When One-Line Mode is keeping the car clear of a single line, three things change:
+
+- **The bar turns light blue** instead of green, so green keeps meaning ordinary centering between two lines. Amber and red still show when it is working hard or has hit the cap.
+- **A short upright mark**, like a painted line, stands just past the end of the bar on the side the visible line is on. The bar fills the other way, because the car is only ever moved away from that line.
+- **The words on the right say "one line"** instead of a distance off center. In this mode there is no lane middle to measure from, so a distance off center would be misleading. When no move is needed the left side says **"clear of line"** instead of "centered".
+
+All three settle twice a second like the rest of the text, so a line that flickers in and out of view does not make the readout flash.
+
 ### On a comma 4
 
-There is no room for the numbers on a comma 4 screen, so you get the bar on its own, in the lower middle. Direction and effort read exactly the same way, and it uses the same colors.
+There is no room for the numbers on a comma 4 screen, so you get the bar on its own, in the lower middle. Direction and effort read exactly the same way, and it uses the same colors, including the light blue bar and the side mark for One-Line Mode.
 
 ![The lane centering bar on a comma 4](images/lane-centering-comma4-screen.png)
 
@@ -143,6 +159,34 @@ So why 2 cm rather than 0? Neither reason is in the table. At 0 there is no hold
 
 If you have the readout turned on, this control is directly visible: the white "centered" state is the car sitting inside the tolerance. Lower the tolerance and you will see that state less often.
 
+### One-Line Mode
+
+**Off by default. Experimental.** When only one lane line is clearly visible, keep the car from sitting too close to that line.
+
+Normal Lane Centering needs both lines, because it aims at the middle between them. Where one line is missing - most on-ramps, where the line on one side is faded or absent, and many town streets, with a center line on one side and a bare curb on the other - it stands aside, and the car sits wherever the driving model puts it. That is sometimes uncomfortably close to the one line there is.
+
+One-Line Mode fills that gap, carefully:
+
+- **It only ever moves the car away from the visible line**, never towards it.
+- **It never moves the car past the middle of the lane**, as best it can estimate it from a faint line on the other side.
+- **It keeps clear of the road edge on the other side** when the driving model is sure where that edge is.
+- **It does nothing at all when it cannot see anything on the other side**, not even a faint line or a road edge. It never aims at a lane middle it cannot see.
+- **It does not follow a line that bends away from the car's path**, such as the line peeling off at a highway exit.
+- **Position in Lane** and **Let the Model Sit Off Center** do not apply in this mode, because both are measured from a lane middle it does not know.
+
+Anything it is unsure of on the far side can only make the move smaller, never larger. On the drives so far its moves were small - typically 7 to 30 cm, and never more than about 45 cm.
+
+#### How far from the line
+
+Two settings, because a car can comfortably sit closer to the line at the edge of the road than to a center line with oncoming traffic beyond it. One-Line Mode tells the two apart by how much road the driving model sees beyond the line.
+
+| Setting | Used for | Range |
+| :---- | :---- | :---- |
+| **One-Line Mode: Edge Line** | A line with the edge of the road just beyond it | Normal, or up to 30 cm closer or further |
+| **One-Line Mode: Center or Lane Line** | A center line, or a line between two lanes | Normal, or up to 30 cm closer or further |
+
+**Normal** is where the car normally sits in a lane, and is the default for both. On the device each is shown as a step closer to or further from the line. In Sunnylink the same settings are numbers from 1.2 to 1.8, where **1.5 is normal**, smaller is closer to the line and larger is further away. These are the driving model's own distances, not a measured gap between tire and paint. When it cannot tell which kind of line it is, the closer of the two settings is used.
+
 ### Show Correction On Screen
 
 Covered above - see [What you see on screen](#what-you-see-on-screen).
@@ -151,8 +195,8 @@ Covered above - see [What you see on screen](#what-you-see-on-screen).
 
 It only acts when it is confident. All of the following have to be true:
 
-- Both lane lines are clearly seen, and the model is sure where they are.
-- The gap between them is a believable lane width (2.6 m to 4.8 m), which rules out merges, splits and junk detections.
+- Both lane lines are clearly seen, and the model is sure where they are. (With **One-Line Mode** on, one clear line is enough - see [One-Line Mode](#one-line-mode) for the extra checks it makes.)
+- The gap between them is a believable lane width (2.3 m to 4.8 m), which rules out merges, splits and junk detections. Before the October 2026 update the lower limit was 2.6 m, which also ruled out ordinary narrow country and town lanes.
 - You are above about **11 mph / 18 km/h**.
 - Lateral control (MADS, or normal engagement) is on.
 - No lane change is running.
@@ -171,6 +215,10 @@ Everything measured so far is **one car, two driving models and a small number o
 | **Position in Lane** | A small value against a car that sits off center with the feature on | Whether the residual bias goes away, and whether it stays gone on a different road |
 | **Let the Model Sit Off Center** | 50% if the car declines to center where you think it should | Whether it now centers in those places, and whether it starts arguing with the model somewhere it was right |
 | **Driving model** | The same drive on two models with the feature off | Your own starting point. A model that already sits centered has very little for this feature to do |
+| **One-Line Mode** | On, with **Show Correction On Screen** on, on on-ramps and town streets with one visible line | Whether the light blue state shows where you expect, whether the mark is on the correct side, and whether the car ever moves towards the line instead of away from it |
+| **One-Line Mode distances** | One step closer and one step further on the same road | Whether "normal" feels right next to a curb and next to a center line, or one of them wants a different value |
+
+**Highway exits are the one place One-Line Mode has not been road-tested yet**, and reports are especially wanted. Where an exit lane peels away, the edge line bends away from the car's path, and One-Line Mode is designed to ignore it and stand aside. If you drive past exits with One-Line Mode on and the readout visible, please note whether it showed light blue at the exit and whether the car moved at all.
 
 Roads and conditions worth pointing it at:
 
@@ -195,7 +243,7 @@ There is an existing setting, **Adjust Camera Offset** (Settings > sunnypilot > 
 | | Lane Centering and its Position in Lane | Adjust Camera Offset |
 | :---- | :---- | :---- |
 | **What it changes** | Where the car aims, relative to the painted lines it can see | Where the car believes the camera is, which shifts its whole view of the world |
-| **Acts when** | Only when both lines are clearly visible | Always |
+| **Acts when** | Only when both lines are clearly visible (or one, with One-Line Mode on) | Always |
 | **Effect on the on-screen path** | None, the display is unchanged | Shifts the drawn path and lane lines too |
 | **Good for** | A car that sits off center in a marked lane | A genuinely mis-positioned or mis-calibrated camera |
 
@@ -204,7 +252,7 @@ Using both at once means two settings fighting over the same thing. Pick one. If
 ## Things to keep in mind
 
 - This assists you. It does not replace attention, and it does not keep the car in its lane on its own.
-- It does nothing at all where there are no clear lines - unmarked roads, road work, snow, faded paint, wide intersections. That is deliberate, and in those places the car steers exactly as it did before.
+- It does nothing at all where there are no clear lines - unmarked roads, road work, snow, faded paint, wide intersections. That is deliberate, and in those places the car steers exactly as it did before. One-Line Mode only adds roads with **one** clear line; it still does nothing where there is none.
 - It aims at the middle of the lines **the camera can see**. If the markings themselves are off, or one line is a curb edge the model has read as a line, the middle it works out will be off with them.
 - If turning it on visibly moves the car off center the *other* way, that is the lane-line reading being slightly biased rather than the feature misbehaving. Trim it out with **Position in Lane**.
 - It works the same whether the car is steering with torque or with the angle harness, because it acts before either takes over.
@@ -217,6 +265,9 @@ Using both at once means two settings fighting over the same thing. Pick one. If
 - **It was better before the update.** Check the two numbers. An update keeps whatever your device already had, so a device that has been through several builds may still be on 30% strength and a 4 cm tolerance.
 - **The car now sits off center the other way.** Expected on some roads and some models - the lane-line reading is slightly biased. Dial a small **Position in Lane** value the opposite way and see whether it holds on a different road too.
 - **The readout flickers between states.** It should not - the text settles twice a second on purpose. Rapid flicker of the *bar* is normal and is the lane lines dropping in and out for a few frames at a time.
+- **There is no One-Line Mode in the menu.** It is only on `dev` and `dev-a` so far. On a prebuilt, check which branch you are on under **Settings > Software**.
+- **The bar is light blue and says "one line" on a road with two clear lines.** The driving model is not sure of one of the lines, even if it looks fine to you. Worth reporting with the route and time.
+- **The car moved towards the one visible line.** It should never do that. Please report it with the route and time.
 - **I can feel it working.** That is worth reporting. Note the road, the speed and both settings. Try 40% before you conclude the feature is at fault, since strength is the most likely cause.
 - **It fights me when I take the wheel.** It should not - it stands down with the rest of lateral control. Report this one with the time and route.
 
