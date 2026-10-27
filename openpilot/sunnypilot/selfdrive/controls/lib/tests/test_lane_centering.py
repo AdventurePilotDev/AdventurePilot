@@ -105,10 +105,19 @@ def test_low_confidence_is_noop(field, value):
 
 @pytest.mark.parametrize("left,right", [
   (-1.0, 1.0),             # 2.0 m, too narrow
+  (-1.0, 1.2),             # 2.2 m, still too narrow
   (-3.0, 3.0),             # 6.0 m, too wide
 ])
 def test_implausible_lane_width_is_noop(left, right):
   assert _update(_controller(), _model(left=left, right=right)) == 0.0
+
+
+def test_narrow_lane_with_both_lines_sure_is_centered():
+  # A 2.45 m country lane, as on route 00000043 seg 7, with the car 0.25 m toward one line
+  controller, output = _converge(_model(left=-1.0, right=1.45, path_std=0.9))
+  assert controller.active
+  assert controller.center_error == pytest.approx(0.225, abs=1e-6)
+  assert output > 0.0
 
 
 def test_missing_lane_data_is_noop():
