@@ -113,6 +113,8 @@ class ControlsExt(ModelStateBase):
     CC_SP.laneCentering.correction = float(self.lane_centering.correction)
     CC_SP.laneCentering.offset = float(self.lane_centering.center_error)
     CC_SP.laneCentering.clipped = bool(self.lane_centering.clipped)
+    CC_SP.laneCentering.singleLine = bool(self.lane_centering.single_line)
+    CC_SP.laneCentering.lineSide = int(self.lane_centering.line_side)
 
     return CC_SP
 

@@ -455,6 +455,21 @@ def test_single_line_pushes_away_from_a_close_line(side):
 
 
 @SIDES
+def test_single_line_reports_the_side_of_its_line_for_the_screen(side):
+  # The indicator marks the line on the side it is on, which is opposite the push. It is reported
+  # while holding too, when there is no push to read the side from.
+  for near in (1.0, 1.6):
+    controller, _ = _single(model=_one_line(side, near=near))
+    assert controller.single_line
+    assert controller.line_side == -_away(side)
+  controller.reset()
+  assert not controller.single_line and controller.line_side == 0
+  # Two good lines is ordinary centering, with no side to mark
+  controller, _ = _single(model=_model(left=-1.0, right=2.4))
+  assert not controller.single_line and controller.line_side == 0
+
+
+@SIDES
 def test_single_line_leaves_a_car_already_far_enough(side):
   controller, output = _single(model=_one_line(side, near=1.6))
   assert output == 0.0

@@ -78,6 +78,7 @@ class LaneCenteringController:
     self.center_error = 0.0
     self.clipped = False
     self.single_line = False
+    self.line_side = 0  # side of the car the One-Line Mode line is on, signed like the correction
 
   def get_params(self) -> None:
     self.enabled = self.params.get_bool("LaneCenteringEnabled")
@@ -108,6 +109,7 @@ class LaneCenteringController:
     self.center_error = 0.0
     self.clipped = False
     self.single_line = False
+    self.line_side = 0
 
   def _release(self) -> float:
     """Fade whatever correction is applied back to zero instead of dropping it in one frame."""
@@ -285,6 +287,7 @@ class LaneCenteringController:
       push = min(push, max(0.0, far_edge - FAR_EDGE_MIN_DISTANCE))
 
     self.single_line = True
+    self.line_side = -int(away)
     self.center_error = away * push
     if push <= self.deadband:
       self.holding = True
