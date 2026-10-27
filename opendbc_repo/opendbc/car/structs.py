@@ -153,6 +153,8 @@ class CarControlSP:
     correction: float = auto_field()
     offset: float = auto_field()
     clipped: bool = auto_field()
+    singleLine: bool = auto_field()
+    lineSide: int = auto_field()
 
   @auto_dataclass
   class Param:

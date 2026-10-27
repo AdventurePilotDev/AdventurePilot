@@ -19,6 +19,7 @@ from openpilot.common.constants import CV
 from openpilot.selfdrive.selfdrived.events import Events
 from openpilot.sunnypilot.selfdrive.car import car_specific
 from openpilot.sunnypilot.selfdrive.car.car_specific import CarSpecificEventsSP
+from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
 
 EventName = log.OnroadEvent.EventName
 EventNameSP = custom.OnroadEventSP.EventName
@@ -44,13 +45,16 @@ class FakeParams:
     return False
 
 
-def _blocked(monkeypatch, min_engage_mph, v_ego_mph, enable_events=(), brand='rivian'):
+def _blocked(monkeypatch, min_engage_mph, v_ego_mph, enable_events=(), brand='rivian', enhanced=True):
   """Was engagement refused at v_ego_mph, with the gate set to min_engage_mph?"""
   monkeypatch.setattr(car_specific, "Params", lambda: FakeParams(min_engage_mph))
 
   CP = structs.CarParams.new_message()
   CP.brand = brand
-  ev = CarSpecificEventsSP(CP, structs.CarParamsSP())
+  CP_SP = structs.CarParamsSP()
+  if enhanced:
+    CP_SP.flags |= RivianFlagsSP.ENHANCED_MADS.value
+  ev = CarSpecificEventsSP(CP, CP_SP)
 
   CS = structs.CarState.new_message()
   CS.vEgo = v_ego_mph * CV.MPH_TO_MS
@@ -96,6 +100,10 @@ class TestRivianMinEngageSpeed:
     # deleting that guard changes nothing. The guard is documentation, not logic.
     for speed in (0, 3, 60):
       assert not _blocked(monkeypatch, 0, speed)
+
+  def test_enhanced_mads_off_never_blocks(self, monkeypatch):
+    # the minimum engage speed is part of "Use enhanced Rivian MADS"
+    assert not _blocked(monkeypatch, 5, 0, enhanced=False)
 
   def test_non_rivian_never_blocks(self, monkeypatch):
     assert not _blocked(monkeypatch, 5, 0, brand='toyota')

@@ -20,7 +20,8 @@ LaneChangeState = log.LaneChangeState
 MIN_V_EGO = 5.0                # m/s, below this the lane lines are not worth trusting
 MIN_LANE_PROB = 0.6            # both lines must be at least this likely to be real
 MAX_LANE_STD = 0.3             # m, and no more uncertain than this
-MIN_LANE_WIDTH = 2.6           # m, rejects merges, splits and junk detections
+MIN_LANE_WIDTH = 2.3           # m, rejects merges, splits and junk detections. Narrow country and town lanes
+                               # measure 2.4-2.6 m with both lines sure, and none in the logs come in under 2.2
 MAX_LANE_WIDTH = 4.8           # m
 MAX_OFFSET = 0.3               # m, largest deliberate offset from center the driver can ask for
 MIN_CENTER_TO_LINE = 1.1       # m, never aim closer than this to either line
@@ -40,6 +41,22 @@ E2E_MAX_PATH_STD = 0.35        # m, above this the model is not confident enough
 E2E_BREAK_IN_START = 0.15      # m of error where the model starts getting its way
 E2E_BREAK_IN_FULL = 0.50       # m of error where it gets all of it
 
+# Single-line mode: when only one line is trusted (a ramp with a faded edge line, a town street with a
+# center line and a bare curb), keep the car from sitting too close to that line. It only ever pushes
+# away from the trusted line, and anything the model is unsure of on the far side can only shrink the
+# push. Sides are never assumed: whether the line is at the road edge or within the road comes from
+# the model's road edge just beyond it, so it works the same whichever side of the road traffic drives.
+# Distances are in the model's own units, where the car normally sits about 1.5 m from each line.
+SINGLE_LINE_DEFAULT_DISTANCE = 1.5  # m, line to car center, the car's normal position in a lane
+SINGLE_LINE_MIN_DISTANCE = 1.2      # m, range of the driver settings
+SINGLE_LINE_MAX_DISTANCE = 1.8      # m
+SINGLE_LINE_NEAR_X = 4.0            # m, where the trusted line is checked against the path a second time
+SINGLE_LINE_PARALLEL_TOL = 0.3      # m, a line peeling away from the path (an exit gore) is not followed
+EDGE_LINE_MAX_GAP = 2.5             # m, less road than this beyond the line makes it an edge line, not a lane line
+MAX_ROAD_EDGE_STD = 1.0             # m, a road edge more uncertain than this is not used at all
+SINGLE_LINE_MIN_WIDTH = 2.6         # m, stricter than MIN_LANE_WIDTH because this width leans on the untrusted line
+FAR_EDGE_MIN_DISTANCE = 1.8         # m, car center to the far road edge after the push, about 0.8 m from the tire
+
 
 class LaneCenteringController:
   def __init__(self, params):
@@ -51,12 +68,17 @@ class LaneCenteringController:
     self.e2e_authority = 1.0
     self.gain = DEFAULT_GAIN
     self.deadband = CENTER_ERROR_DEADBAND
+    self.single_line_enabled = False
+    self.edge_line_distance = SINGLE_LINE_DEFAULT_DISTANCE
+    self.lane_line_distance = SINGLE_LINE_DEFAULT_DISTANCE
     self.correction = 0.0
     # Reported to the on-screen indicator. Nothing here feeds back into the control path.
     self.active = False
     self.holding = False
     self.center_error = 0.0
     self.clipped = False
+    self.single_line = False
+    self.line_side = 0  # side of the car the One-Line Mode line is on, signed like the correction
 
   def get_params(self) -> None:
     self.enabled = self.params.get_bool("LaneCenteringEnabled")
@@ -71,6 +93,11 @@ class LaneCenteringController:
     # the road, and comparing values needs them changeable between legs of a single drive.
     deadband = self.params.get("LaneCenteringDeadband", return_default=True)
     self.deadband = float(np.clip(deadband, 0.0, MAX_CENTER_ERROR_DEADBAND))
+    self.single_line_enabled = self.params.get_bool("LaneCenteringSingleLine")
+    edge = self.params.get("LaneCenteringSingleLineEdgeDist", return_default=True)
+    self.edge_line_distance = float(np.clip(edge, SINGLE_LINE_MIN_DISTANCE, SINGLE_LINE_MAX_DISTANCE))
+    lane = self.params.get("LaneCenteringSingleLineLaneDist", return_default=True)
+    self.lane_line_distance = float(np.clip(lane, SINGLE_LINE_MIN_DISTANCE, SINGLE_LINE_MAX_DISTANCE))
 
   def reset(self) -> None:
     self.correction = 0.0
@@ -81,6 +108,8 @@ class LaneCenteringController:
     self.holding = False
     self.center_error = 0.0
     self.clipped = False
+    self.single_line = False
+    self.line_side = 0
 
   def _release(self) -> float:
     """Fade whatever correction is applied back to zero instead of dropping it in one frame."""
@@ -130,12 +159,13 @@ class LaneCenteringController:
       stds = np.asarray(model_v2.laneLineStds, dtype=float)
       if len(lane_lines) < 3 or probs.size < 3 or stds.size < 3:
         return False, 0.0
-      if not np.isfinite(probs[[1, 2]]).all() or not np.isfinite(stds[[1, 2]]).all():
+      trusted = [self._trusted(probs[i], stds[i]) for i in (1, 2)]
+      if not any(trusted):
         return False, 0.0
-      if np.any(probs[[1, 2]] < MIN_LANE_PROB) or np.any(probs[[1, 2]] > 1.0):
-        return False, 0.0
-      if np.any(stds[[1, 2]] < 0.0) or np.any(stds[[1, 2]] > MAX_LANE_STD):
-        return False, 0.0
+      if not all(trusted):
+        if not self.single_line_enabled:
+          return False, 0.0
+        return self._single_line_correction(model_v2, v_ego, 1 if trusted[0] else 2)
 
       left_x = np.asarray(lane_lines[1].x, dtype=float)
       left_y = np.asarray(lane_lines[1].y, dtype=float)
@@ -186,3 +216,83 @@ class LaneCenteringController:
       return True, float(correction)
     except (AttributeError, IndexError, TypeError, ValueError):
       return False, 0.0
+
+  @staticmethod
+  def _trusted(prob: float, std: float) -> bool:
+    return bool(math.isfinite(prob) and math.isfinite(std) and MIN_LANE_PROB <= prob <= 1.0 and 0.0 <= std <= MAX_LANE_STD)
+
+  def _line_at(self, line, distance: float) -> float:
+    """Lateral position of a model line at a distance ahead, nan when the model has none there."""
+    x = np.asarray(line.x, dtype=float)
+    y = np.asarray(line.y, dtype=float)
+    if not self._valid_path(x, y) or not self._covers(x, distance):
+      return math.nan
+    return float(np.interp(distance, x, y))
+
+  def _road_edge_at(self, model_v2, index: int, distance: float) -> float:
+    """Lateral position of a road edge, nan when the model is not sure enough of it to be used."""
+    try:
+      std = float(model_v2.roadEdgeStds[index])
+      edge = model_v2.roadEdges[index]
+    except (AttributeError, IndexError, TypeError, ValueError):
+      return math.nan
+    if not math.isfinite(std) or not 0.0 <= std <= MAX_ROAD_EDGE_STD:
+      return math.nan
+    return self._line_at(edge, distance)
+
+  def _single_line_correction(self, model_v2, v_ego: float, line: int) -> tuple[bool, float]:
+    """Push away from the one trusted line when the model's path sits closer to it than the set distance.
+
+    Never pushes towards the trusted line, never past the middle of the lane as estimated from the
+    untrusted far line, never closer than FAR_EDGE_MIN_DISTANCE to a far road edge the model is sure
+    of, and not at all when nothing is known about the far side. The driver's offset and the model
+    authority setting do not apply: both are defined against a lane middle this mode does not know.
+    """
+    # +1 when the trusted line is on the car's left (line 1), so a push away from it is to the right
+    away = 1.0 if line == 1 else -1.0
+    lane_lines = model_v2.laneLines
+    pos = model_v2.position
+    lookahead = float(np.clip(v_ego, LOOKAHEAD_MIN, LOOKAHEAD_MAX))
+
+    path = self._line_at(pos, lookahead)
+    path_near = self._line_at(pos, SINGLE_LINE_NEAR_X)
+    dist = away * (path - self._line_at(lane_lines[line], lookahead))
+    dist_near = away * (path_near - self._line_at(lane_lines[line], SINGLE_LINE_NEAR_X))
+    if not (math.isfinite(dist) and math.isfinite(dist_near)) or dist <= 0.0:
+      return False, 0.0
+    # A line running away from the path, like the edge line at an exit, is not one to keep clear of
+    if abs(dist - dist_near) > SINGLE_LINE_PARALLEL_TOL:
+      return False, 0.0
+
+    # Edge line or lane line, from how much road the model sees just beyond it
+    same_edge = self._road_edge_at(model_v2, 0 if line == 1 else 1, lookahead)
+    if math.isfinite(same_edge):
+      gap = -away * (same_edge - (path - away * dist))
+      min_dist = self.edge_line_distance if gap < EDGE_LINE_MAX_GAP else self.lane_line_distance
+    else:
+      min_dist = min(self.edge_line_distance, self.lane_line_distance)
+    push = max(0.0, min_dist - dist)
+
+    # What is known about the far side may only shrink the push
+    far_line = away * (self._line_at(lane_lines[3 - line], lookahead) - path)
+    far_edge = away * (self._road_edge_at(model_v2, 1 if line == 1 else 0, lookahead) - path)
+    if not math.isfinite(far_line) and not math.isfinite(far_edge):
+      return False, 0.0
+    if math.isfinite(far_line):
+      width = dist + far_line
+      if width < SINGLE_LINE_MIN_WIDTH:
+        return False, 0.0
+      push = min(push, max(0.0, min(min_dist, 0.5 * width) - dist))
+    if math.isfinite(far_edge):
+      push = min(push, max(0.0, far_edge - FAR_EDGE_MIN_DISTANCE))
+
+    self.single_line = True
+    self.line_side = -int(away)
+    self.center_error = away * push
+    if push <= self.deadband:
+      self.holding = True
+      return True, 0.0
+    correction = 2.0 * away * (push - self.deadband) / lookahead ** 2
+    if not math.isfinite(correction):
+      return False, 0.0
+    return True, float(correction)
