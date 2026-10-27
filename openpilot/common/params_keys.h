@@ -177,6 +177,9 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"LaneCenteringEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"LaneCenteringGain", {PERSISTENT | BACKUP, FLOAT, "0.60"}},  // fraction of the geometric demand applied, 0.60 settled by road testing
     {"LaneCenteringOffset", {PERSISTENT | BACKUP, FLOAT, "0.0"}},  // meters, positive is to the right
+    {"LaneCenteringSingleLine", {PERSISTENT | BACKUP, BOOL, "0"}},  // keep clear of the one trusted line when the other is not trusted
+    {"LaneCenteringSingleLineEdgeDist", {PERSISTENT | BACKUP, FLOAT, "1.5"}},  // m in model units, from a line at the road edge, 1.5 = normal position
+    {"LaneCenteringSingleLineLaneDist", {PERSISTENT | BACKUP, FLOAT, "1.5"}},  // m in model units, from a center or lane line, 1.5 = normal position
     {"LastGPSPositionLLK", {PERSISTENT, STRING}},
     {"LeadDepartAlert", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"MaxTimeOffroad", {PERSISTENT | BACKUP, INT, "1800"}},
@@ -293,6 +296,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
 
     // Rivian
     {"RivianResumeEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"RivianEnhancedMads", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"RivianEnableAngleSteering",       {PERSISTENT | BACKUP, BOOL, "1"}},
     {"RivianAngleSteerMinSpeed",        {PERSISTENT | BACKUP, INT,  "0"}},
     {"RivianForceTorqueSteer",          {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL, "0"}},

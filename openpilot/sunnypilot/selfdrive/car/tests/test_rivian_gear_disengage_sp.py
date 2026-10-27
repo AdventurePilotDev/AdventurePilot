@@ -15,8 +15,10 @@ from openpilot.cereal import custom
 from opendbc.car import structs
 from openpilot.selfdrive.selfdrived.events import Events
 from openpilot.sunnypilot.selfdrive.car.car_specific import CarSpecificEventsSP
+from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
 
 EventNameSP = custom.OnroadEventSP.EventName
+ButtonType = structs.CarState.ButtonEvent.Type
 GearShifter = structs.CarState.GearShifter
 
 DRIVE = GearShifter.drive
@@ -24,19 +26,24 @@ REVERSE = GearShifter.reverse
 PARK = GearShifter.park
 
 
-def _disables(gears):
+def _disables(gears, enhanced=True, up2_on_first_frame=False):
   """Feed a gear sequence through one CarSpecificEventsSP, one update() per gear.
 
   Returns whether lkasDisable was emitted on each frame.
   """
   CP = structs.CarParams.new_message()
   CP.brand = 'rivian'
-  ev = CarSpecificEventsSP(CP, structs.CarParamsSP())
+  CP_SP = structs.CarParamsSP()
+  if enhanced:
+    CP_SP.flags |= RivianFlagsSP.ENHANCED_MADS.value
+  ev = CarSpecificEventsSP(CP, CP_SP)
 
   out = []
-  for gear in gears:
+  for i, gear in enumerate(gears):
     CS = structs.CarState.new_message()
     CS.gearShifter = gear
+    if up2_on_first_frame and i == 0:
+      CS.buttonEvents = [structs.CarState.ButtonEvent(pressed=True, type=ButtonType.altButton2)]
     out.append(ev.update(CS, Events()).has(EventNameSP.lkasDisable))
   return out
 
@@ -63,3 +70,10 @@ class TestRivianGearDisengage:
   def test_park_entry_still_fires_two_frames(self):
     # guards the pre-existing park path against interference from the reverse block
     assert _disables([DRIVE, PARK, PARK, PARK]) == [False, True, True, False]
+
+  def test_up2_disengages(self):
+    assert _disables([DRIVE, DRIVE], up2_on_first_frame=True) == [True, False]
+
+  def test_enhanced_mads_off_never_disengages(self):
+    # with "Use enhanced Rivian MADS" off, MADS is stock: no UP_2, Park or Reverse disengage
+    assert _disables([DRIVE, REVERSE, REVERSE, PARK, PARK, DRIVE], enhanced=False, up2_on_first_frame=True) == [False] * 6

@@ -18,6 +18,7 @@ from opendbc.car.toyota.values import ToyotaSafetyFlags
 from opendbc.sunnypilot.car.hyundai.enable_radar_tracks import enable_radar_tracks as hyundai_enable_radar_tracks
 from opendbc.sunnypilot.car.hyundai.longitudinal.helpers import LongitudinalTuningType
 from opendbc.sunnypilot.car.hyundai.values import HyundaiFlagsSP
+from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP, RivianSafetyFlagsSP
 from opendbc.sunnypilot.car.subaru.values_ext import SubaruFlagsSP, SubaruSafetyFlagsSP
 from opendbc.sunnypilot.car.tesla.values import MadsScreenButtonType, TeslaFlagsSP, TeslaSafetyFlagsSP
 from opendbc.sunnypilot.car.toyota.values import ToyotaFlagsSP
@@ -87,6 +88,7 @@ def setup_interfaces(CI, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
   _initialize_custom_longitudinal_tuning(CI, CP, CP_SP, params_dict)
   _initialize_coop_steering(CP, CP_SP, params_dict)
   _initialize_tesla_mads_screen_button(CP, CP_SP, params_dict)
+  _initialize_rivian_enhanced_mads(CP, CP_SP, params_dict)
   _initialize_radar_tracks(CP, CP_SP, can_recv, can_send)
   _initialize_stop_and_go(CP, CP_SP, params_dict)
   _initialize_toyota(CP, CP_SP, params_dict)
@@ -127,6 +129,16 @@ def _initialize_tesla_mads_screen_button(CP: structs.CarParams, CP_SP: structs.C
     elif selection == MadsScreenButtonType.FIVE_FINGER:
       CP_SP.flags |= TeslaFlagsSP.MADS_SCREEN_BUTTON_5_FINGER.value
       CP_SP.safetyParam |= TeslaSafetyFlagsSP.MADS_SCREEN_BUTTON_5_FINGER
+
+
+def _initialize_rivian_enhanced_mads(CP: structs.CarParams, CP_SP: structs.CarParamsSP,
+                                     params_dict: dict[str, str]) -> None:
+  # "Use enhanced Rivian MADS": the MADS stalk, all three brake modes, Park/Reverse/UP_2 disengage and
+  # the minimum engage speed. Read once here so the panda, card and selfdrived agree for the whole drive.
+  if CP.brand == 'rivian':
+    if str(params_dict.get("RivianEnhancedMads", False)) in ("1", "True"):
+      CP_SP.flags |= RivianFlagsSP.ENHANCED_MADS.value
+      CP_SP.safetyParam |= RivianSafetyFlagsSP.ENHANCED_MADS
 
 
 def _initialize_radar_tracks(CP: structs.CarParams, CP_SP: structs.CarParamsSP,

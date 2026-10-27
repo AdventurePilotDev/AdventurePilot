@@ -47,6 +47,8 @@ static uint32_t rivian_compute_checksum(const CANPacket_t *msg) {
 }
 
 static uint8_t rivian_prev_user_adas_request = 0U;
+// "Use enhanced Rivian MADS" setting. Off, MADS here is stock: no stalk MADS toggle.
+static bool rivian_enhanced_mads = false;
 
 static bool rivian_get_quality_flag_valid(const CANPacket_t *msg) {
   bool valid = false;
@@ -79,7 +81,7 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
     }
 
     // VDM_AdasSts: stalk position — used to manage MADS lateral state
-    if (msg->addr == 0x162U) {
+    if ((msg->addr == 0x162U) && rivian_enhanced_mads) {
       const uint8_t user_adas_request = msg->data[7] & 0x7U;
 
       // UP_1 (value 1) is the MADS toggle gesture. Drive mads_button_press so
@@ -123,14 +125,16 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
   }
 
   if (msg->bus == 2U) {
-    // Cruise state — also drives mads_state_update() via stock_ecu_check so that
-    // controls_allowed_lateral is updated every time ACM_Status arrives (100 Hz).
+    // Cruise state. With enhanced MADS it also drives mads_state_update() via stock_ecu_check
+    // so that controls_allowed_lateral is updated every time ACM_Status arrives (100 Hz).
     // acc_main_on is left false: lateral is not tied to ACC state, allowing Mode B
     // (MADS active without ACC) to work correctly for Keep Active / Pause modes.
     if (msg->addr == 0x100U) {
       const int feature_status = msg->data[2] >> 5U;
       pcm_cruise_check(feature_status == 1);
-      stock_ecu_check(false);
+      if (rivian_enhanced_mads) {
+        stock_ecu_check(false);
+      }
     }
   }
 }
@@ -234,6 +238,9 @@ static safety_config rivian_init(uint16_t param) {
 
   SAFETY_UNUSED(param);
   rivian_prev_user_adas_request = 0U;
+
+  const uint16_t RIVIAN_PARAM_SP_ENHANCED_MADS = 1;
+  rivian_enhanced_mads = GET_FLAG(current_safety_param_sp, RIVIAN_PARAM_SP_ENHANCED_MADS);
   #ifdef ALLOW_DEBUG
     const int FLAG_RIVIAN_LONG_CONTROL = 1;
     rivian_longitudinal = GET_FLAG(param, FLAG_RIVIAN_LONG_CONTROL);

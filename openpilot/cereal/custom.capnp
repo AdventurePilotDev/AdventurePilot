@@ -422,6 +422,8 @@ struct CarControlSP @0xa5cd762cd951a455 {
     correction @2 :Float32;  # 1/m, signed, the curvature actually added. positive is to the right
     offset @3 :Float32;      # m, signed, distance off the aim point before the deadband is taken out
     clipped @4 :Bool;        # the raw demand hit MAX_RAW_CORRECTION and was cut back
+    singleLine @5 :Bool;     # One-Line Mode is in charge: only one line is trusted and the car is kept clear of it
+    lineSide @6 :Int8;       # which side of the car that line is on, signed like correction: +1 right, -1 left, 0 when not in One-Line Mode
   }
 
   struct Param {
