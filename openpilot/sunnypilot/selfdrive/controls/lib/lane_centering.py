@@ -41,6 +41,14 @@ E2E_MAX_PATH_STD = 0.35        # m, above this the model is not confident enough
 E2E_BREAK_IN_START = 0.15      # m of error where the model starts getting its way
 E2E_BREAK_IN_FULL = 0.50       # m of error where it gets all of it
 
+# In a curve the model cuts the corner: replayed over every stored drive, 16 of the 18 biggest confident
+# departures in curves were the car drifting to the inside of the bend, towards the edge line or the
+# centre line. So in a curve the model gets no authority, and the push is capped instead, so that a
+# deliberate move in a bend is only ever resisted gently. The bend is measured as in Gerrylum's Lane Guard.
+CURVE_MIN_CURVATURE = 1 / 1000.  # 1/m, a lane bending tighter than a 1000 m radius is a curve
+CURVE_MEASURE_TIME = 2.5         # s of travel over which the bend of the lane is measured
+CURVE_MAX_LAT_ACCEL = 0.4        # m/s^2, the most the centering may push in a curve
+
 # Single-line mode: when only one line is trusted (a ramp with a faded edge line, a town street with a
 # center line and a bare curb), keep the car from sitting too close to that line. It only ever pushes
 # away from the trusted line, and anything the model is unsure of on the far side can only shrink the
@@ -72,6 +80,7 @@ class LaneCenteringController:
     self.edge_line_distance = SINGLE_LINE_DEFAULT_DISTANCE
     self.lane_line_distance = SINGLE_LINE_DEFAULT_DISTANCE
     self.correction = 0.0
+    self.curved = False  # both lines trusted and the lane bends tighter than CURVE_MIN_CURVATURE
     # Reported to the on-screen indicator. Nothing here feeds back into the control path.
     self.active = False
     self.holding = False
@@ -140,6 +149,10 @@ class LaneCenteringController:
     self.active = True
     self.clipped = abs(raw_correction) >= MAX_RAW_CORRECTION
     target = float(np.clip(raw_correction, -MAX_RAW_CORRECTION, MAX_RAW_CORRECTION)) * self.gain
+    if self.curved:
+      curve_cap = CURVE_MAX_LAT_ACCEL / v_ego ** 2
+      self.clipped = self.clipped or abs(target) > curve_cap
+      target = float(np.clip(target, -curve_cap, curve_cap))
     self.correction = float(smooth_value(target, self.correction, SMOOTH_TAU, dt=DT_CTRL))
     return desired_curvature + self.correction
 
@@ -153,6 +166,7 @@ class LaneCenteringController:
 
   def _raw_correction(self, model_v2, v_ego: float) -> tuple[bool, float]:
     """The curvature that would close the gap to lane center over the lookahead distance."""
+    self.curved = False
     try:
       lane_lines = model_v2.laneLines
       probs = np.asarray(model_v2.laneLineProbs, dtype=float)
@@ -185,6 +199,7 @@ class LaneCenteringController:
       width = right - left
       if not MIN_LANE_WIDTH <= width <= MAX_LANE_WIDTH:
         return False, 0.0
+      self.curved = abs(self._lane_curvature(left_x, left_y, right_x, right_y, v_ego)) > CURVE_MIN_CURVATURE
 
       # Never let the requested offset aim us closer to a line than MIN_CENTER_TO_LINE
       max_safe_offset = min(MAX_OFFSET, max(0.0, width * 0.5 - MIN_CENTER_TO_LINE))
@@ -202,9 +217,10 @@ class LaneCenteringController:
       error = math.copysign(error_abs - self.deadband, error)
 
       # A confident model that is deliberately well off center is probably avoiding something,
-      # so give it its way in proportion to how far off center it has chosen to be
+      # so give it its way in proportion to how far off center it has chosen to be. Not in a curve,
+      # where being well off center is the model cutting the corner.
       pos_y_std = np.asarray(model_v2.position.yStd, dtype=float)
-      if self._valid_path(pos_x, pos_y_std):
+      if not self.curved and self._valid_path(pos_x, pos_y_std):
         path_std = float(np.interp(lookahead, pos_x, pos_y_std))
         if 0.0 <= path_std <= E2E_MAX_PATH_STD:
           break_in = np.clip((error_abs - E2E_BREAK_IN_START) / (E2E_BREAK_IN_FULL - E2E_BREAK_IN_START), 0.0, 1.0)
@@ -216,6 +232,14 @@ class LaneCenteringController:
       return True, float(correction)
     except (AttributeError, IndexError, TypeError, ValueError):
       return False, 0.0
+
+  @staticmethod
+  def _lane_curvature(left_x, left_y, right_x, right_y, v_ego: float) -> float:
+    """How tightly the middle of the lane bends over the next CURVE_MEASURE_TIME, in 1/m."""
+    xs = np.linspace(5.0, max(30.0, CURVE_MEASURE_TIME * v_ego), 10)
+    middle = 0.5 * (np.interp(xs, left_x, left_y) + np.interp(xs, right_x, right_y))
+    curvature = 2.0 * float(np.polyfit(xs, middle, 2)[0])
+    return curvature if math.isfinite(curvature) else 0.0
 
   @staticmethod
   def _trusted(prob: float, std: float) -> bool:

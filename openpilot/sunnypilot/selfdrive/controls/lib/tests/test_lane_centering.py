@@ -213,6 +213,45 @@ def test_zero_authority_ignores_model_confidence():
   assert confident == pytest.approx(unsure, abs=1e-9)
 
 
+# --- curves ---
+
+def _bent(model, curvature):
+  # bend the lane lines and the path together, as a curve ahead would: y += curvature / 2 * x^2
+  for line in (*model.laneLines, model.position):
+    line.y = line.y + curvature / 2 * line.x ** 2
+  return model
+
+
+def test_curve_gives_the_model_no_authority():
+  # A confident model 0.3 m off centre keeps part of that on a straight, but in a curve it is cutting the corner
+  def settled(curvature, authority):
+    return _converge(_bent(_model(model_y=0.3, path_std=0.1), curvature), authority=authority)[1]
+  assert settled(0.0, 1.0) > settled(0.0, 0.0)
+  assert settled(1 / 300, 1.0) == pytest.approx(settled(1 / 300, 0.0), abs=1e-9)
+
+
+def test_gentle_bend_is_not_a_curve():
+  # A 1500 m radius is nearly straight: a model easing over for oncoming traffic there keeps its authority
+  bend = 1 / 1500
+  assert _converge(_bent(_model(model_y=0.3), bend), authority=1.0)[1] > _converge(_bent(_model(model_y=0.3), bend), authority=0.0)[1]
+
+
+def test_curve_push_is_capped():
+  from openpilot.sunnypilot.selfdrive.controls.lib.lane_centering import CURVE_MAX_LAT_ACCEL
+  controller, output = _converge(_bent(_model(model_y=0.6), 1 / 300))
+  assert output == pytest.approx(-CURVE_MAX_LAT_ACCEL / V_EGO ** 2, rel=1e-3), "should be pinned at the curve cap"
+  assert controller.clipped
+  # the same cut on a straight is not limited by the curve cap
+  assert abs(_converge(_model(model_y=0.6, path_std=0.9))[1]) > CURVE_MAX_LAT_ACCEL / V_EGO ** 2
+
+
+def test_curve_cap_leaves_small_corrections_alone():
+  controller, output = _converge(_bent(_model(model_y=0.1), 1 / 300))
+  straight = _converge(_model(model_y=0.1))[1]
+  assert output == pytest.approx(straight, rel=1e-6)
+  assert not controller.clipped
+
+
 # --- how it lets go ---
 
 def test_confidence_loss_fades_rather_than_snaps():
