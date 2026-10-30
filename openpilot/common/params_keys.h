@@ -297,6 +297,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     // Rivian
     {"RivianResumeEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"RivianEnhancedMads", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"RivianOfftrackCompensationEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"RivianOfftrackCompensationGain", {PERSISTENT | BACKUP, FLOAT, "0.5"}},
 
     // Stop Distance
     {"SPStopDistance",            {PERSISTENT | BACKUP, INT, "60"}},

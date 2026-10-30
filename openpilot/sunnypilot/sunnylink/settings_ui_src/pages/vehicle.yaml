@@ -23,6 +23,27 @@ sections:
     enablement:
     - $ref: '#/macros/offroad'
     - $ref: '#/macros/longitudinal'
+  - key: RivianOfftrackCompensationEnabled
+    widget: toggle
+    title: Rear-Axle Off-Tracking Compensation
+    description: Widens tight turns so the rear wheels, which cut inside the front wheels' path on a long
+      wheelbase, are less likely to clip a curb. A geometric estimate from the wheelbase (3.45 m on an R1T,
+      3.08 m on an R1S, read from the VIN), not curb sensing. Off by default.
+    enablement:
+    - $ref: '#/macros/offroad'
+    sub_items:
+    - key: RivianOfftrackCompensationGain
+      widget: option
+      title: Compensation Gain
+      description: 0 = off, 1 = full geometric compensation.
+      min: 0.0
+      max: 1.0
+      step: 0.05
+      enablement:
+      - $ref: '#/macros/offroad'
+      - type: param
+        key: RivianOfftrackCompensationEnabled
+        equals: true
 - id: hyundai
   title: Hyundai / Kia / Genesis Settings
   description: ''

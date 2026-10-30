@@ -1,9 +1,9 @@
-from opendbc.car import get_safety_config, structs
+from opendbc.car import get_safety_config, scale_rot_inertia, scale_tire_stiffness, structs
 from opendbc.car.interfaces import CarInterfaceBase
 from opendbc.car.rivian.carcontroller import CarController
 from opendbc.car.rivian.carstate import CarState
 from opendbc.car.rivian.radar_interface import RadarInterface
-from opendbc.car.rivian.values import RivianFlags, RivianSafetyFlags
+from opendbc.car.rivian.values import CAR, R1T_WHEELBASE, RivianFlags, RivianSafetyFlags, is_r1t
 from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
 
 
@@ -56,6 +56,16 @@ class CarInterface(CarInterfaceBase):
   @staticmethod
   def _get_params_sp(stock_cp: structs.CarParams, ret: structs.CarParamsSP, candidate, fingerprint: dict[int, dict[int, int]],
                      car_fw: list[structs.CarParams.CarFw], alpha_long: bool, is_release_sp: bool, docs: bool) -> structs.CarParamsSP:
+    # The VIN is only known here, after get_params. Set the R1T's own wheelbase and everything derived from it
+    # the way get_params does. The panda and get_safety_CP never see a VIN, so they stay on 3.08 m together.
+    if is_r1t(stock_cp.carVin):
+      stock_cp.wheelbase = R1T_WHEELBASE
+      stock_cp.centerToFront = stock_cp.wheelbase * CAR.RIVIAN_R1.config.specs.centerToFrontRatio
+      stock_cp.rotationalInertia = scale_rot_inertia(stock_cp.mass, stock_cp.wheelbase)
+      stock_cp.tireStiffnessFront, stock_cp.tireStiffnessRear = scale_tire_stiffness(stock_cp.mass, stock_cp.wheelbase,
+                                                                                     stock_cp.centerToFront,
+                                                                                     stock_cp.tireStiffnessFactor)
+
     if 0x131a in fingerprint[1]:
       ret.flags |= RivianFlagsSP.LONGITUDINAL_HARNESS_UPGRADE.value
       stock_cp.radarUnavailable = False

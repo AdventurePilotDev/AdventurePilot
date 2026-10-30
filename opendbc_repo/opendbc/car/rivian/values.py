@@ -57,11 +57,24 @@ class CAR(Platforms):
                     car_parts=CarParts.common([CarHarness.rivian_a])),
       RivianCarDocs("Rivian R1T 2025", car_parts=CarParts.common([CarHarness.rivian_b])),
     ],
-    CarSpecs(mass=3206., wheelbase=3.08, steerRatio=15.2),
+    CarSpecs(mass=3206., wheelbase=3.08, steerRatio=15.2),  # the R1S; an R1T gets R1T_WHEELBASE from its VIN
     wmis={WMI.RIVIAN_TRUCK, WMI.RIVIAN_MPV},
     lines={ModelLine.R1T, ModelLine.R1S},
     years={ModelYear.N_2022, ModelYear.P_2023, ModelYear.R_2024, ModelYear.S_2025},
   )
+
+
+# The R1T and R1S share one platform. The R1T is the longer of the two: 3.45 m against the R1S's 3.08 m, and its
+# learned steer ratio at 3.45 m (15.74, Gerrylum's R1T) matches the R1S's at 3.08 m (15.82), which confirms it.
+# Only the vehicle model controlsd uses changes. The panda and the angle limits stay on the platform's 3.08 m.
+R1T_WHEELBASE = 3.45
+
+
+def is_r1t(vin: str) -> bool:
+  """Only a VIN that plainly reads as an R1T (truck WMI and line T) counts. Anything else, including an unread
+  VIN, keeps the platform's 3.08 m."""
+  vin_obj = Vin(vin)
+  return vin_obj.wmi == WMI.RIVIAN_TRUCK and vin_obj.vds[:1] == ModelLine.R1T
 
 
 def match_fw_to_car_fuzzy(live_fw_versions, vin, offline_fw_versions) -> set[str]:

@@ -157,3 +157,50 @@ class TestDeclinedEngagePress(unittest.TestCase):
     # stalk-down out of R is a gear change, not an ACC press: no "ACC Needs 20 mph" alert after shifting into Drive
     R, D = GearShifter.reverse, GearShifter.drive
     self.assertEqual(self._run([(R, 0), (R, 4), (D, 4), (D, 0)]), [])
+
+
+class TestR1TWheelbase(unittest.TestCase):
+  """The R1T gets its own 3.45 m wheelbase from its VIN; everything else, and the panda side, stays on 3.08 m."""
+
+  @staticmethod
+  def _cp(vin):
+    # the order car_helpers.get_car uses: get_params, then the VIN, then get_params_sp
+    from opendbc.car.rivian.interface import CarInterface
+    fingerprint = gen_empty_fingerprint()
+    cp = CarInterface.get_params(CAR.RIVIAN_R1, fingerprint, [], False, False, False)
+    cp.carVin = vin
+    CarInterface.get_params_sp(cp, CAR.RIVIAN_R1, fingerprint, [], False, False, False)
+    return cp
+
+  @staticmethod
+  def _vin(wmi, line):
+    return wmi + line + "0" * 13
+
+  def test_r1t_gets_its_wheelbase_and_derived_values(self):
+    from opendbc.car import scale_rot_inertia, scale_tire_stiffness
+    from opendbc.car.rivian.values import R1T_WHEELBASE
+    cp = self._cp(self._vin(WMI.RIVIAN_TRUCK, ModelLine.R1T))
+    r1s = self._cp(self._vin(WMI.RIVIAN_MPV, ModelLine.R1S))
+    assert abs(cp.wheelbase - R1T_WHEELBASE) < 1e-6
+    # the same centre-of-mass fraction as the platform, and the derived values computed as get_params does
+    assert abs(cp.centerToFront / cp.wheelbase - r1s.centerToFront / r1s.wheelbase) < 1e-9
+    assert abs(cp.rotationalInertia / scale_rot_inertia(cp.mass, cp.wheelbase) - 1) < 1e-6
+    front, rear = scale_tire_stiffness(cp.mass, cp.wheelbase, cp.centerToFront, cp.tireStiffnessFactor)
+    assert abs(cp.tireStiffnessFront / front - 1) < 1e-6 and abs(cp.tireStiffnessRear / rear - 1) < 1e-6
+    # nothing else about the car changes
+    assert (cp.mass, cp.steerRatio) == (r1s.mass, r1s.steerRatio)
+
+  def test_everything_else_keeps_the_platform_wheelbase(self):
+    base = self._cp("")
+    assert abs(base.wheelbase - 3.08) < 1e-6
+    for vin in (self._vin(WMI.RIVIAN_MPV, ModelLine.R1S), "0" * 17, self._vin(WMI.RIVIAN_MPV, ModelLine.R1T),
+                self._vin(WMI.RIVIAN_TRUCK, ModelLine.R1S), self._vin(WMI.RIVIAN_TRUCK, "Z")):
+      with self.subTest(vin=vin[:4]):
+        cp = self._cp(vin)
+        assert (cp.wheelbase, cp.centerToFront, cp.rotationalInertia, cp.tireStiffnessFront) == \
+               (base.wheelbase, base.centerToFront, base.rotationalInertia, base.tireStiffnessFront)
+
+  def test_non_essential_params_stay_on_the_platform_wheelbase(self):
+    # what the panda-matched angle limits are built from: it never sees a VIN
+    from opendbc.car.rivian.interface import CarInterface
+    assert abs(CarInterface.get_non_essential_params(CAR.RIVIAN_R1).wheelbase - 3.08) < 1e-6

@@ -2573,6 +2573,38 @@
               "equals": true
             }
           ]
+        },
+        {
+          "key": "RivianOfftrackCompensationEnabled",
+          "widget": "toggle",
+          "title": "Rear-Axle Off-Tracking Compensation",
+          "description": "Widens tight turns so the rear wheels, which cut inside the front wheels' path on a long wheelbase, are less likely to clip a curb. A geometric estimate from the wheelbase (3.45 m on an R1T, 3.08 m on an R1S, read from the VIN), not curb sensing. Off by default.",
+          "enablement": [
+            {
+              "type": "offroad_only"
+            }
+          ],
+          "sub_items": [
+            {
+              "key": "RivianOfftrackCompensationGain",
+              "widget": "option",
+              "title": "Compensation Gain",
+              "description": "0 = off, 1 = full geometric compensation.",
+              "min": 0.0,
+              "max": 1.0,
+              "step": 0.05,
+              "enablement": [
+                {
+                  "type": "offroad_only"
+                },
+                {
+                  "type": "param",
+                  "key": "RivianOfftrackCompensationEnabled",
+                  "equals": true
+                }
+              ]
+            }
+          ]
         }
       ]
     },
