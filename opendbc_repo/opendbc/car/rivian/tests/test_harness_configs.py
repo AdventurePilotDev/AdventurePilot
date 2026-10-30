@@ -276,6 +276,22 @@ def _actuators(curvature=0.0, torque=0.0):
 
 
 class TestExternalController(unittest.TestCase):
+  def test_angle_command_uses_the_cars_wheelbase_and_limits_stay_on_the_safety_model(self):
+    def cp_for(vin):
+      cp = _get_cp(xnor_box=True)
+      cp.carVin = vin
+      CarInterface.get_params_sp(cp, CAR.RIVIAN_R1, _fp(xnor_box=True), [], False, False, False)
+      return cp
+    r1s, r1t = ExternalController(cp_for("7PDS" + "0" * 13)), ExternalController(cp_for("7FCT" + "0" * 13))
+    for erc in (r1s, r1t):
+      self.assertAlmostEqual(erc.VM.l, 3.08, places=5)  # the panda-matched limits never see the VIN
+    # an R1S asks for exactly the angle it always did
+    for v in (5.0, 20.0, 35.0):
+      self.assertEqual(r1s.VM_cmd.get_steer_from_curvature(0.01, v, 0.0), r1s.VM.get_steer_from_curvature(0.01, v, 0.0))
+    # an R1T asks for the longer car's angle, about 3.45 / 3.08 more at low speed
+    ratio = r1t.VM_cmd.get_steer_from_curvature(0.01, 5.0, 0.0) / r1t.VM.get_steer_from_curvature(0.01, 5.0, 0.0)
+    self.assertAlmostEqual(ratio, 3.45 / 3.08, delta=0.01)
+
   def test_torque_only_pinning(self):
     # without angle hardware the controller collapses to plain torque: never hands off
     erc = ExternalController(_get_cp())

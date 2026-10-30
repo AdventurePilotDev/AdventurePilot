@@ -117,7 +117,11 @@ class ExternalController:
     self.CP = CP
     self.steer_ratio = CP.steerRatio
     self.wheelbase = CP.wheelbase
+    # Two vehicle models. Every limit is worked out on the safety model, which matches the panda and never sees a
+    # VIN, so it stays on 3.08 m. The angle actually asked for comes from the car's own model, so an R1T (3.45 m from
+    # its VIN) gets the angle its longer wheelbase needs; the limits then cap it as before. Identical on an R1S.
     self.VM = VehicleModel(get_safety_CP())
+    self.VM_cmd = VehicleModel(CP)
     # without angle hardware this collapses to a plain torque controller: torque_active
     # is pinned while lateral is active and the angle channel never engages
     self.angle_supported = bool(CP.flags & RivianFlags.ANGLE_HARNESS)
@@ -183,7 +187,7 @@ class ExternalController:
 
   def update(self, CS, lat_active: bool, actuators):
     self._update_hands_on(CS)
-    desired_angle = math.degrees(self.VM.get_steer_from_curvature(-float(actuators.curvature), CS.out.vEgo, self.roll)) + self.angle_offset_deg
+    desired_angle = math.degrees(self.VM_cmd.get_steer_from_curvature(-float(actuators.curvature), CS.out.vEgo, self.roll)) + self.angle_offset_deg
     self._update_torque_active(CS, lat_active, desired_angle, actuators)
     desired_lat_accel = float(actuators.curvature) * CS.out.vEgo ** 2
     self._update_angle(CS, lat_active, desired_angle, desired_lat_accel)

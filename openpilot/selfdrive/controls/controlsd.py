@@ -147,6 +147,7 @@ class Controls(ControlsExt):
     new_desired_curvature = self.lane_centering.update(new_desired_curvature, model_v2, CS.vEgo,
                                                        bool(CS.leftBlinker or CS.rightBlinker), CC.latActive,
                                                        bool(self.sm.all_checks(['modelV2'])), CS.steeringPressed)
+    new_desired_curvature = self.rivian_offtrack.update(new_desired_curvature, CC.latActive)
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll)
     lat_delay = self.sm["lateralDelay"].lateralDelay + get_lat_smooth_seconds(CS.vEgo, self.CP.lateralSmoothSeconds)
 
