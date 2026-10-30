@@ -157,7 +157,9 @@ class SelfdriveD(CruiseHelper):
     self.state_machine = StateMachine()
     self.rk = Ratekeeper(100, print_delay_threshold=None)
 
-    self.ignored_processes = {'mapd', }
+    # webrtcd and stream_encoderd only feed a viewer (opview, livestream): one of them dying must not
+    # take control away from the driver (route 000000e6: a webrtcd crash raised processNotRunning)
+    self.ignored_processes = {'mapd', 'webrtcd', 'stream_encoderd'}
 
     # Determine startup event
     is_remote = build_metadata.openpilot.comma_remote or build_metadata.openpilot.sunnypilot_remote

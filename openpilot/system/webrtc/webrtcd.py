@@ -5,6 +5,7 @@ from collections.abc import Callable
 import os
 import socket
 import time
+import traceback
 import capnp
 import argparse
 import asyncio
@@ -18,13 +19,60 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 from typing import Any
 
+from openpilot.system.webrtc import opview_slim
 from openpilot.system.webrtc.helpers import StreamRequestBody
 from openpilot.system.webrtc.schema import generate_field
-from openpilot.common.params import Params
+from openpilot.common.params import Params, UnknownKeyName
 from openpilot.common.swaglog import cloudlog
 from openpilot.cereal import messaging, log
+from opendbc.car.structs import car
 
 SESSION_TIMEOUT_SECONDS = 300
+
+OPVIEW_PARAMS_INTERVAL_S = 1.
+# data health is counted in Python only: calling channel.buffered_amount() from the send loop crashed
+# webrtcd (route 000000e6). libdatachannel's send() returns False when it queued a message instead of
+# sending it straight away, which is counted as "queued"
+# outgoing data health in the saved logs: a summary this often, failures at most this often
+OPVIEW_STATS_INTERVAL_S = 60.
+OPVIEW_FAILURE_LOG_INTERVAL_S = 1.
+
+
+def _xyz(v) -> dict[str, list[float]]:
+  # metres, rounded to the millimetre: far shorter JSON than full float precision
+  return {"x": [round(a, 3) for a in v.x], "y": [round(a, 3) for a in v.y], "z": [round(a, 3) for a in v.z]}
+
+
+def opview_enabled(params: Params) -> bool:
+  # a prebuilt whose params library predates this setting does not know the key: treat as off
+  try:
+    return params.get_bool("OpviewEnabled")
+  except UnknownKeyName:
+    return False
+
+
+def incoming_services(requested: list[str], opview: bool) -> list[str]:
+  # with opview on this server is open to the whole local network with no login, and the app only ever reads:
+  # nothing a client sends may be published into openpilot
+  return [] if opview else requested
+
+
+def opview_model(m) -> dict[str, Any]:
+  # only the modelV2 fields opview draws (path, lane lines, road edges, acceleration, confidence);
+  # the full message is ~32 kB of JSON and most of webrtcd's work at 20 Hz
+  return {
+    "position": _xyz(m.position),
+    "laneLines": [_xyz(line) for line in m.laneLines],
+    "laneLineProbs": [round(p, 3) for p in m.laneLineProbs],
+    "roadEdges": [_xyz(edge) for edge in m.roadEdges],
+    "roadEdgeStds": [round(sd, 3) for sd in m.roadEdgeStds],
+    "acceleration": {"x": [round(a, 3) for a in m.acceleration.x]},
+    # for the confidence ball: how likely the model thinks a takeover is
+    "meta": {"disengagePredictions": {
+      "brakeDisengageProbs": [round(p, 3) for p in m.meta.disengagePredictions.brakeDisengageProbs],
+      "steerOverrideProbs": [round(p, 3) for p in m.meta.disengagePredictions.steerOverrideProbs],
+    }},
+  }
 
 
 # ice candidate parser for logging
@@ -69,12 +117,24 @@ class AsyncTaskRunner:
 
 
 class CerealOutgoingMessageProxy(AsyncTaskRunner):
-  def __init__(self, services: list[str], enabled: bool = True):
+  def __init__(self, services: list[str], enabled: bool = True, opview: bool = False):
     super().__init__()
     self.services = list(services)
     self.sm = messaging.SubMaster(self.services)
     self.channels = []
     self._enabled = enabled
+    # opview: cap each service's rate and also send the UI settings opview cannot otherwise see
+    self.opview = opview
+    self.params = Params()
+    self._last_sent: dict[str, float] = {}
+    self._last_params_sent = 0.
+    self._car: tuple[str, int] | None = None
+    # data health, for the saved logs (swaglog): a frozen opview overlay can then be traced to the comma or not
+    self._stats = {"sent": 0, "queued": 0, "closed": 0, "failures": 0, "bytes": 0}
+    self._last_stats_log = time.monotonic()
+    self._last_failure_log = 0.
+    self._queued_in_row = 0  # a long run of queued sends means the channel is backed up
+    self._max_queued_in_row = 0
 
   def add_channel(self, channel):
     self.channels.append(channel)
@@ -94,20 +154,103 @@ class CerealOutgoingMessageProxy(AsyncTaskRunner):
 
     return msg_dict
 
+  def _send(self, encoded_msg: bytes):
+    for channel in self.channels:
+      if not channel.is_open():
+        self._stats["closed"] += 1
+        continue
+      if channel.send(encoded_msg):
+        self._stats["sent"] += 1
+        self._queued_in_row = 0
+      else:
+        self._stats["queued"] += 1
+        self._queued_in_row += 1
+        self._max_queued_in_row = max(self._max_queued_in_row, self._queued_in_row)
+      self._stats["bytes"] += len(encoded_msg)
+
+  def _log_stats(self, now: float):
+    if not self.opview or now - self._last_stats_log < OPVIEW_STATS_INTERVAL_S:
+      return
+    cloudlog.event("webrtcd.opview.data_stats", **self._stats, max_queued_in_row=self._max_queued_in_row,
+                   seconds=round(now - self._last_stats_log, 1))
+    self._stats = dict.fromkeys(self._stats, 0)
+    self._max_queued_in_row = 0
+    self._last_stats_log = now
+
+  def _log_failure(self):
+    self._stats["failures"] += 1
+    now = time.monotonic()
+    if now - self._last_failure_log >= OPVIEW_FAILURE_LOG_INTERVAL_S:
+      self._last_failure_log = now
+      cloudlog.event("webrtcd.opview.send_failure", failures=self._stats["failures"],
+                     exception=traceback.format_exc(limit=4), error=True)
+
+  def _car_brand_flags(self) -> tuple[str, int]:
+    # carParams is only published every ~50 s, so use the copy the car interface saves at start-up
+    if self._car is None:
+      cp_bytes = self.params.get("CarParamsPersistent")
+      if not cp_bytes:
+        return "", 0
+      cp = messaging.log_from_bytes(cp_bytes, car.CarParams)
+      self._car = (cp.brand, cp.flags)
+    return self._car
+
+  def _param_bool(self, key: str) -> bool:
+    # not every branch has every setting; an unknown one counts as off
+    try:
+      return self.params.get_bool(key)
+    except UnknownKeyName:
+      return False
+
+  def _param_int(self, key: str) -> int:
+    try:
+      return int(self.params.get(key, return_default=True) or 0)
+    except (UnknownKeyName, TypeError, ValueError):
+      return 0
+
+  def _opview_params(self) -> dict[str, Any]:
+    brand, flags = self._car_brand_flags()
+    return {
+      "CarBrand": brand,
+      "CarFlags": flags,
+      "IsMetric": self._param_bool("IsMetric"),
+      "SpeedLimitMode": self._param_int("SpeedLimitMode"),
+      "RoadNameToggle": self._param_bool("RoadNameToggle"),
+      "RivianForceTorqueSteer": self._param_bool("RivianForceTorqueSteer"),
+      "TrueVEgoUI": self._param_bool("TrueVEgoUI"),
+      "SPLiveSpeedCorrectionEnabled": self._param_bool("SPLiveSpeedCorrectionEnabled"),
+      "SPCruiseSpeedOffset": self._param_int("SPCruiseSpeedOffset"),
+      "ShowTurnSignals": self._param_bool("ShowTurnSignals"),
+      "BlindSpot": self._param_bool("BlindSpot"),
+      "LaneCenteringEnabled": self._param_bool("LaneCenteringEnabled"),
+    }
+
   def update(self):
     # this is blocking in async context...
     self.sm.update(0)
+    now = time.monotonic()
     for service, updated in self.sm.updated.items():
       if not updated:
         continue
-      msg_dict = self.to_json(self.sm[service])
+      if self.opview:
+        # opview: each service at its own rate, cut down to the fields the app reads (opview_slim.py)
+        gap = opview_slim.min_gap_s(service)
+        if gap is not None:
+          if now - self._last_sent.get(service, 0.) < gap:
+            continue
+          self._last_sent[service] = now
+        msg_dict = opview_model(self.sm[service]) if service == "modelV2" else opview_slim.slim(service, self.sm[service])
+      else:
+        msg_dict = self.to_json(self.sm[service])
       mono_time, valid = self.sm.logMonoTime[service], self.sm.valid[service]
       outgoing_msg = {"type": service, "logMonoTime": mono_time, "valid": valid, "data": msg_dict}
-      encoded_msg = json.dumps(outgoing_msg).encode()
-      for channel in self.channels:
-        if not channel.is_open():
-          continue
-        channel.send(encoded_msg)
+      self._send(json.dumps(outgoing_msg).encode())
+
+    if self.opview and now - self._last_params_sent >= OPVIEW_PARAMS_INTERVAL_S:
+      self._last_params_sent = now
+      self._send(json.dumps({"type": "opviewParams", "logMonoTime": time.monotonic_ns(), "valid": True,
+                             "data": self._opview_params()}).encode())
+    self._log_stats(now)
 
   async def run(self):
     while True:
@@ -118,6 +261,8 @@ class CerealOutgoingMessageProxy(AsyncTaskRunner):
         self.update()
       except Exception:
         self.logger.exception("Cereal outgoing proxy failure")
+        if self.opview:
+          self._log_failure()
       await asyncio.sleep(0.01)
 
 
@@ -236,6 +381,9 @@ class StreamSession:
     builder = WebRTCAnswerBuilder(body.sdp, bind_address=_default_route_ip())
 
     self.enabled = body.enabled
+    # opview viewers sit on the local network for the whole drive, so no session cap
+    self.opview = opview_enabled(self.params)
+    self.session_timeout = None if self.opview else SESSION_TIMEOUT_SECONDS
     self.video_tracks = []
     for camera in body.cameras:
       track = LiveStreamVideoStreamTrack(camera, self.enabled)
@@ -243,16 +391,17 @@ class StreamSession:
       builder.add_video_stream(camera, track)
     self.stream = builder.stream()
 
-    self.is_body = "testJoystick" in body.bridge_services_in
+    bridge_services_in = incoming_services(body.bridge_services_in, self.opview)
+    self.is_body = "testJoystick" in bridge_services_in
 
     self.incoming_bridge: CerealIncomingMessageProxy | None = None
-    self.incoming_bridge_services = body.bridge_services_in
+    self.incoming_bridge_services = bridge_services_in
     self.outgoing_bridge: CerealOutgoingMessageProxy | None = None
     self.bitrate_controller: LivestreamBitrateController | None = None
-    if len(body.bridge_services_in) > 0:
+    if len(bridge_services_in) > 0:
       self.incoming_bridge = CerealIncomingMessageProxy(self.shared_pub_master)
     if len(body.bridge_services_out) > 0:
-      self.outgoing_bridge = CerealOutgoingMessageProxy(body.bridge_services_out, self.enabled)
+      self.outgoing_bridge = CerealOutgoingMessageProxy(body.bridge_services_out, self.enabled, opview=self.opview)
     self.bitrate_controller = LivestreamBitrateController(self.stream.get_receiver_report_stats, self.params, self.enabled)
 
     self.run_task: asyncio.Task | None = None
@@ -321,9 +470,9 @@ class StreamSession:
 
   async def run_normal_session(self):
     try:
-      await asyncio.wait_for(self.stream.wait_for_disconnection(), timeout=SESSION_TIMEOUT_SECONDS)
+      await asyncio.wait_for(self.stream.wait_for_disconnection(), timeout=self.session_timeout)
     except TimeoutError:
-      self.logger.warning("Stream session (%s) timed out after %d s", self.identifier, SESSION_TIMEOUT_SECONDS)
+      self.logger.warning("Stream session (%s) timed out after %d s", self.identifier, self.session_timeout)
       try:
         self.stream.get_messaging_channel().send(json.dumps({"type": "disconnect", "data": "Session timed out"}))
       except Exception:
@@ -635,13 +784,29 @@ def webrtcd_thread(host: str, port: int):
     loop.close()
 
 
+def avoid_keyframe_request_deadlock():
+  # libdatachannel-py does not release the GIL in send(). teleoprtc's PliHandler calls back into
+  # Python (track.request_keyframe) from a libdatachannel worker while it holds the DTLS lock, so a
+  # keyframe request arriving while our loop is inside send() deadlocks webrtcd for good (seen on
+  # weak wifi, where viewers send many requests). The stream encoder already sends a keyframe every
+  # 5 frames, so for opview swap the handler for a plain pass-through that never enters Python.
+  import teleoprtc.stream
+  from libdatachannel import MediaHandler
+  teleoprtc.stream.PliHandler = lambda _request_keyframe: MediaHandler()
+
+
 def main():
   parser = argparse.ArgumentParser(description="WebRTC daemon")
-  parser.add_argument("--host", type=str, default="127.0.0.1", help="Host to listen on")
+  parser.add_argument("--host", type=str, default=None, help="Host to listen on")
   parser.add_argument("--port", type=int, default=5001, help="Port to listen on")
   args = parser.parse_args()
 
-  webrtcd_thread(args.host, args.port)
+  # opview connects from another device on the local network
+  opview = opview_enabled(Params())
+  host = args.host or ("0.0.0.0" if opview else "127.0.0.1")
+  if opview:
+    avoid_keyframe_request_deadlock()
+  webrtcd_thread(host, args.port)
 
 
 if __name__=="__main__":
