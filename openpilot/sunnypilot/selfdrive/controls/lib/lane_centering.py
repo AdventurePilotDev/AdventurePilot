@@ -34,6 +34,8 @@ RELEASE_TAU = 0.2              # s, how fast it fades when we stop centering
 CENTER_ERROR_DEADBAND = 0.02   # m, default for the deadband param: errors smaller produce nothing at all
 LOOKAHEAD_MIN = 8.0            # m
 LOOKAHEAD_MAX = 35.0           # m
+STEER_HOLD_OFF = 1.0           # s, how long centering stays out of it after the driver lets go of the wheel. Bridges
+                               # the brief gaps in the steering-pressed signal, so it does not switch on and off mid-move
 
 # How much authority a confident model keeps over a large, deliberate departure from lane center.
 # 1.0 defers to it fully, 0.0 always centers. Driver adjustable.
@@ -81,6 +83,7 @@ class LaneCenteringController:
     self.lane_line_distance = SINGLE_LINE_DEFAULT_DISTANCE
     self.correction = 0.0
     self.curved = False  # both lines trusted and the lane bends tighter than CURVE_MIN_CURVATURE
+    self.steer_hold_frames = 0  # frames left before centering may act again after the driver steered
     # Reported to the on-screen indicator. Nothing here feeds back into the control path.
     self.active = False
     self.holding = False
@@ -110,6 +113,7 @@ class LaneCenteringController:
 
   def reset(self) -> None:
     self.correction = 0.0
+    self.steer_hold_frames = 0
     self._clear_telemetry()
 
   def _clear_telemetry(self) -> None:
@@ -126,7 +130,7 @@ class LaneCenteringController:
     return self.correction
 
   def update(self, desired_curvature: float, model_v2, v_ego: float, blinker_on: bool,
-             lat_active: bool, model_valid: bool) -> float:
+             lat_active: bool, model_valid: bool, steering_pressed: bool = False) -> float:
     # Nothing is being applied when lateral is off or the model is bad, so there is nothing to fade
     if not lat_active or not model_valid or not math.isfinite(v_ego):
       self.reset()
@@ -139,6 +143,14 @@ class LaneCenteringController:
 
     # Stay out of the way of a lane change, and of the driver signalling one
     if blinker_on or model_v2.meta.laneChangeState != LaneChangeState.off:
+      return desired_curvature + self._release()
+
+    # Stay out of the way of the driver steering: wherever they are putting the car is where it goes.
+    # On a road test it pushed back at its full bend limit for 4 s while the driver held the car over
+    if steering_pressed:
+      self.steer_hold_frames = round(STEER_HOLD_OFF / DT_CTRL)
+    if self.steer_hold_frames > 0:
+      self.steer_hold_frames -= 1
       return desired_curvature + self._release()
 
     valid, raw_correction = self._raw_correction(model_v2, v_ego)
