@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from openpilot.common.params import UnknownKeyName
 from openpilot.common.time_helpers import system_time_valid
 from openpilot.system.ui.widgets.scroller import NavScroller
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigToggle, BigParamControl, BigCircleParamControl, GreyBigButton
@@ -93,6 +94,14 @@ class DeveloperLayoutMici(NavScroller):
                                               toggle_callback=lambda checked: (gui_app.set_show_touches(checked), gui_app.set_show_fps(checked)),
                                               description="Show touch locations and the UI frame rate.")
 
+    # lets the opview app on the local network show the road camera and driving display;
+    # takes effect the next time the car is turned on
+    # (left out on a prebuilt whose params library does not know the setting yet)
+    try:
+      self._opview_toggle = BigParamControl("opview streaming", "OpviewEnabled")
+    except UnknownKeyName:
+      self._opview_toggle = None
+
     self._scroller.add_widgets([
       self._adb_toggle,
       self._ssh_toggle,
@@ -103,7 +112,7 @@ class DeveloperLayoutMici(NavScroller):
       self._lat_maneuver_toggle,
       self._alpha_long_toggle,
       self._debug_mode_toggle,
-    ])
+    ] + ([self._opview_toggle] if self._opview_toggle is not None else []))
 
     # Toggle lists
     self._refresh_toggles = (
@@ -114,7 +123,7 @@ class DeveloperLayoutMici(NavScroller):
       ("LateralManeuverMode", self._lat_maneuver_toggle),
       ("AlphaLongitudinalEnabled", self._alpha_long_toggle),
       ("ShowDebugInfo", self._debug_mode_toggle),
-    )
+    ) + ((("OpviewEnabled", self._opview_toggle),) if self._opview_toggle is not None else ())
     onroad_blocked_toggles = (self._adb_toggle, self._joystick_toggle)
     release_blocked_toggles = (self._joystick_toggle, self._long_maneuver_toggle, self._lat_maneuver_toggle, self._alpha_long_toggle)
     engaged_blocked_toggles = (self._long_maneuver_toggle, self._lat_maneuver_toggle, self._alpha_long_toggle)

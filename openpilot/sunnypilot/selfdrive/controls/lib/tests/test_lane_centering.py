@@ -14,7 +14,7 @@ import pytest
 from openpilot.sunnypilot.selfdrive.controls.lib.lane_centering import (CENTER_ERROR_DEADBAND, DEFAULT_GAIN, LaneCenteringController,
                                                                           MAX_CENTER_ERROR_DEADBAND, MAX_GAIN, MAX_RAW_CORRECTION,
                                                                           SINGLE_LINE_DEFAULT_DISTANCE, SINGLE_LINE_MAX_DISTANCE,
-                                                                          SINGLE_LINE_MIN_DISTANCE, SINGLE_LINE_NEAR_X)
+                                                                          SINGLE_LINE_MIN_DISTANCE, SINGLE_LINE_NEAR_X, STEER_HOLD_OFF)
 
 V_EGO = 20.0
 XS = np.linspace(0.0, 50.0, 52)
@@ -57,8 +57,8 @@ def _controller(enabled=True, offset=0.0, authority=1.0, gain=DEFAULT_GAIN, dead
   return controller
 
 
-def _update(controller, model, *, blinker=False, active=True, valid=True, speed=V_EGO):
-  return controller.update(0.0, model, speed, blinker, active, valid)
+def _update(controller, model, *, blinker=False, active=True, valid=True, speed=V_EGO, steering=False):
+  return controller.update(0.0, model, speed, blinker, active, valid, steering)
 
 
 def _converge(model, *, offset=0.0, authority=1.0, gain=DEFAULT_GAIN, deadband=CENTER_ERROR_DEADBAND, frames=300, speed=V_EGO):
@@ -213,6 +213,45 @@ def test_zero_authority_ignores_model_confidence():
   assert confident == pytest.approx(unsure, abs=1e-9)
 
 
+# --- curves ---
+
+def _bent(model, curvature):
+  # bend the lane lines and the path together, as a curve ahead would: y += curvature / 2 * x^2
+  for line in (*model.laneLines, model.position):
+    line.y = line.y + curvature / 2 * line.x ** 2
+  return model
+
+
+def test_curve_gives_the_model_no_authority():
+  # A confident model 0.3 m off centre keeps part of that on a straight, but in a curve it is cutting the corner
+  def settled(curvature, authority):
+    return _converge(_bent(_model(model_y=0.3, path_std=0.1), curvature), authority=authority)[1]
+  assert settled(0.0, 1.0) > settled(0.0, 0.0)
+  assert settled(1 / 300, 1.0) == pytest.approx(settled(1 / 300, 0.0), abs=1e-9)
+
+
+def test_gentle_bend_is_not_a_curve():
+  # A 1500 m radius is nearly straight: a model easing over for oncoming traffic there keeps its authority
+  bend = 1 / 1500
+  assert _converge(_bent(_model(model_y=0.3), bend), authority=1.0)[1] > _converge(_bent(_model(model_y=0.3), bend), authority=0.0)[1]
+
+
+def test_curve_push_is_capped():
+  from openpilot.sunnypilot.selfdrive.controls.lib.lane_centering import CURVE_MAX_LAT_ACCEL
+  controller, output = _converge(_bent(_model(model_y=0.6), 1 / 300))
+  assert output == pytest.approx(-CURVE_MAX_LAT_ACCEL / V_EGO ** 2, rel=1e-3), "should be pinned at the curve cap"
+  assert controller.clipped
+  # the same cut on a straight is not limited by the curve cap
+  assert abs(_converge(_model(model_y=0.6, path_std=0.9))[1]) > CURVE_MAX_LAT_ACCEL / V_EGO ** 2
+
+
+def test_curve_cap_leaves_small_corrections_alone():
+  controller, output = _converge(_bent(_model(model_y=0.1), 1 / 300))
+  straight = _converge(_model(model_y=0.1))[1]
+  assert output == pytest.approx(straight, rel=1e-6)
+  assert not controller.clipped
+
+
 # --- how it lets go ---
 
 def test_confidence_loss_fades_rather_than_snaps():
@@ -238,6 +277,32 @@ def test_turn_signal_fades_rather_than_snaps():
   for _ in range(300):
     faded = _update(controller, model, blinker=True)
   assert abs(faded) < 1e-6
+
+
+def test_driver_steering_fades_centering_out():
+  model = _model(left=-1.5, right=2.1)
+  controller, settled = _converge(model)
+  faded = _update(controller, model, steering=True)
+  assert 0.0 < faded < settled
+  for _ in range(300):
+    faded = _update(controller, model, steering=True)
+  assert abs(faded) < 1e-6
+  assert not controller.active
+
+
+def test_centering_waits_after_the_driver_lets_go():
+  model = _model(left=-1.5, right=2.1)
+  controller, _ = _converge(model)
+  for _ in range(300):
+    _update(controller, model, steering=True)
+  hold = round(STEER_HOLD_OFF / 0.01)
+  for _ in range(hold - 1):
+    assert abs(_update(controller, model)) < 1e-6
+  # a flicker of the steering-pressed signal partway through restarts the wait
+  _update(controller, model, steering=True)
+  for _ in range(hold - 1):
+    assert abs(_update(controller, model)) < 1e-6
+  assert abs(_update(controller, model)) > 0.0
 
 
 def test_disabling_mid_drive_fades_rather_than_snaps():

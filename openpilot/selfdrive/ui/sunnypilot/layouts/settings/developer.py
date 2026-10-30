@@ -48,11 +48,17 @@ class DeveloperLayoutSP(DeveloperLayout):
                                                      "and even make some edits on some files from your browser. " +
                                                      "Requires you to connect to your comma locally via its IP address."), param="EnableCopyparty")
 
+    self.opview_toggle = toggle_item_sp(tr("opview Screen Streaming"),
+                                        tr("Lets the opview app on a phone or head unit on the same network show the road camera " +
+                                           "and driving display while driving. Anyone on that network can view the stream while this is on. " +
+                                           "Takes effect the next time the car is turned on."), param="OpviewEnabled")
+
     self.prebuilt_toggle = toggle_item_sp(tr("Quickboot Mode"), "", param="QuickBootToggle", callback=self._on_prebuilt_toggled)
 
     self.error_log_btn = button_item(tr("Error Log"), tr("VIEW"), tr("View the error log for sunnypilot crashes."), callback=self._on_error_log_clicked)
 
-    self.items: list = [self.show_advanced_controls, self.enable_github_runner_toggle, self.enable_copyparty_toggle, self.prebuilt_toggle, self.error_log_btn,]
+    self.items: list = [self.show_advanced_controls, self.enable_github_runner_toggle, self.enable_copyparty_toggle, self.opview_toggle,
+                        self.prebuilt_toggle, self.error_log_btn,]
 
   @staticmethod
   def _on_prebuilt_toggled(state):
@@ -102,5 +108,6 @@ class DeveloperLayoutSP(DeveloperLayout):
       self.prebuilt_toggle.set_description(tr("Quickboot mode requires updates to be disabled.<br>Enable 'Disable Updates' in the Software panel first."))
 
     self.enable_copyparty_toggle.set_visible(show_advanced)
+    self.opview_toggle.set_visible(show_advanced)
     self.enable_github_runner_toggle.set_visible(show_advanced and not self._is_release_branch)
     self.error_log_btn.set_visible(not self._is_release_branch)
