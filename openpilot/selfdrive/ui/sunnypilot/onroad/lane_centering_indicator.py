@@ -25,6 +25,10 @@ center. The blue, the mark and the words all follow the latched half second summ
 live frame: on the first road test most One-Line Mode episodes lasted under 0.2 s, as a line
 flickered in and out of trust, and a live blue flashed the bar about 200 times in 17 minutes.
 
+Red means two-line centering has hit a limit. In One-Line Mode the same limit shows amber: there it is
+the ordinary ceiling on a gentle push away from the line, met routinely on town streets at about
+0.1-0.2 m/s^2, and red for that read as something going wrong.
+
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
@@ -112,6 +116,7 @@ class LaneCenteringIndicator:
     self._counts = {GATED: 0, HOLDING: 0, CORRECTING: 0}
     self._n_valid = 0
     self._n_clipped = 0
+    self._n_clipped_single = 0
     self._n_single_line = 0
     self._sum_line_side = 0
     self._sum_push = 0.0
@@ -160,7 +165,7 @@ class LaneCenteringIndicator:
     if not lc.active:
       return GRAY
     if lc.clipped:
-      return RED
+      return AMBER if lc.singleLine else RED
     if abs(self._push_filter.x) >= AMBER_ABOVE:
       return AMBER
     if self._shown_single_line:
@@ -175,6 +180,7 @@ class LaneCenteringIndicator:
     self._counts = dict.fromkeys(self._counts, 0)
     self._n_valid = 0
     self._n_clipped = 0
+    self._n_clipped_single = 0
     self._n_single_line = 0
     self._sum_line_side = 0
     self._sum_push = 0.0
@@ -190,7 +196,8 @@ class LaneCenteringIndicator:
     # counted for the state but kept out of both averages rather than averaged in as zeroes.
     self._counts[HOLDING if lc.holding else CORRECTING] += 1
     self._n_valid += 1
-    self._n_clipped += bool(lc.clipped)
+    self._n_clipped += bool(lc.clipped) and not lc.singleLine
+    self._n_clipped_single += bool(lc.clipped) and bool(lc.singleLine)
     if lc.singleLine:
       self._n_single_line += 1
       self._sum_line_side += int(lc.lineSide)
@@ -214,7 +221,7 @@ class LaneCenteringIndicator:
       self._shown_color = LIGHT_BLUE if self._shown_single_line else DIM_WHITE
     elif self._n_clipped * 2 > self._n_valid:
       self._shown_color = RED
-    elif abs(self._shown_push) >= AMBER_ABOVE:
+    elif self._n_clipped_single * 2 > self._n_valid or abs(self._shown_push) >= AMBER_ABOVE:
       self._shown_color = AMBER
     elif self._shown_single_line:
       self._shown_color = LIGHT_BLUE
