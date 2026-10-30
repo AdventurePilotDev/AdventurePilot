@@ -9,7 +9,7 @@ import pytest
 pytest.importorskip("pyray")
 
 from openpilot.selfdrive.ui.sunnypilot.onroad.lane_centering_indicator import (
-  CORRECTING, DIM_WHITE, GATED, GRAY, HOLDING, LIGHT_BLUE, MINT, RED, LaneCenteringIndicator)
+  AMBER, CORRECTING, DIM_WHITE, GATED, GRAY, HOLDING, LIGHT_BLUE, MINT, RED, LaneCenteringIndicator)
 
 
 def _indicator():
@@ -63,10 +63,20 @@ def test_gated_frames_do_not_count_toward_one_line_mode():
   assert ind._shown_line_side == 0
 
 
-def test_clipped_still_shows_red_in_one_line_mode():
+def test_clipped_shows_amber_in_one_line_mode():
+  # One-Line Mode reaches its ceiling routinely on town streets with only a gentle push, so it is not red
   ind = _window([_frame(clipped=True, single_line=True, line_side=-1)] * 10)
   assert ind._shown_single_line
+  assert ind._shown_color == AMBER
+  ind._push_filter = SimpleNamespace(x=0.1)
+  assert ind._bar_color(_frame(clipped=True, single_line=True, line_side=-1)) == AMBER
+
+
+def test_clipped_still_shows_red_with_both_lines():
+  ind = _window([_frame(clipped=True)] * 10)
   assert ind._shown_color == RED
+  ind._push_filter = SimpleNamespace(x=0.1)
+  assert ind._bar_color(_frame(clipped=True)) == RED
 
 
 def test_ordinary_centering_is_unchanged():
