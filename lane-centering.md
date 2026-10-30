@@ -2,7 +2,13 @@
 
 Lane Centering keeps the car in the middle of the two painted lines, instead of letting it settle wherever the driving model happens to put it. It is a small, continuous trim on top of normal steering, not a separate steering mode, and it is eased in and out rather than switched on and off. Done properly you should not be able to feel it working - the car simply sits straighter in its lane.
 
-**Where it has landed:** Lane Centering itself is in the `stg` and `stg-a` prebuilts and on the `dev` and `dev-a` development trunks. The October 2026 update below - **One-Line Mode**, centering in **narrow lanes**, and the One-Line Mode display - is on `dev` and `dev-a` only so far. None of it is on `rel` / `rel-a`. It works on any car, but everything measured so far was measured on a Rivian R1S. It is **off by default**, and so is One-Line Mode.
+**Where it has landed:** Lane Centering itself is in the `stg` and `stg-a` prebuilts and on the `dev` and `dev-a` development trunks. The October 2026 updates below - **bends**, **stepping aside while you steer**, **One-Line Mode**, centering in **narrow lanes**, and the One-Line Mode display - are on `dev` and `dev-a` only so far. None of it is on `rel` / `rel-a`. It works on any car, but everything measured so far was measured on a Rivian R1S. It is **off by default**, and so is One-Line Mode.
+
+### New in the late October 2026 update (dev and dev-a)
+
+- **Bends.** The driving model tends to cut corners, drifting toward the edge line on a right-hand bend and toward the center line on a left-hand one. Lane Centering now brings the car back toward the middle in bends, gently. See [In bends](#in-bends). This work draws on **Lane Guard** by Gerrylum and lukasloetkolben - see [Credits](#credits).
+- **It steps aside while you steer.** While your hands are moving the wheel Lane Centering does nothing, and it waits one second after you let go. Wherever you put the car is where it goes.
+- **One-Line Mode at its limit shows amber, not red.** On town streets it reaches its gentle ceiling routinely, and that is not a warning. Red now only means two-line centering has hit a limit.
 
 ### New in the October 2026 update (dev and dev-a)
 
@@ -37,6 +43,8 @@ So the feature matters a great deal on some driving models and very little on ot
 A hundred times a second it looks about one second of travel ahead, works out where the middle of the painted lane is at that point and where the car is going to be, and if the two differ by more than the tolerance it adds a very small steering nudge toward the middle, easing it in over about half a second.
 
 **The nudge is tiny.** Across a full drive the sideways push it added averaged about 0.03 meters per second squared and never went past 0.09. A gentle highway curve is more than ten times stronger than that. At the wheel it is about one degree at road speed. There is a hard cap it can never exceed, and it is applied *before* the existing steering rate and cornering limits, so it cannot ask the car for anything it would not otherwise have been allowed to do.
+
+Those figures are for straight roads and gentle bends. When the model is cutting a corner the push can be larger, up to its own limit of 0.4 meters per second squared. See [In bends](#in-bends).
 
 ## Turning it on
 
@@ -84,11 +92,11 @@ Distances are shown in inches or centimeters according to your units setting - t
 
 ![Gray: no lines](images/lane-centering-3x-no-lines.png)
 
-**Amber - working harder than usual.** Past the end of the bar. Usually means the car has wandered a long way off center and is on its way back.
+**Amber - working harder than usual.** Past the end of the bar. Usually means the car has wandered a long way off center and is on its way back. In One-Line Mode, amber also means it has reached its limit, which is routine on town streets - see [One-Line Mode on screen](#one-line-mode-on-screen).
 
 ![Amber: 0.62 m/s2, nine inches left of center](images/lane-centering-3x-amber.png)
 
-**Red - it wanted more than it is allowed.** The correction has been cut back to the cap. In practice this only happens at low speed.
+**Red - it wanted more than it is allowed.** Two-line centering has been cut back to a limit. This happens at low speed, and in bends when the model is cutting the corner and the push reaches its bend limit. A few short red flashes an hour are normal, usually on the bar rather than the text.
 
 ![Red: correction cut back to the cap](images/lane-centering-3x-red.png)
 
@@ -96,7 +104,7 @@ Distances are shown in inches or centimeters according to your units setting - t
 
 When One-Line Mode is keeping the car clear of a single line, three things change:
 
-- **The bar turns light blue** instead of green, so green keeps meaning ordinary centering between two lines. Amber and red still show when it is working hard or has hit the cap.
+- **The bar turns light blue** instead of green, so green keeps meaning ordinary centering between two lines. It turns **amber** when it has reached its limit. On town streets that limit is only about 0.1 to 0.2 meters per second squared, so amber here is routine and does not mean anything is wrong. One-Line Mode never shows red.
 - **A short upright mark**, like a painted line, stands just past the end of the bar on the side the visible line is on. The bar fills the other way, because the car is only ever moved away from that line.
 - **The words on the right say "one line"** instead of a distance off center. In this mode there is no lane middle to measure from, so a distance off center would be misleading. When no move is needed the left side says **"clear of line"** instead of "centered".
 
@@ -107,6 +115,10 @@ All three settle twice a second like the rest of the text, so a line that flicke
 There is no room for the numbers on a comma 4 screen, so you get the bar on its own, in the lower middle. Direction and effort read exactly the same way, and it uses the same colors, including the light blue bar and the side mark for One-Line Mode.
 
 ![The lane centering bar on a comma 4](images/lane-centering-comma4-screen.png)
+
+### On a phone or the Rivian's center screen
+
+The OPRivView app can show the same readout, with the same colors, on an Android phone or head unit. See [OPRivView](oprivview.md).
 
 ### When to leave it on
 
@@ -131,6 +143,8 @@ Sometimes the driving model moves well off the middle on purpose, usually becaus
 | **Model decides (100%)** | The model gets its way when it is confident and well off center. The default. |
 | **50%** | Split the difference - the car comes part of the way back. |
 | **Always center (0%)** | The car is centered regardless of what the model wanted. |
+
+This setting does not apply in bends tighter than about a 1000 m radius, where the car is always brought back gently. See [In bends](#in-bends).
 
 Leave it at the default unless you find the car declining to center itself where you think it should. Turning it down makes the feature more insistent, which also means overriding the model in situations where the model may have had a good reason.
 
@@ -171,7 +185,8 @@ One-Line Mode fills that gap, carefully:
 - **It never moves the car past the middle of the lane**, as best it can estimate it from a faint line on the other side.
 - **It keeps clear of the road edge on the other side** when the driving model is sure where that edge is.
 - **It does nothing at all when it cannot see anything on the other side**, not even a faint line or a road edge. It never aims at a lane middle it cannot see.
-- **It does not follow a line that bends away from the car's path**, such as the line peeling off at a highway exit.
+- **It does not follow a line that bends away from the car's path.**
+- **At highway exits it has held still.** On the drives so far it took over beside the exits and made no move at all. See [Highway exits](#highway-exits).
 - **Position in Lane** and **Let the Model Sit Off Center** do not apply in this mode, because both are measured from a lane middle it does not know.
 
 Anything it is unsure of on the far side can only make the move smaller, never larger. On the drives so far its moves were small - typically 7 to 30 cm, and never more than about 45 cm.
@@ -201,8 +216,22 @@ It only acts when it is confident. All of the following have to be true:
 - Lateral control (MADS, or normal engagement) is on.
 - No lane change is running.
 - No turn signal is on.
+- You are not steering. Once you let go it waits **one second** before starting again, so it does not switch on and off during a move.
 
 When any of that stops being true the nudge **fades away over about a fifth of a second** rather than being dropped in one go, so there is no step in the steering. On screen that is the gray "no lines" state.
+
+### In bends
+
+In a bend tighter than about a **1000 m radius** (most bends on country roads, a firm highway curve), a model sitting well off center is almost always cutting the corner. Looking at the 18 biggest such moments on video, 16 were exactly that: 13 in right-hand bends, toward the edge line or a guardrail, and 3 in left-hand bends, toward the center line or the next lane.
+
+So in a bend, with both lines clear:
+
+- **The model gets no freedom.** [Let the Model Sit Off Center](#let-the-model-sit-off-center) does not apply, and the car is brought back toward the middle.
+- **The push is capped at 0.4 meters per second squared.** If the model did have a good reason, it is only resisted gently. It should feel like a lean, never a tug.
+
+Gentler bends are treated like straights, which leaves the model free to ease over for an oncoming car on a near-straight two-lane road. This limit only covers centering between two lines. One-Line Mode is not covered by it, and its pushes in bends have not been studied separately.
+
+On the first road test the car spent 6.1% of the time in bends more than 30 cm toward the inside before this change and 0.2% after, with the typical position unchanged. That was about 9 minutes of bends on one car, and less than a minute of it above 56 mph / 90 km/h.
 
 ## What further testing would help
 
@@ -215,10 +244,17 @@ Everything measured so far is **one car, two driving models and a small number o
 | **Position in Lane** | A small value against a car that sits off center with the feature on | Whether the residual bias goes away, and whether it stays gone on a different road |
 | **Let the Model Sit Off Center** | 50% if the car declines to center where you think it should | Whether it now centers in those places, and whether it starts arguing with the model somewhere it was right |
 | **Driving model** | The same drive on two models with the feature off | Your own starting point. A model that already sits centered has very little for this feature to do |
+| **Bends** | With **Show Correction On Screen** on, on bends you know well, especially fast highway bends | Whether the car stays off the inside line, whether it feels like a lean and never a tug, and how often the bar flashes red |
 | **One-Line Mode** | On, with **Show Correction On Screen** on, on on-ramps and town streets with one visible line | Whether the light blue state shows where you expect, whether the mark is on the correct side, and whether the car ever moves towards the line instead of away from it |
 | **One-Line Mode distances** | One step closer and one step further on the same road | Whether "normal" feels right next to a curb and next to a center line, or one of them wants a different value |
 
-**Highway exits are the one place One-Line Mode has not been road-tested yet**, and reports are especially wanted. Where an exit lane peels away, the edge line bends away from the car's path, and One-Line Mode is designed to ignore it and stand aside. If you drive past exits with One-Line Mode on and the readout visible, please note whether it showed light blue at the exit and whether the car moved at all.
+### Highway exits
+
+**Checked on four drives with about an hour of highway around Toronto, on one car.** Exit positions came from the map, and the most important moments were checked on video. In the four passes where the car was in the lane right beside the exit, with no turn signal, the dashed line opened into the exit and One-Line Mode took over, but it **made no move at all**. Across 55 ramp passes it pushed in only 4, and none of those was beside an exit. The three exits confirmed as taken went normally.
+
+Just before One-Line Mode takes over, ordinary two-line centering can give a very small nudge toward the exit, because the lane briefly looks wider. It was under 0.1 meters per second squared for a second or two, at most about 20 cm, and has been left alone.
+
+**One case is still untested, and reports are especially wanted:** a lane that turns into an exit lane while you want to stay on the highway. If you drive that with the readout visible, please note the route and time and whether the car moved at all.
 
 Roads and conditions worth pointing it at:
 
@@ -268,10 +304,17 @@ Using both at once means two settings fighting over the same thing. Pick one. If
 - **There is no One-Line Mode in the menu.** It is only on `dev` and `dev-a` so far. On a prebuilt, check which branch you are on under **Settings > Software**.
 - **The bar is light blue and says "one line" on a road with two clear lines.** The driving model is not sure of one of the lines, even if it looks fine to you. Worth reporting with the route and time.
 - **The car moved towards the one visible line.** It should never do that. Please report it with the route and time.
+- **The bar flashes red in bends.** Normal in small amounts: the model is cutting the corner and the push has reached its bend limit. If it is constant, or the car feels tugged, report the route and time.
 - **I can feel it working.** That is worth reporting. Note the road, the speed and both settings. Try 40% before you conclude the feature is at fault, since strength is the most likely cause.
-- **It fights me when I take the wheel.** It should not - it stands down with the rest of lateral control. Report this one with the time and route.
+- **It fights me when I take the wheel.** It should not - it stops while you are steering and waits one second after you let go. Report this one with the time and route.
+
+## Credits
+
+- **Bend handling and stepping aside while you steer** draw on [Lane Guard](https://github.com/gerrylum/openpilot/commit/17ea3381d), by [Gerrylum](https://github.com/gerrylum) with [lukasloetkolben](https://github.com/lukasloetkolben). Replaying Lane Guard next to Lane Centering over stored drives is what showed where the model cuts corners. Taken from it: acting in curves because that is where the model cuts them, the way a bend is measured, a gentle 0.4 meters per second squared limit like its Rivian tune, and pausing while the driver steers. Lane Guard does more than this, including keeping the car off road edges and allowing for the width of the car, and those parts are not in Lane Centering.
+- **Lane Centering itself** is a port from [StarPilot](https://github.com/firestar5683/StarPilot) by firestar5683.
 
 ## Related pages
 
 - [Curve Speed Control](curve-speed-control.md) - the longitudinal equivalent, slowing for curves rather than positioning within the lane.
 - [Rivian MADS](rivian-mads.md) - how lateral control gets engaged in the first place.
+- [OPRivView](oprivview.md) - the app that shows the driving screen, including this readout, on an Android device.
