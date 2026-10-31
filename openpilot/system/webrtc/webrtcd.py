@@ -645,6 +645,17 @@ async def on_shutdown(state: ServerState):
   state.streams.clear()
 
 
+# Browser pages may use this server (CORS) only from the sites listed here: today the OP WebView web client.
+# A listed page can watch the stream and, like the app, can replace the current viewer's session. It cannot send
+# anything into openpilot, because incoming_services drops every incoming service while opview is on. The opview
+# app sends no Origin and is unaffected. Add a site here only when a web client really needs it.
+CORS_ORIGINS = ("https://inertiaimpact.github.io",)
+
+
+def cors_origin_allowed(origin: str | None) -> bool:
+  return origin in CORS_ORIGINS
+
+
 class WebrtcdHandler(BaseHTTPRequestHandler):
   protocol_version = "HTTP/1.1"
 
@@ -655,9 +666,23 @@ class WebrtcdHandler(BaseHTTPRequestHandler):
     "/notify": ("POST",),
   }
 
+  def _send_cors_headers(self) -> None:
+    origin = self.headers.get("Origin")
+    if not cors_origin_allowed(origin):
+      return
+    self.send_header("Access-Control-Allow-Origin", origin)
+    self.send_header("Vary", "Origin")
+    self.send_header("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
+    self.send_header("Access-Control-Allow-Headers", "Content-Type")
+    # Chrome's Private/Local Network Access: an HTTPS page reaching this device on the LAN
+    if self.headers.get("Access-Control-Request-Private-Network") == "true":
+      self.send_header("Access-Control-Allow-Private-Network", "true")
+    self.send_header("Access-Control-Max-Age", "600")
+
   def _send(self, status: int, body: bytes, content_type: str) -> None:
     self.send_response(status)
     self.send_header("Content-Type", content_type)
+    self._send_cors_headers()
     self.send_header("Content-Length", str(len(body)))
     self.end_headers()
     if self.command != "HEAD":
@@ -716,7 +741,11 @@ class WebrtcdHandler(BaseHTTPRequestHandler):
     self._dispatch_request()
 
   def do_OPTIONS(self) -> None:
-    self._dispatch_request()
+    # CORS preflight: the browser asks before POSTing JSON to /stream
+    if urlparse(self.path).path in self._routes:
+      self._send(204, b"", "text/plain; charset=utf-8")
+    else:
+      self._dispatch_request()
 
   def log_message(self, format: str, *args: object) -> None:  # noqa: A002  # stdlib override
     # silence default access logging; errors are logged explicitly in _dispatch_request
