@@ -64,7 +64,7 @@ Both can only be changed while the car is OffRoad. Changes take effect after cha
 ### How it has done so far
 
 - On Gerrylum's R1T, at 80%, the widening matched the calculation exactly, with no faults or warnings.
-- A second R1T tester drove much the same town loop with it on and off. With it off, they had to correct by hand to keep from curbing the truck. The logs point the same way: with it off, the truck ran about 0.4-0.5 m closer to the inside edge on right turns. That was over only a handful of turns, so treat it as encouraging rather than proven.
+- nimijneb, on a second R1T, drove much the same town loop with it on and off. With it off, they had to correct by hand to keep from curbing the truck. The logs point the same way: with it off, the truck ran about 0.4-0.5 m closer to the inside edge on right turns. That was over only a handful of turns, so treat it as encouraging rather than proven.
 
 ### Things to note
 
@@ -90,4 +90,4 @@ No safety-layer code was touched. The comma's steering limits are the same as be
 ## Credits
 
 - **Gerrylum** worked out the R1T wheelbase from the VIN and wrote the off-tracking compensation on his `rx-wb-stg` branch, and tested both on his R1T. AdventurePilot uses his work, adapted so that an R1S and an unrecognised VIN keep the 3.08 m figure and the safety limits are unchanged.
-- Thanks to the second R1T tester for the highway drive and the on/off comparison.
+- Thanks to **nimijneb** for testing on a second R1T: the highway drive and the on/off comparison.
