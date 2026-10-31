@@ -66,10 +66,32 @@ Open OPRivView. It finds the comma by itself. The picture appears once the comma
 
 ---
 
+## Watching in a web browser: OP WebView
+
+There is also a web version, [OP WebView](https://inertiaimpact.github.io/OPWebView/), made by inertiaimpact. It shows the
+same kind of overlay in a browser, with no app to install, so it also works on a laptop.
+It can be installed to the home screen from the browser.
+
+1. Turn on **opview Screen Streaming** on the comma, as in step 1 above, and put both on one network, as in step 3.
+2. Start the car.
+3. Open [https://inertiaimpact.github.io/OPWebView/](https://inertiaimpact.github.io/OPWebView/) in Chrome, and allow
+   local network access when the browser asks. It looks for the comma by itself; if it does not find it, use
+   **+ Add IP address** and enter the address from **Settings > Network > Advanced** on the comma.
+
+Current Chrome is what it is built for. Other browsers may refuse to connect from a web page to a device on your own
+network. The page itself comes from the internet, but the video and driving data go straight from the comma to your
+browser, not through any website. **Demo** shows it working without a car.
+
+The comma lets only that one website connect from a browser. Other websites cannot reach it. OP WebView is a
+separate project, not part of AdventurePilot: report problems with it on [its own repository](https://github.com/inertiaimpact/OPWebView).
+
+---
+
 ## What to be aware of
 
 - **Anyone on the same network can watch while this is on.** There is no login. The road camera and driving data are visible to any device on that network that asks for them, so use a network you trust, such as your own hotspot, and leave the setting off otherwise.
-- **Nothing can be sent to the car through it.** While the setting is on, the comma ignores anything a viewer tries to send. One side effect: remote joystick control through comma Connect does not work while this is on.
+- **A browser on that network can watch too, but only through OP WebView.** Other websites are refused by the comma.
+- **Nothing can be sent to the car through it.** While the setting is on, the comma ignores anything a viewer tries to send, from the app or from a browser. One side effect: remote joystick control through comma Connect does not work while this is on.
 - **With the setting off, nothing changes.** The streaming service is not started for the app, and the comma is not open to the network.
 - **A problem in the stream cannot disengage the car.** If the video stream or its service crashes, you lose the picture and the car carries on. This protection is on for everyone on these branches, whether or not this setting is on.
 - **It is a display, not a mirror you should rely on.** The comma's own screen and alerts remain the ones that count. Keep your eyes on the road.
@@ -83,6 +105,9 @@ Open OPRivView. It finds the comma by itself. The picture appears once the comma
 - **Connected but no picture.** The picture only appears while the car is on. Wait a few seconds after starting it.
 - **No lane centering readout.** Turn on **Lane Centering** on the comma. The readout only shows while openpilot is steering.
 - **Remote joystick stopped working.** Turn this setting off.
+- **OP WebView cannot connect.** Use current Chrome and allow local network access when asked. If you said no, allow it
+  again in the site's settings in Chrome. Check you are on `dev` or `dev-a` from 31 October 2026 or later: earlier builds
+  refuse browser connections.
 
 For anything else about the app, see the [troubleshooting table in the user guide](https://github.com/Geomglot/opview/blob/rivian-support/docs/USER_GUIDE.md#troubleshooting).
 
@@ -93,6 +118,7 @@ For anything else about the app, see the [troubleshooting table in the user guid
 - [eFiniLan/opview](https://github.com/eFiniLan/opview), the original app.
 - [Gerrylum](https://github.com/gerrylum/opview), for the Enhanced and Detailed layouts, the settings menu, in-app updates, the OPRivView name and icon, and much of the comma-side streaming work.
 - [Geomglot](https://github.com/Geomglot/opview), for sunnypilot support, the lane centering readout and the releases.
+- [inertiaimpact](https://github.com/inertiaimpact/OPWebView), for the OP WebView web client.
 - [comma.ai openpilot](https://github.com/commaai/openpilot), whose driving screen it reproduces.
 
 ## Related pages
