@@ -61,7 +61,7 @@ class AccelerationControl:
     # same low-speed ramp as Gas Override Boost: none below 10 mph, full by 20 mph
     speed_scale = np.interp(sm['carState'].vEgo, [ACCEL_BOOST_MIN_SPEED, 2 * ACCEL_BOOST_MIN_SPEED], [0.0, 1.0])
     brake_fade = np.interp(output_a_target_e2e, BRAKE_FADE_BP, BRAKE_FADE_V)
-    base = ACCELERATION_CONTROL_BOOST.get(sm['selfdriveState'].personality, ACCELERATION_CONTROL_BOOST[Personality.standard])
+    base = ACCELERATION_CONTROL_BOOST.get(sm['selfdriveState'].personality.raw, ACCELERATION_CONTROL_BOOST[Personality.standard])
 
     self.boost = float(base * speed_scale * brake_fade)
     return output_a_target_e2e + self.boost

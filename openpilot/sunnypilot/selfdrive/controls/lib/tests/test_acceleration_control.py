@@ -1,4 +1,10 @@
-from types import SimpleNamespace
+"""
+Tests for Acceleration Control personality-linked acceleration boost.
+
+This file is part of sunnypilot and is licensed under the MIT License.
+See the LICENSE.md file in the root directory for more details.
+"""
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -18,15 +24,20 @@ class FakeParams:
 
 
 def _sm(v_ego=25.0, personality=Personality.standard, engaged=True, should_stop=False):
+  """Build a message dict with real cereal message types so _DynamicEnum hashing is exercised."""
+  selfdrive_state = log.SelfdriveState.new_message(
+    enabled=engaged,
+    personality=personality,
+  )
   return {
-    'carState': SimpleNamespace(vEgo=v_ego),
-    'selfdriveState': SimpleNamespace(enabled=engaged, personality=personality),
-    'modelV2': SimpleNamespace(action=SimpleNamespace(shouldStop=should_stop)),
+    'carState': MagicMock(vEgo=v_ego),
+    'selfdriveState': selfdrive_state,
+    'modelV2': MagicMock(action=MagicMock(shouldStop=should_stop)),
   }
 
 
 def _assist(enabled=True, op_long=True):
-  return AccelerationControl(SimpleNamespace(openpilotLongitudinalControl=op_long), params=FakeParams(enabled))
+  return AccelerationControl(MagicMock(openpilotLongitudinalControl=op_long), params=FakeParams(enabled))
 
 
 @pytest.mark.parametrize("personality", list(ACCELERATION_CONTROL_BOOST))
@@ -74,7 +85,7 @@ def test_low_speed_ramp():
 
 def test_setting_change_is_picked_up():
   params = FakeParams(enabled=False)
-  assist = AccelerationControl(SimpleNamespace(openpilotLongitudinalControl=True), params=params)
+  assist = AccelerationControl(MagicMock(openpilotLongitudinalControl=True), params=params)
   assert assist.update(_sm(), 0.0) == 0.0
   params.values["AccelerationControl"] = True
   outs = [assist.update(_sm(), 0.0) for _ in range(PARAM_REFRESH_FRAMES)]
