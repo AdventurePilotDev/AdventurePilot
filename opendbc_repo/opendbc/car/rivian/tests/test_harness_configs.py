@@ -23,6 +23,7 @@ from opendbc.car.rivian.ext_controller import TOI_CLEAR_LATCH_FRAMES, TOI_CLEAR_
 from opendbc.car.rivian.ext_controller import TOI_DROPOUT_FRAMES, TOI_DROPOUT_WARN_FRAMES, TOI_DROPOUT_WARN_HOLD_FRAMES, TOI_START_FRAMES
 from opendbc.car.rivian.ext_controller import (TORQUE_PREARM_ABORT_LOCKOUT, TORQUE_PREARM_EXIT_FRAC, TORQUE_PREARM_MAX_FRAMES,
                                                TORQUE_PREARM_MIN_HOLD)
+from opendbc.car.rivian.ext_controller import HANDS_OFF_EXIT_FRAMES, HANDOFF_MAX_ANGLE_DEG, PRESENCE_TORQUE_THRESHOLD
 from opendbc.car.rivian.interface import CarInterface
 from opendbc.car.rivian.values import CAR, DBC, CarControllerParams, RivianFlags, RivianSafetyFlags
 from opendbc.safety import ALTERNATIVE_EXPERIENCE
@@ -680,6 +681,75 @@ class TestMakeBeforeBreakHandoff(unittest.TestCase):
     self.assertFalse(erc.torque_prearm)
     self.assertFalse(erc.angle_active)
     self.assertEqual(erc.prearm_abort_lockout, 0)
+
+
+def _curv_for_angle(erc, deg, v_ego):
+  # inverse of the conversion in ExternalController.update(); linear in curvature at roll = 0
+  per_unit = erc.VM.get_steer_from_curvature(1.0, v_ego, 0.0)
+  return -math.radians(deg) / per_unit
+
+
+def _enter_torque(erc, v_ego=2.0, angle=0.0, curvature=0.0):
+  # driver grabs the wheel: sustained torsion above the 4.0 Nm hands-on threshold
+  erc.update(_cs_frame(v_ego=v_ego, angle=angle, eac_status=2), True, _actuators(curvature=curvature))
+  for _ in range(15):
+    erc.update(_cs_frame(v_ego=v_ego, angle=angle, torque=6.0, pressed=True, eac_status=2), True, _actuators(curvature=curvature))
+  assert erc.torque_active
+
+
+class TestHandbackHysteresis(unittest.TestCase):
+  def test_handback_waits_for_the_full_hands_off_dwell(self):
+    # the capacitive sensor dropping is not enough on its own: a full second clear of hands-on and
+    # of the light-touch presence latch is required before the angle servo takes the wheel back
+    erc = ExternalController(_get_cp(xnor_box=True))
+    _enter_torque(erc)
+    frames = 0
+    for _ in range(HANDS_OFF_EXIT_FRAMES * 3):
+      erc.update(_cs_frame(v_ego=2.0, eac_status=1), True, _actuators())
+      frames += 1
+      if not erc.torque_active:
+        break
+    self.assertFalse(erc.torque_active)
+    self.assertGreaterEqual(frames, HANDS_OFF_EXIT_FRAMES)
+
+  def test_light_torsion_holds_torque_indefinitely(self):
+    # hands sliding on the wheel: torsion well below the 4.0 Nm hands-on test, so hands_on is False,
+    # but the presence latch keeps hands_off_frames pinned and we stay in cooperative torque
+    erc = ExternalController(_get_cp(xnor_box=True))
+    _enter_torque(erc)
+    light = PRESENCE_TORQUE_THRESHOLD * 2.0
+    for _ in range(HANDS_OFF_EXIT_FRAMES * 5):
+      erc.update(_cs_frame(v_ego=2.0, torque=light, eac_status=1), True, _actuators())
+    self.assertFalse(erc.hands_on)
+    self.assertTrue(erc.torque_active)
+    self.assertEqual(erc.hands_off_frames, 0)
+
+  def test_no_handback_beyond_the_angle_cap(self):
+    # at crawl speed the EPAS envelope is 500 deg, so it constrains nothing; the absolute cap is what
+    # stops the servo grabbing the wheel back mid-corner
+    v_ego = 2.0
+    beyond = HANDOFF_MAX_ANGLE_DEG + 15.0
+    erc = ExternalController(_get_cp(xnor_box=True))
+    curv = _curv_for_angle(erc, beyond, v_ego)
+    _enter_torque(erc, v_ego=v_ego, angle=beyond, curvature=curv)
+    # Watch every frame, not just the last one. Checking torque_active only at the end passes even
+    # with the cap removed, because the EAC fallback puts us back into torque a few frames after a
+    # handback, so the end state looks identical either way.
+    handed_back = False
+    for _ in range(HANDS_OFF_EXIT_FRAMES * 3):
+      erc.update(_cs_frame(v_ego=v_ego, angle=beyond, eac_status=1), True, _actuators(curvature=curv))
+      handed_back = handed_back or not erc.torque_active
+    # gap is zero and the dwell is long past: only the cap is holding us in torque
+    self.assertGreaterEqual(erc.hands_off_frames, HANDS_OFF_EXIT_FRAMES)
+    self.assertFalse(handed_back, "angle servo took the wheel back beyond the handback angle cap")
+    # unwind inside the cap and the handback goes through
+    within = HANDOFF_MAX_ANGLE_DEG - 10.0
+    curv = _curv_for_angle(erc, within, v_ego)
+    for _ in range(HANDS_OFF_EXIT_FRAMES):
+      erc.update(_cs_frame(v_ego=v_ego, angle=within, eac_status=1), True, _actuators(curvature=curv))
+      if not erc.torque_active:
+        break
+    self.assertFalse(erc.torque_active)
 
 
 class TestMadsGearGate(unittest.TestCase):
