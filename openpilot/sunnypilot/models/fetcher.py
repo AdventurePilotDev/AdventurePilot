@@ -33,39 +33,6 @@ class ModelParser:
     return artifact
 
   @staticmethod
-  def _repair_chunk_manifest(artifact: custom.ModelManagerSP.Artifact) -> None:
-    """Restore a missing/incorrect manifest for an artifact whose chunks are already on disk.
-
-    Only ever written when every chunk file for this exact chunk count exists, because
-    artifact file names are not unique across bundles: two bundles can ship the same
-    `*_tinygrad.pkl` with different chunk counts. Writing the manifest unconditionally
-    (as upstream does) lets the last bundle parsed clobber the manifest of the model the
-    user actually has downloaded, and the chunk count is baked into the chunk file names
-    (`.chunk01of04` vs `.chunk01of03`), so the model would then fail to load.
-    """
-    from openpilot.common.file_chunker import get_chunk_name, get_manifest_path
-
-    try:
-      model_dir = Paths.model_root()
-      base_path = os.path.join(model_dir, artifact.fileName)
-      num_chunks = len(artifact.chunks)
-
-      if not all(os.path.isfile(get_chunk_name(base_path, i, num_chunks)) for i in range(num_chunks)):
-        return
-
-      manifest_path = get_manifest_path(base_path)
-      expected = str(num_chunks)
-      if os.path.exists(manifest_path) and open(manifest_path).read().strip() == expected:
-        return
-
-      os.makedirs(model_dir, exist_ok=True)
-      with open(manifest_path, "w") as f:
-        f.write(expected)
-      cloudlog.info(f"Wrote chunk manifest for {artifact.fileName}: {expected} chunks")
-    except Exception as e:
-      cloudlog.warning(f"Failed to write chunk manifest for {artifact.fileName}: {e}")
-
-  @staticmethod
   def _parse_model(model_data) -> custom.ModelManagerSP.Model:
     model = custom.ModelManagerSP.Model()
 
