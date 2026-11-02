@@ -77,7 +77,7 @@ class CruiseLayout(Widget):
       title=tr("Acceleration Control"),
       description=tr("Helps the car reach the set speed when the driving model holds back for no reason. Adds a fixed "
                      "amount of acceleration to the model's request, set by the driving personality (Relaxed 0.1, "
-                     "Standard 0.2, Aggressive 0.3 m/s²), above 10 mph and only while the model is not slowing down. "
+                     "Standard 0.2, Aggressive 0.3 m/s2), above 10 mph and only while the model is not slowing down. "
                      "It never passes the set speed or closes on a lead car."),
       param="AccelerationControl")
 
