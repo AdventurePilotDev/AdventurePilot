@@ -76,9 +76,12 @@ class CarController(CarControllerBase, MadsCarController):
       self._angle_master_on = self._params.get_bool("RivianEnableAngleSteering")
       self._angle_min_speed_ms = int(self._params.get("RivianAngleSteerMinSpeed", return_default=True)) * CV.MPH_TO_MS
 
-  def update_live_params(self, roll, angle_offset_deg):
+  def update_live_params(self, roll, angle_offset_deg, stiffness_factor, steer_ratio):
     self.erc.roll = roll
     self.erc.angle_offset_deg = angle_offset_deg
+    # only the curvature -> angle conversion tracks the learned plant; the limiters stay on VM_safety.
+    # Same clamp controlsd applies before feeding its own VehicleModel.
+    self.erc.VM.update_params(max(stiffness_factor, 0.1), max(steer_ratio, 0.1))
 
   def update(self, CC, CC_SP, CS, now_nanos):
     MadsCarController.update(self, CC, CC_SP, CS)

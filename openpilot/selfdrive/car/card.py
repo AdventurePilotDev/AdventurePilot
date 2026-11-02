@@ -296,7 +296,7 @@ class Car:
       # feed vehicleParameters to carcontrollers that build their own angle command (Rivian)
       if (update_live_params := getattr(self.CI.CC, 'update_live_params', None)) is not None and self.sm.all_checks(['vehicleParameters']):
         lp = self.sm['vehicleParameters']
-        update_live_params(lp.roll, lp.angleOffsetDeg)
+        update_live_params(lp.roll, lp.angleOffsetDeg, lp.stiffnessFactor, lp.steerRatio)
 
       # send car controls over can
       now_nanos = self.can_log_mono_time if REPLAY else int(time.monotonic() * 1e9)
