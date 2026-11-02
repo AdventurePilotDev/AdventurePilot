@@ -27,8 +27,8 @@ ACCELERATION_CONTROL_BOOST = {
   Personality.aggressive: 0.3,
 }
 
-# Fade the boost out as the model starts to brake: full at a request of 0, none by -0.1 m/s^2.
-BRAKE_FADE_BP = [-0.1, 0.0]
+# Fade the boost out as the model starts to brake: full at a request of 0, none by 0.1 m/s^2.
+BRAKE_FADE_BP = [0.0, 0.1]
 BRAKE_FADE_V = [0.0, 1.0]
 
 PARAM_REFRESH_FRAMES = 20  # 1 s at the 20 Hz planner rate
