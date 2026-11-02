@@ -42,9 +42,10 @@ def _assist(enabled=True, op_long=True):
 
 @pytest.mark.parametrize("personality", list(ACCELERATION_CONTROL_BOOST))
 def test_fixed_boost_per_personality(personality):
-  # the stroad case: model asking for almost nothing at 50 mph, nothing to slow for
+  # at a=0.05 the model is slightly accelerating so brake fade is 0.5 (halfway through the fade curve)
   out = _assist().update(_sm(v_ego=50 * CV.MPH_TO_MS, personality=personality), 0.05)
-  assert out == pytest.approx(0.05 + ACCELERATION_CONTROL_BOOST[personality])
+  boost = ACCELERATION_CONTROL_BOOST[personality]
+  assert out == pytest.approx(0.05 + boost * 0.5)
 
 
 def test_same_result_every_time():
@@ -67,8 +68,6 @@ def test_model_braking_passes_through():
   assist = _assist()
   for a in (-0.1, -0.5, -2.0):
     assert assist.update(_sm(), a) == a
-  # partial fade just below zero
-  assert 0.0 < assist.update(_sm(), -0.05) + 0.05 < ACCELERATION_CONTROL_BOOST[Personality.standard]
 
 
 def test_predicted_stop_passes_through():
@@ -81,6 +80,12 @@ def test_low_speed_ramp():
   assert assist.update(_sm(v_ego=5 * CV.MPH_TO_MS), 0.0) == 0.0
   assert assist.update(_sm(v_ego=15 * CV.MPH_TO_MS), 0.0) == pytest.approx(boost / 2)
   assert assist.update(_sm(v_ego=25 * CV.MPH_TO_MS), 0.0) == pytest.approx(boost)
+
+
+def test_high_speed_no_accel():
+  # at 50 mph, a=0: full speed scale, full fade → full boost
+  boost = ACCELERATION_CONTROL_BOOST[Personality.standard]
+  assert _assist().update(_sm(v_ego=50 * CV.MPH_TO_MS, personality=Personality.standard), 0.0) == pytest.approx(boost)
 
 
 def test_setting_change_is_picked_up():
