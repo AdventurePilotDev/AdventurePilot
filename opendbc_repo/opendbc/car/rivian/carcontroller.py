@@ -262,6 +262,17 @@ class CarController(CarControllerBase, MadsCarController):
     # request instead (to restore the angle-mode saturation warning) makes that flag false and lets
     # the integrator wind up against an output that is being discarded; it then dumps near full
     # scale torque on the first handoff to torque mode and fights the driver.
+    #
+    # THIS LINE IS LOAD-BEARING. It is the whole of our integrator freeze in angle mode, and it is
+    # deliberately the only one: xnor solves the same problem with a brand-gated `angle_steering`
+    # flag in controlsd.py plus an extra freeze_integrator term in latcontrol_torque.py, which we do
+    # not take, because it puts Rivian behaviour in shared brand-agnostic control code and because
+    # layering a second freeze on this one invites the same accident that caused the original bug
+    # (1b0e402f6 broke the freeze as a side effect of changing the saturation warning, since one flag
+    # fed both). The cost is that steer_limited_by_safety reads as "torque channel idle" throughout
+    # angle mode rather than "safety limited us"; the angle-mode saturation warning is therefore
+    # raised Rivian-side instead, from ext_controller.angle_saturated. Do not change this line to the
+    # requested torque without moving the integrator freeze somewhere else first.
     new_actuators.torque = apply_torque / steer_max
     new_actuators.torqueOutputCan = apply_torque
     new_actuators.steeringAngleDeg = self.erc.apply_angle_last
