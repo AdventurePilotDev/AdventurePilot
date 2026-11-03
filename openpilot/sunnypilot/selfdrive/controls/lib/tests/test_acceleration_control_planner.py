@@ -96,7 +96,8 @@ def _publication_fields(planner):
   curve = SimpleNamespace(state=default.smartCruiseControl.curve.state, output_v_target=30, output_a_target=0,
                           lat_accel_target=0, is_enabled=False, is_active=False)
   planner.scc = SimpleNamespace(vision=vision, map=map_source, curve=curve,
-                                governor=SimpleNamespace(load=0, ceiling=1, is_active=False))
+                                governor=SimpleNamespace(load=0, ceiling=1, is_active=False,
+                                                         throttle_scale=lambda: 1.0))
   planner.resolver = SimpleNamespace(speed_limit=0, speed_limit_last=0, speed_limit_final=0, speed_limit_final_last=0,
                                      speed_limit_valid=False, speed_limit_last_valid=False, speed_limit_offset=0,
                                      distance=0, source=default.speedLimit.resolver.source)

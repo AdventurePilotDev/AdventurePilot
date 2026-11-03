@@ -14,7 +14,7 @@ from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.sunnypilot.selfdrive.controls.lib.smart_cruise_control.curve_speed_controller import (
   CurveSpeedController, A_LAT_MAX)
 from openpilot.sunnypilot.selfdrive.controls.lib.smart_cruise_control.lateral_load_governor import (
-  LateralLoadGovernor, A_LAT_CEILING)
+  LateralLoadGovernor, A_LAT_CEILING_TORQUE)
 
 CurveState = custom.LongitudinalPlanSP.SmartCruiseControl.CurveState
 N = len(ModelConstants.T_IDXS)
@@ -109,7 +109,7 @@ class TestLateralLoadGovernor:
     assert self.gov.throttle_scale() == 1.0
 
   def test_overload_caps_speed(self):
-    over = A_LAT_CEILING * 1.1
+    over = A_LAT_CEILING_TORQUE * 1.1
     sm = sm_for(yaw_rate=0.05, speed=24.0, actual=over, desired=over, v_ego=24.0)
     for _ in range(20):  # let the EMA converge
       self.gov.update(sm, True, False, 24.0)
