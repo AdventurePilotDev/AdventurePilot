@@ -38,7 +38,7 @@ OPVIEW_FIELDS: dict[str, dict] = {
     "cruiseState": {"enabled": True},
   },
   "selfdriveState": {
-    "enabled": True, "engageable": True, "experimentalMode": True, "state": True, "personality": True,
+    "enabled": True, "engageable": True, "state": True, "personality": True,
     "alertText1": True, "alertText2": True, "alertSize": True, "alertStatus": True,
   },
   "controlsState": {
@@ -47,7 +47,6 @@ OPVIEW_FIELDS: dict[str, dict] = {
     "lateralControlState": {UNION: {"saturated": True}},
   },
   "radarState": {"leadOne": _LEAD, "leadTwo": _LEAD},
-  "longitudinalPlan": {"allowThrottle": True},
   "deviceState": {
     "deviceType": True, "started": True, "cpuTempC": True, "memoryUsagePercent": True,
     "freeSpacePercent": True, "networkStrength": True, "powerDrawW": True,
@@ -56,6 +55,7 @@ OPVIEW_FIELDS: dict[str, dict] = {
   "roadCameraState": {"sensor": True},
   "extrinsicsCalibration": {"rpyCalib": True, "wideFromDeviceEuler": True, "calStatus": True, "calPerc": True, "height": True},
   "liveCalibration": {"rpyCalib": True, "wideFromDeviceEuler": True, "calStatus": True, "calPerc": True, "height": True},
+  "longitudinalPlan": {},  # Explicit omission; absent services use the whole-message fallback.
   "longitudinalPlanSP": {
     "speedLimit": {
       "resolver": {

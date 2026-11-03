@@ -4,25 +4,24 @@ import unittest
 
 from opendbc.car.hyundai.values import HyundaiSafetyFlags
 from opendbc.car.structs import CarParams
-from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
-from opendbc.safety.tests.common import CANPackerSafety
 from opendbc.safety.tests.hyundai_common import HyundaiButtonBase, HyundaiLongitudinalBase
 
 # All combinations of radar/camera-SCC and gas/hybrid/EV cars
 ALL_GAS_EV_HYBRID_COMBOS = [
   # Radar SCC
-  {"GAS_MSG": ("ACCELERATOR_BRAKE_ALT", "ACCELERATOR_PEDAL_PRESSED"), "SCC_BUS": 0, "SAFETY_PARAM": 0},
-  {"GAS_MSG": ("ACCELERATOR", "ACCELERATOR_PEDAL"), "SCC_BUS": 0, "SAFETY_PARAM": HyundaiSafetyFlags.EV_GAS},
-  {"GAS_MSG": ("ACCELERATOR_ALT", "ACCELERATOR_PEDAL"), "SCC_BUS": 0, "SAFETY_PARAM": HyundaiSafetyFlags.HYBRID_GAS},
+  {"GAS_MSG": ("ACCELERATOR_BRAKE_ALT", "ACCELERATOR_PEDAL_PRESSED"), "SCC_BUS": 0, "EXTRA_SAFETY_PARAM": 0},
+  {"GAS_MSG": ("ACCELERATOR", "ACCELERATOR_PEDAL"), "SCC_BUS": 0, "EXTRA_SAFETY_PARAM": HyundaiSafetyFlags.EV_GAS},
+  {"GAS_MSG": ("ACCELERATOR_ALT", "ACCELERATOR_PEDAL"), "SCC_BUS": 0, "EXTRA_SAFETY_PARAM": HyundaiSafetyFlags.HYBRID_GAS},
   # Camera SCC
-  {"GAS_MSG": ("ACCELERATOR_BRAKE_ALT", "ACCELERATOR_PEDAL_PRESSED"), "SCC_BUS": 2, "SAFETY_PARAM": HyundaiSafetyFlags.CAMERA_SCC},
-  {"GAS_MSG": ("ACCELERATOR", "ACCELERATOR_PEDAL"), "SCC_BUS": 2, "SAFETY_PARAM": HyundaiSafetyFlags.EV_GAS | HyundaiSafetyFlags.CAMERA_SCC},
-  {"GAS_MSG": ("ACCELERATOR_ALT", "ACCELERATOR_PEDAL"), "SCC_BUS": 2, "SAFETY_PARAM": HyundaiSafetyFlags.HYBRID_GAS | HyundaiSafetyFlags.CAMERA_SCC},
+  {"GAS_MSG": ("ACCELERATOR_BRAKE_ALT", "ACCELERATOR_PEDAL_PRESSED"), "SCC_BUS": 2, "EXTRA_SAFETY_PARAM": HyundaiSafetyFlags.CAMERA_SCC},
+  {"GAS_MSG": ("ACCELERATOR", "ACCELERATOR_PEDAL"), "SCC_BUS": 2, "EXTRA_SAFETY_PARAM": HyundaiSafetyFlags.EV_GAS | HyundaiSafetyFlags.CAMERA_SCC},
+  {"GAS_MSG": ("ACCELERATOR_ALT", "ACCELERATOR_PEDAL"), "SCC_BUS": 2, "EXTRA_SAFETY_PARAM": HyundaiSafetyFlags.HYBRID_GAS | HyundaiSafetyFlags.CAMERA_SCC},
 ]
-
-
 class TestHyundaiCanfdBase(HyundaiButtonBase, common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest, common.SteerRequestCutSafetyTest):
+
+  DBC = "hyundai_canfd_generated"
+  SAFETY_MODEL = CarParams.SafetyModel.hyundaiCanfd
 
   TX_MSGS = [[0x50, 0], [0x1CF, 1], [0x2A4, 0]]
   STANDSTILL_THRESHOLD = 12  # 0.375 kph
@@ -91,8 +90,6 @@ class TestHyundaiCanfdBase(HyundaiButtonBase, common.CarSafetyTest, common.Drive
 
   def _main_cruise_button_msg(self, enabled):
     return self._button_msg(0, enabled)
-
-
 class TestHyundaiCanfdLFASteeringBase(TestHyundaiCanfdBase):
 
   TX_MSGS = [[0x12A, 0], [0x1A0, 1], [0x1CF, 0], [0x1E0, 0]]
@@ -101,37 +98,28 @@ class TestHyundaiCanfdLFASteeringBase(TestHyundaiCanfdBase):
 
   STEER_MSG = "LFA"
   BUTTONS_TX_BUS = 2
-  SAFETY_PARAM: int
+  EXTRA_SAFETY_PARAM: int
 
   @classmethod
   def setUpClass(cls):
     super().setUpClass()
     if cls.__name__ in ("TestHyundaiCanfdLFASteering", "TestHyundaiCanfdLFASteeringAltButtons"):
       cls.packer = None
-      cls.safety = None
       raise unittest.SkipTest
 
-  def setUp(self):
-    self.packer = CANPackerSafety("hyundai_canfd_generated")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.hyundaiCanfd, self.SAFETY_PARAM)
-    self.safety.init_tests()
-
-
+  @property
+  def SAFETY_PARAM(self):
+    return self.EXTRA_SAFETY_PARAM
 @parameterized_class(ALL_GAS_EV_HYBRID_COMBOS)
 class TestHyundaiCanfdLFASteering(TestHyundaiCanfdLFASteeringBase):
   pass
-
-
 class TestHyundaiCanfdLFASteeringAltButtonsBase(TestHyundaiCanfdLFASteeringBase):
 
-  SAFETY_PARAM: int
+  EXTRA_SAFETY_PARAM: int
 
-  def setUp(self):
-    self.packer = CANPackerSafety("hyundai_canfd_generated")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.hyundaiCanfd, HyundaiSafetyFlags.CANFD_ALT_BUTTONS | self.SAFETY_PARAM)
-    self.safety.init_tests()
+  @property
+  def SAFETY_PARAM(self):
+    return HyundaiSafetyFlags.CANFD_ALT_BUTTONS | self.EXTRA_SAFETY_PARAM
 
   def _button_msg(self, buttons, main_button=0, bus=1):
     values = {
@@ -164,14 +152,12 @@ class TestHyundaiCanfdLFASteeringAltButtonsBase(TestHyundaiCanfdLFASteeringBase)
       self.assertTrue(self._tx(self._acc_cancel_msg(True)))
       self.assertFalse(self._tx(self._acc_cancel_msg(True, accel=1)))
       self.assertFalse(self._tx(self._acc_cancel_msg(False)))
-
-
 @parameterized_class(ALL_GAS_EV_HYBRID_COMBOS)
 class TestHyundaiCanfdLFASteeringAltButtons(TestHyundaiCanfdLFASteeringAltButtonsBase):
   pass
-
-
 class TestHyundaiCanfdLKASteeringEV(TestHyundaiCanfdBase):
+
+  SAFETY_PARAM = HyundaiSafetyFlags.CANFD_LKA_STEER_MSG | HyundaiSafetyFlags.EV_GAS
 
   TX_MSGS = [[0x50, 0], [0x1CF, 1], [0x2A4, 0]]
   RELAY_MALFUNCTION_ADDRS = {0: (0x50, 0x2a4)}  # LKAS, CAM_0x2A4
@@ -181,16 +167,10 @@ class TestHyundaiCanfdLKASteeringEV(TestHyundaiCanfdBase):
   SCC_BUS = 1
   STEER_MSG = "LKAS"
   GAS_MSG = ("ACCELERATOR", "ACCELERATOR_PEDAL")
-
-  def setUp(self):
-    self.packer = CANPackerSafety("hyundai_canfd_generated")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.hyundaiCanfd, HyundaiSafetyFlags.CANFD_LKA_STEER_MSG | HyundaiSafetyFlags.EV_GAS)
-    self.safety.init_tests()
-
-
 # TODO: Handle ICE and HEV configurations once we see cars that use the new messages
 class TestHyundaiCanfdLKASteeringAltEV(TestHyundaiCanfdBase):
+
+  SAFETY_PARAM = HyundaiSafetyFlags.CANFD_LKA_STEER_MSG | HyundaiSafetyFlags.EV_GAS | HyundaiSafetyFlags.CANFD_LKA_STEER_MSG_ALT
 
   TX_MSGS = [[0x110, 0], [0x1CF, 1], [0x362, 0]]
   RELAY_MALFUNCTION_ADDRS = {0: (0x110, 0x362)}  # LKAS_ALT, CAM_0x362
@@ -200,16 +180,9 @@ class TestHyundaiCanfdLKASteeringAltEV(TestHyundaiCanfdBase):
   SCC_BUS = 1
   STEER_MSG = "LKAS_ALT"
   GAS_MSG = ("ACCELERATOR", "ACCELERATOR_PEDAL")
-
-  def setUp(self):
-    self.packer = CANPackerSafety("hyundai_canfd_generated")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.hyundaiCanfd, HyundaiSafetyFlags.CANFD_LKA_STEER_MSG | HyundaiSafetyFlags.EV_GAS |
-                                 HyundaiSafetyFlags.CANFD_LKA_STEER_MSG_ALT)
-    self.safety.init_tests()
-
-
 class TestHyundaiCanfdLKASteeringLongEV(HyundaiLongitudinalBase, TestHyundaiCanfdLKASteeringEV):
+
+  SAFETY_PARAM = HyundaiSafetyFlags.CANFD_LKA_STEER_MSG | HyundaiSafetyFlags.LONG | HyundaiSafetyFlags.EV_GAS
 
   TX_MSGS = [[0x50, 0], [0x1CF, 1], [0x2A4, 0], [0x51, 0], [0x730, 1], [0x12a, 1], [0x160, 1],
              [0x1e0, 1], [0x1a0, 1], [0x1ea, 1], [0x200, 1], [0x345, 1], [0x1da, 1]]
@@ -223,13 +196,6 @@ class TestHyundaiCanfdLKASteeringLongEV(HyundaiLongitudinalBase, TestHyundaiCanf
   GAS_MSG = ("ACCELERATOR", "ACCELERATOR_PEDAL")
   STEER_BUS = 1
 
-  def setUp(self):
-    self.packer = CANPackerSafety("hyundai_canfd_generated")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.hyundaiCanfd, HyundaiSafetyFlags.CANFD_LKA_STEER_MSG |
-                                 HyundaiSafetyFlags.LONG | HyundaiSafetyFlags.EV_GAS)
-    self.safety.init_tests()
-
   def _accel_msg(self, accel, aeb_req=False, aeb_decel=0):
     values = {
       "aReqRaw": accel,
@@ -240,8 +206,6 @@ class TestHyundaiCanfdLKASteeringLongEV(HyundaiLongitudinalBase, TestHyundaiCanf
   def _tx_acc_state_msg(self, enable):
     values = {"MainMode_ACC": enable}
     return self.packer.make_can_msg_safety("SCC_CONTROL", self.PT_BUS, values)
-
-
 # Tests longitudinal for ICE, hybrid, EV cars with LFA steering
 class TestHyundaiCanfdLFASteeringLongBase(HyundaiLongitudinalBase, TestHyundaiCanfdLFASteeringBase):
 
@@ -252,17 +216,9 @@ class TestHyundaiCanfdLFASteeringLongBase(HyundaiLongitudinalBase, TestHyundaiCa
   DISABLED_ECU_UDS_MSG = (0x7D0, 0)
   DISABLED_ECU_ACTUATION_MSG = (0x1a0, 0)
 
-  @classmethod
-  def setUpClass(cls):
-    if cls.__name__ == "TestHyundaiCanfdLFASteeringLongBase":
-      cls.safety = None
-      raise unittest.SkipTest
-
-  def setUp(self):
-    self.packer = CANPackerSafety("hyundai_canfd_generated")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.hyundaiCanfd, HyundaiSafetyFlags.LONG | self.SAFETY_PARAM)
-    self.safety.init_tests()
+  @property
+  def SAFETY_PARAM(self):
+    return HyundaiSafetyFlags.LONG | self.EXTRA_SAFETY_PARAM
 
   def _accel_msg(self, accel, aeb_req=False, aeb_decel=0):
     values = {
@@ -275,38 +231,29 @@ class TestHyundaiCanfdLFASteeringLongBase(HyundaiLongitudinalBase, TestHyundaiCa
     values = {"MainMode_ACC": enable}
     return self.packer.make_can_msg_safety("SCC_CONTROL", self.PT_BUS, values)
 
-  # no knockout
-  def test_tester_present_allowed(self):
-    pass
-
-
+  def test_tester_present_allowed(self, ecu_disable: bool = True):
+    super().test_tester_present_allowed(ecu_disable=not self.EXTRA_SAFETY_PARAM & HyundaiSafetyFlags.CAMERA_SCC)
 @parameterized_class(ALL_GAS_EV_HYBRID_COMBOS)
 class TestHyundaiCanfdLFASteeringLong(TestHyundaiCanfdLFASteeringLongBase):
   @classmethod
   def setUpClass(cls):
+    super().setUpClass()
     if cls.__name__ == "TestHyundaiCanfdLFASteeringLong":
-      cls.safety = None
       raise unittest.SkipTest
-
-
 @parameterized_class(ALL_GAS_EV_HYBRID_COMBOS)
 class TestHyundaiCanfdLFASteeringLongAltButtons(TestHyundaiCanfdLFASteeringLongBase, TestHyundaiCanfdLFASteeringAltButtonsBase):
   @classmethod
   def setUpClass(cls):
+    super().setUpClass()
     if cls.__name__ == "TestHyundaiCanfdLFASteeringLongAltButtons":
-      cls.safety = None
       raise unittest.SkipTest
 
-  def setUp(self):
-    self.packer = CANPackerSafety("hyundai_canfd_generated")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.hyundaiCanfd, HyundaiSafetyFlags.LONG | HyundaiSafetyFlags.CANFD_ALT_BUTTONS | self.SAFETY_PARAM)
-    self.safety.init_tests()
+  @property
+  def SAFETY_PARAM(self):
+    return HyundaiSafetyFlags.LONG | HyundaiSafetyFlags.CANFD_ALT_BUTTONS | self.EXTRA_SAFETY_PARAM
 
   def test_acc_cancel(self):
     # Alt buttons does not use SCC_CONTROL to cancel if longitudinal
     pass
-
-
 if __name__ == "__main__":
   unittest.main()

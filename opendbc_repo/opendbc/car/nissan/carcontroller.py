@@ -5,15 +5,17 @@ from opendbc.car.lateral import apply_std_steer_angle_limits
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.nissan import nissancan
 from opendbc.car.nissan.values import CAR, CarControllerParams
-from opendbc.sunnypilot.car.nissan.nissancan_ext import create_cruise_throttle_msg
 from opendbc.car.common.filter_simple import FirstOrderFilter
+
+from opendbc.sunnypilot.car.nissan.icbm import IntelligentCruiseButtonManagementInterface
 
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
 
 
-class CarController(CarControllerBase):
+class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterface):
   def __init__(self, dbc_names, CP, CP_SP):
-    super().__init__(dbc_names, CP, CP_SP)
+    CarControllerBase.__init__(self, dbc_names, CP, CP_SP)
+    IntelligentCruiseButtonManagementInterface.__init__(self, CP, CP_SP)
     self.car_fingerprint = CP.carFingerprint
 
     self.angle_filter = FirstOrderFilter(0.0, 0.1, DT_CTRL)
@@ -60,8 +62,7 @@ class CarController(CarControllerBase):
       can_sends.append(nissancan.create_acc_cancel_cmd(self.packer, self.car_fingerprint, CS.cruise_throttle_msg))
 
     if self.CP.carFingerprint != CAR.NISSAN_ALTIMA and self.frame % 2 == 0:
-      button = "CANCEL_BUTTON" if pcm_cancel_cmd else None
-      can_sends.append(create_cruise_throttle_msg(self.packer, self.car_fingerprint, CS.cruise_throttle_msg, self.frame, button))
+      can_sends.extend(IntelligentCruiseButtonManagementInterface.update(self, CS, CC_SP, self.packer, self.frame, self.last_button_frame, pcm_cancel_cmd))
 
     can_sends.append(nissancan.create_steering_control(
       self.packer, self.apply_angle_last, self.frame, CC.latActive, lkas_max_torque))

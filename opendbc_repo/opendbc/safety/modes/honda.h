@@ -46,7 +46,6 @@ static bool honda_nidec_hybrid = false;
 typedef enum {HONDA_NIDEC, HONDA_BOSCH} HondaHw;
 static HondaHw honda_hw = HONDA_NIDEC;
 
-
 static unsigned int honda_get_pt_bus(void) {
   return ((honda_hw == HONDA_BOSCH) && !honda_bosch_radarless && !honda_bosch_canfd) ? 1U : 0U;
 }
@@ -129,7 +128,7 @@ static void honda_rx_hook(const CANPacket_t *msg) {
 
   // state machine to enter and exit controls for button enabling
   // 0x1A6 for the ILX, 0x296 for the Civic Touring
-  if (((msg->addr == 0x1A6U) || (msg->addr == 0x296U)) && (msg->bus == pt_bus)) {
+  if (msg_matches(msg, 0x1A6U, pt_bus) || msg_matches(msg, 0x296U, pt_bus)) {
     int button = (msg->data[0] & 0xE0U) >> 5;
 
     int cruise_setting = (msg->data[(msg->addr == 0x296U) ? 0U : 5U] & 0x0CU) >> 2U;
@@ -194,7 +193,7 @@ static void honda_rx_hook(const CANPacket_t *msg) {
 
   // disable stock Honda AEB in alternative experience
   if (!(alternative_experience & ALT_EXP_DISABLE_STOCK_AEB)) {
-    if ((msg->bus == 2U) && (msg->addr == 0x1FAU)) {
+    if (msg_matches(msg, 0x1FAU, 2U)) {
       bool honda_stock_aeb = GET_BIT(msg, 29U);
       int honda_stock_brake = (msg->data[0] << 2) | (msg->data[1] >> 6);
 
@@ -216,7 +215,6 @@ static void honda_rx_hook(const CANPacket_t *msg) {
 }
 
 static bool honda_tx_hook(const CANPacket_t *msg) {
-
   const LongitudinalLimits HONDA_BOSCH_LONG_LIMITS = {
     .max_accel = 200,   // accel is used for brakes
     .min_accel = -350,
@@ -238,7 +236,7 @@ static bool honda_tx_hook(const CANPacket_t *msg) {
   unsigned int bus_buttons = (honda_bosch_radarless) ? 2U : bus_pt;  // the camera controls ACC on radarless Bosch cars
 
   // ACC_HUD: safety check (nidec w/o pedal)
-  if ((msg->addr == 0x30CU) && (msg->bus == bus_pt)) {
+  if (msg_matches(msg, 0x30CU, bus_pt)) {
     int pcm_speed = (msg->data[0] << 8) | msg->data[1];
     int pcm_gas = msg->data[2];
 
@@ -251,7 +249,7 @@ static bool honda_tx_hook(const CANPacket_t *msg) {
   }
 
   // BRAKE: safety check (nidec)
-  if ((msg->addr == 0x1FAU) && (msg->bus == bus_pt)) {
+  if (msg_matches(msg, 0x1FAU, bus_pt)) {
     honda_brake = (msg->data[0] << 2) + ((msg->data[1] >> 6) & 0x3U);
 
     if (honda_nidec_hybrid) {
@@ -275,7 +273,7 @@ static bool honda_tx_hook(const CANPacket_t *msg) {
   }
 
   // BRAKE/GAS: safety check (bosch)
-  if ((msg->addr == 0x1DFU) && (msg->bus == bus_pt)) {
+  if (msg_matches(msg, 0x1DFU, bus_pt)) {
     int accel = (msg->data[3] << 3) | ((msg->data[4] >> 5) & 0x7U);
     accel = to_signed(accel, 11);
 
@@ -296,7 +294,7 @@ static bool honda_tx_hook(const CANPacket_t *msg) {
   }
 
   // ACCEL: safety check (radarless)
-  if ((msg->addr == 0x1C8U) && (msg->bus == bus_pt)) {
+  if (msg_matches(msg, 0x1C8U, bus_pt)) {
     int accel = (msg->data[0] << 4) | (msg->data[1] >> 4);
     accel = to_signed(accel, 12);
 
@@ -324,7 +322,7 @@ static bool honda_tx_hook(const CANPacket_t *msg) {
 
   // Bosch supplemental control check
   if (msg->addr == 0xE5U) {
-    if ((GET_BYTES(msg, 0, 4) != 0x10800004U) || ((GET_BYTES(msg, 4, 4) & 0x00FFFFFFU) != 0x0U)) {
+    if ((GET_BYTES_64_LE(msg, 0, 8) & 0x00FFFFFFFFFFFFFFULL) != 0x0000000010800004ULL) {
       tx = false;
     }
   }
@@ -332,7 +330,7 @@ static bool honda_tx_hook(const CANPacket_t *msg) {
   // FORCE CANCEL: safety check only relevant when spamming the cancel button in Bosch HW
   // ensuring that only the cancel button press is sent (VAL 2) when controls are off.
   // This avoids unintended engagements while still allowing resume spam
-  if ((msg->addr == 0x296U) && !controls_allowed && (msg->bus == bus_buttons)) {
+  if (msg_matches(msg, 0x296U, bus_buttons) && !controls_allowed) {
     if (((msg->data[0] >> 5) & 0x7U) != 2U) {
       tx = false;
     }
@@ -340,7 +338,7 @@ static bool honda_tx_hook(const CANPacket_t *msg) {
 
   // Only tester present ("\x02\x3E\x80\x00\x00\x00\x00\x00") allowed on diagnostics address
   if (msg->addr == 0x18DAB0F1U) {
-    if ((GET_BYTES(msg, 0, 4) != 0x00803E02U) || (GET_BYTES(msg, 4, 4) != 0x0U)) {
+    if (GET_BYTES_64_LE(msg, 0, 8) != 0x0000000000803E02ULL) {
       tx = false;
     }
   }
@@ -433,21 +431,52 @@ static safety_config honda_nidec_init(uint16_t param) {
 }
 
 static safety_config honda_bosch_init(uint16_t param) {
-  static CanMsg HONDA_BOSCH_TX_MSGS[] = {{0xE4, 0, 5, .check_relay = true}, {0xE5, 0, 8, .check_relay = true}, {0x296, 1, 4, .check_relay = false},
-                                         {0x33D, 0, 5, .check_relay = true}, {0x33D, 0, 8, .check_relay = true}, {0x33DA, 0, 5, .check_relay = true}, {0x33DB, 0, 8, .check_relay = true}};  // Bosch
+  // Bosch
+  static CanMsg HONDA_BOSCH_TX_MSGS[] = {
+    {0xE4, 0, 5, .check_relay = true},
+    {0xE5, 0, 8, .check_relay = true},
+    {0x296, 1, 4, .check_relay = false},
+    {0x33D, 0, 5, .check_relay = true},
+    {0x33D, 0, 8, .check_relay = true},
+    {0x33DA, 0, 5, .check_relay = true},
+    {0x33DB, 0, 8, .check_relay = true},
+  };
 
-  static CanMsg HONDA_BOSCH_LONG_TX_MSGS[] = {{0xE4, 1, 5, .check_relay = true}, {0x1DF, 1, 8, .check_relay = true}, {0x1EF, 1, 8, .check_relay = false},
-                                              {0x1FA, 1, 8, .check_relay = false}, {0x30C, 1, 8, .check_relay = false}, {0x33D, 1, 5, .check_relay = true}, {0x33D, 1, 8, .check_relay = true},
-                                              {0x33DA, 1, 5, .check_relay = true}, {0x33DB, 1, 8, .check_relay = true}, {0x39F, 1, 8, .check_relay = false},
-                                              {0x18DAB0F1, 1, 8, .check_relay = false}};  // Bosch w/ gas and brakes
+  // Bosch w/ gas and brakes
+  static CanMsg HONDA_BOSCH_LONG_TX_MSGS[] = {
+    {0xE4, 1, 5, .check_relay = true},
+    {0x1DF, 1, 8, .check_relay = true},
+    {0x1EF, 1, 8, .check_relay = false},
+    {0x1FA, 1, 8, .check_relay = false},
+    {0x30C, 1, 8, .check_relay = false},
+    {0x33D, 1, 5, .check_relay = true},
+    {0x33D, 1, 8, .check_relay = true},
+    {0x33DA, 1, 5, .check_relay = true},
+    {0x33DB, 1, 8, .check_relay = true},
+    {0x39F, 1, 8, .check_relay = false},
+    {0x18DAB0F1, 1, 8, .check_relay = false},
+  };
 
-  static CanMsg HONDA_RADARLESS_TX_MSGS[] = {{0xE4, 0, 5, .check_relay = true}, {0x296, 2, 4, .check_relay = false}, {0x33D, 0, 8, .check_relay = true}};  // Bosch radarless
+  // Bosch radarless
+  static CanMsg HONDA_RADARLESS_TX_MSGS[] = {
+    {0xE4, 0, 5, .check_relay = true},
+    {0x296, 2, 4, .check_relay = false},
+    {0x33D, 0, 8, .check_relay = true},
+  };
 
-  static CanMsg HONDA_RADARLESS_LONG_TX_MSGS[] = {{0xE4, 0, 5, .check_relay = true}, {0x33D, 0, 8, .check_relay = true}, {0x1C8, 0, 8, .check_relay = true},
-                                                  {0x30C, 0, 8, .check_relay = true}};  // Bosch radarless w/ gas and brakes
+  // Bosch radarless w/ gas and brakes
+  static CanMsg HONDA_RADARLESS_LONG_TX_MSGS[] = {
+    {0xE4, 0, 5, .check_relay = true},
+    {0x33D, 0, 8, .check_relay = true},
+    {0x1C8, 0, 8, .check_relay = true},
+    {0x30C, 0, 8, .check_relay = true},
+  };
 
-  static CanMsg HONDA_CANFD_TX_MSGS[] = {{0xE4, 0, 5, .check_relay = true}, {0x296, 0, 4, .check_relay = false}, {0x33D, 0, 8, .check_relay = true}};
-
+  static CanMsg HONDA_CANFD_TX_MSGS[] = {
+    {0xE4, 0, 5, .check_relay = true},
+    {0x296, 0, 4, .check_relay = false},
+    {0x33D, 0, 8, .check_relay = true},
+  };
 
   const uint16_t HONDA_PARAM_ALT_BRAKE = 1;
   const uint16_t HONDA_PARAM_RADARLESS = 8;
