@@ -2,8 +2,13 @@
 
 Raw model acceleration activates the lift linearly over 0 to 0.1 m/s^2; braking and
 zero requests get none. The speed ramp is zero at 10 mph and full at 20 mph.
-Gas Override Boost runs first and keeps its own state and output. Competing cruise
-and lead candidates and final acceleration limits still constrain the result.
+The lift is faded by curve control's throttle interlock, so it adds nothing while the
+steering is at its lateral limit.
+
+It runs BEFORE Gas Override Boost, which keeps its own state and output. That one latches
+"the model is limiting" from the candidate it is handed; it must see this lift, or it
+learns a boost from overrides where the lead, not the model, was the limit. Competing
+cruise and lead candidates and final acceleration limits still constrain the result.
 
 At full speed the combined raw-to-candidate gain in the activation band is 2/3/4
 for Relaxed/Standard/Aggressive. This continuous ramp is not a jerk limiter;
@@ -45,7 +50,7 @@ class AccelerationControl:
   def _refresh(self) -> None:
     self.enabled = self.available and self.params.get_bool("AccelerationControl")
 
-  def update(self, sm, output_a_target_e2e: float) -> float:
+  def update(self, sm, output_a_target_e2e: float, throttle_scale: float = 1.0) -> float:
     if self._frame % PARAM_REFRESH_FRAMES == 0:
       self._refresh()
     self._frame += 1
@@ -58,13 +63,13 @@ class AccelerationControl:
     speed_scale = np.interp(sm['carState'].vEgo, [ACCEL_BOOST_MIN_SPEED, 2 * ACCEL_BOOST_MIN_SPEED], [0.0, 1.0])
 
     # Defensive contract for future callers: do not lift a braking incoming candidate.
-    # Real AccelBoost adds a nonnegative amount, so positive raw/negative incoming
-    # cannot occur on the current planner path.
+    # The planner hands in the raw model request, so this matches the activation gate there.
     if output_a_target_e2e < 0.0:
       return output_a_target_e2e
 
     activation = np.interp(sm['modelV2'].action.desiredAcceleration, ACTIVATION_BP, ACTIVATION_V)
     base = ACCELERATION_CONTROL_BOOST.get(sm['selfdriveState'].personality.raw, ACCELERATION_CONTROL_BOOST[Personality.standard])
 
-    self.boost = float(base * speed_scale * activation)
+    # curve control's "don't accelerate into a saturated steer" interlock: 1.0 when inactive
+    self.boost = float(base * speed_scale * activation * np.clip(throttle_scale, 0.0, 1.0))
     return output_a_target_e2e + self.boost

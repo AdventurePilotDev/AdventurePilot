@@ -129,18 +129,18 @@ def _latch_gas_override(gas, personality, cycles):
 @pytest.mark.parametrize('personality', list(ACCELERATION_CONTROL_BOOST))
 @pytest.mark.parametrize('cycles', [1, 2])
 def test_real_override_latch_raw_sweep_release_and_reset(personality, cycles):
+  # Production order: assist on the raw request, then the gas override on the lifted candidate.
   gas, assist = AccelBoost(), _assist()
   _latch_gas_override(gas, personality, cycles)
   previous = None
   for raw in np.linspace(-0.1, 0.15, 501):
     sm = _sm(personality=personality, desired_accel=float(raw))
-    post_gas = gas.update(sm, float(raw), 1, 1)
-    gas_state = vars(gas).copy()
-    output = assist.update(sm, post_gas)
-    assert vars(gas) == gas_state  # no mutation of the separate mechanism
-    assert post_gas == pytest.approx(raw + cycles * 0.05)
+    lifted = assist.update(sm, float(raw))
+    output = gas.update(sm, lifted, 1, 1)
+    assert gas.total_boost == pytest.approx(cycles * 0.05)  # the latched override is kept, not grown
+    assert output == pytest.approx(raw + assist.boost + cycles * 0.05)
     if raw <= 0:
-      assert output == post_gas
+      assert lifted == raw
       assert assist.boost == 0
     if previous is not None:
       assert -1e-7 <= output - previous <= 0.002001
@@ -148,15 +148,45 @@ def test_real_override_latch_raw_sweep_release_and_reset(personality, cycles):
   # Successive sign changes must recompute requested boost without losing the override.
   for raw in (0.1, -0.05, 0, 0.05, -1e-6, 1e-6):
     sm = _sm(personality=personality, desired_accel=raw)
-    post_gas = gas.update(sm, raw, 1, 1)
-    output = assist.update(sm, post_gas)
+    lifted = assist.update(sm, raw)
+    gas.update(sm, lifted, 1, 1)
     assert gas.total_boost == pytest.approx(cycles * 0.05)
-    assert (output == post_gas) == (raw <= 0)
+    assert (lifted == raw) == (raw <= 0)
   # Disengagement releases the real override and assist state.
   sm = _sm(personality=personality, desired_accel=0.1, engaged=False)
-  assert assist.update(sm, gas.update(sm, 0.1, 1, 1)) == 0.1
+  assert gas.update(sm, assist.update(sm, 0.1), 1, 1) == 0.1
   assert gas.total_boost == 0
   assert assist.boost == 0
+
+
+def _override_cycles(gas, assist, raw, lead, cruise=1.0, presses=4):
+  # Real chain in production order: 2 s hands-off, then 3 s of gas, repeated.
+  for _ in range(presses):
+    for pressed, frames in ((False, 40), (True, 60)):
+      for _ in range(frames):
+        sm = _sm(desired_accel=raw, gas_pressed=pressed)
+        gas.update(sm, assist.update(sm, raw), lead, cruise)
+
+
+def test_gas_override_does_not_learn_when_assist_already_cleared_the_model():
+  # Model mildly timid (0.12), lead allows 0.30. With the assist, the e2e candidate (0.12 + 0.2)
+  # is above the lead, so the lead is the limit and the driver's gas presses say nothing about
+  # the model. The override must not latch eligibility from the un-lifted request.
+  gas, assist = AccelBoost(), _assist()
+  _override_cycles(gas, assist, raw=0.12, lead=0.30)
+  assert gas.total_boost == 0
+  # Without the assist the model really is the limit, so the override learns as upstream intends.
+  gas, assist = AccelBoost(), _assist(enabled=False)
+  _override_cycles(gas, assist, raw=0.12, lead=0.30)
+  # two overrides of 0.05 each; then 0.12 + 0.10 is no longer 0.1 under the lead, so it stops
+  assert gas.total_boost == pytest.approx(0.1)
+
+
+@pytest.mark.parametrize('scale,expected', [(1.0, 0.3), (0.5, 0.2), (0.0, 0.1), (-1.0, 0.1), (2.0, 0.3)])
+def test_lateral_throttle_interlock_fades_only_the_assist(scale, expected):
+  assist = _assist()
+  assert assist.update(_sm(), 0.1, throttle_scale=scale) == pytest.approx(expected)
+  assert assist.boost == pytest.approx(expected - 0.1)
 
 
 def test_unknown_real_personality_uses_standard_fallback():

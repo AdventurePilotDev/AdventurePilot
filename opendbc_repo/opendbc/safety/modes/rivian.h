@@ -118,7 +118,10 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
     brake_pressed = (msg->data[2] >> 7) & 1U;
   }
 
-  // Cruise state
+  // Cruise state. With enhanced MADS it also drives mads_state_update() via stock_ecu_check
+  // so that controls_allowed_lateral is updated every time ACM_Status arrives (100 Hz).
+  // acc_main_on is left false: lateral is not tied to ACC state, allowing Mode B
+  // (MADS active without ACC) to work correctly for Keep Active / Pause modes.
   if (msg_matches(msg, 0x100U, 2U)) {
     const int feature_status = msg->data[2] >> 5U;
     pcm_cruise_check(feature_status == 1);
@@ -190,7 +193,7 @@ static safety_config rivian_init(uint16_t param) {
     {0x321, 2, 7, .check_relay = true},
     {0x162, 2, 8, .check_relay = true},
   };
-  // 0x160 = ACM_longitudinalRequest
+  // 0x160 = ACM_longitudinalRequest, 0x162 = VDM_AdasSts (forwarded to the ACM so openpilot can hide ACC engage requests it would refuse)
   static const CanMsg RIVIAN_LONG_TX_MSGS[] = {
     {0x120, 0, 8, .check_relay = true},
     {0x321, 2, 7, .check_relay = true},

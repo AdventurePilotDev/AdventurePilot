@@ -107,7 +107,7 @@ class TogglesLayoutMici(NavScroller):
       for w in (self._personality_toggle, self._curve_speed_toggle, self._acceleration_control_toggle):
         w.set_visible(long_avail)
       # like the sunnylink setting, Acceleration Control only changes while parked
-      self._acceleration_control_toggle.set_enabled(ui_state.is_offroad())
+      self._acceleration_control_toggle.set_enabled(lambda: ui_state.is_offroad())
 
     # Refresh toggles from params to mirror external changes
     for key, item in self._refresh_toggles:

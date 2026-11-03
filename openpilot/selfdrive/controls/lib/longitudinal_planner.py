@@ -111,8 +111,10 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     self.a_cruise = get_cruise_accel(v_cruise, v_ego, self.a_cruise, self.dt)
     cruise_should_stop = should_stop(v_ego, self.a_cruise)
 
+    # Acceleration Control first: Gas Override Boost latches "the model is limiting" from the candidate it is
+    # given, so it has to see the lifted one or it learns a boost from overrides where the lead was the limit.
+    output_a_target_e2e = self.acceleration_control.update(sm, output_a_target_e2e, self.scc.governor.throttle_scale())
     output_a_target_e2e = self.accel_boost.update(sm, output_a_target_e2e, output_a_target_mpc, self.a_cruise)
-    output_a_target_e2e = self.acceleration_control.update(sm, output_a_target_e2e)
 
     candidates = [(output_a_target_mpc, self.mpc.source, output_should_stop_mpc),
                   (self.a_cruise, LongitudinalPlanSource.cruise, cruise_should_stop),
