@@ -206,6 +206,8 @@ struct LongitudinalPlanSP @0xf35cc4560bbf6ec2 {
   aTarget @5 :Float32;
   events @6 :List(OnroadEventSP.Event);
   e2eAlerts @7 :E2eAlerts;
+  # Requested increase to the model candidate before min-selection, not actuator acceleration.
+  accelerationControlBoostRequested @8 :Float32;
 
   deprecated :group {
     dec @0 :DynamicExperimentalControlDEPRECATED;

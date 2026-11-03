@@ -4,12 +4,8 @@ import unittest
 
 from opendbc.car.subaru.values import SubaruSafetyFlags
 from opendbc.car.structs import CarParams
-from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
-from opendbc.safety.tests.common import CANPackerSafety
 from functools import partial
-
-
 class SubaruMsg(enum.IntEnum):
   Brake_Status      = 0x13c
   CruiseControl     = 0x240
@@ -22,27 +18,21 @@ class SubaruMsg(enum.IntEnum):
   ES_DashStatus     = 0x321
   ES_LKAS_State     = 0x322
   ES_Infotainment   = 0x323
-
-
 SUBARU_MAIN_BUS = 0
 SUBARU_ALT_BUS  = 1
 SUBARU_CAM_BUS  = 2
-
-
 def lkas_tx_msgs(alt_bus, lkas_msg=SubaruMsg.ES_LKAS):
   return [[lkas_msg,                    SUBARU_MAIN_BUS],
           [SubaruMsg.ES_Distance,       alt_bus],
           [SubaruMsg.ES_DashStatus,     SUBARU_MAIN_BUS],
           [SubaruMsg.ES_LKAS_State,     SUBARU_MAIN_BUS],
           [SubaruMsg.ES_Infotainment,   SUBARU_MAIN_BUS]]
-
-
 def fwd_blacklisted_addr(lkas_msg=SubaruMsg.ES_LKAS):
   return {SUBARU_CAM_BUS: [lkas_msg, SubaruMsg.ES_DashStatus, SubaruMsg.ES_LKAS_State, SubaruMsg.ES_Infotainment]}
-
-
 class TestSubaruSafetyBase(common.CarSafetyTest):
-  FLAGS = 0
+  DBC = "subaru_global_2017_generated"
+  SAFETY_MODEL = CarParams.SafetyModel.subaru
+
   RELAY_MALFUNCTION_ADDRS = {SUBARU_MAIN_BUS: (SubaruMsg.ES_LKAS, SubaruMsg.ES_DashStatus, SubaruMsg.ES_LKAS_State,
                                                SubaruMsg.ES_Infotainment)}
   FWD_BLACKLISTED_ADDRS = fwd_blacklisted_addr()
@@ -58,12 +48,6 @@ class TestSubaruSafetyBase(common.CarSafetyTest):
   DEG_TO_CAN = 100
 
   INACTIVE_GAS = 1818
-
-  def setUp(self):
-    self.packer = CANPackerSafety("subaru_global_2017_generated")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.subaru, self.FLAGS)
-    self.safety.init_tests()
 
   def _set_prev_torque(self, t):
     self.safety.set_desired_torque_last(t)
@@ -103,8 +87,6 @@ class TestSubaruSafetyBase(common.CarSafetyTest):
             self._rx(self._lkas_button_msg(False, mads_button_press))
             self.assertEqual(enable_mads and mads_button_press in range(1, 4),
                              self.safety.get_controls_allowed_lateral())
-
-
 class TestSubaruStockLongitudinalSafetyBase(TestSubaruSafetyBase):
   def _cancel_msg(self, cancel, cruise_throttle=0):
     values = {"Cruise_Cancel": cancel, "Cruise_Throttle": cruise_throttle}
@@ -114,8 +96,6 @@ class TestSubaruStockLongitudinalSafetyBase(TestSubaruSafetyBase):
     # test that we can only send the cancel message (ES_Distance) with inactive throttle (1818) and Cruise_Cancel=1
     for cancel in [True, False]:
       self._generic_limit_safety_check(partial(self._cancel_msg, cancel), self.INACTIVE_GAS, self.INACTIVE_GAS, 0, 2**12, 1, self.INACTIVE_GAS, cancel)
-
-
 class TestSubaruTorqueSafetyBase(TestSubaruSafetyBase, common.DriverTorqueSteeringSafetyTest, common.SteerRequestCutSafetyTest):
   MAX_RATE_UP = 50
   MAX_RATE_DOWN = 70
@@ -129,13 +109,8 @@ class TestSubaruTorqueSafetyBase(TestSubaruSafetyBase, common.DriverTorqueSteeri
   def _torque_cmd_msg(self, torque, steer_req=1):
     values = {"LKAS_Output": torque, "LKAS_Request": steer_req}
     return self.packer.make_can_msg_safety("ES_LKAS", SUBARU_MAIN_BUS, values)
-
-
 class TestSubaruGen1TorqueStockLongitudinalSafety(TestSubaruStockLongitudinalSafetyBase, TestSubaruTorqueSafetyBase):
-  FLAGS = 0
   TX_MSGS = lkas_tx_msgs(SUBARU_MAIN_BUS)
-
-
 class TestSubaruGen2TorqueSafetyBase(TestSubaruTorqueSafetyBase):
   ALT_MAIN_BUS = SUBARU_ALT_BUS
   ALT_CAM_BUS = SUBARU_ALT_BUS
@@ -143,12 +118,9 @@ class TestSubaruGen2TorqueSafetyBase(TestSubaruTorqueSafetyBase):
   MAX_RATE_UP = 35
   MAX_RATE_DOWN = 50
   MAX_TORQUE_LOOKUP = [0], [1500]
-
-
 class TestSubaruGen2TorqueStockLongitudinalSafety(TestSubaruStockLongitudinalSafetyBase, TestSubaruGen2TorqueSafetyBase):
-  FLAGS = SubaruSafetyFlags.GEN2
+  SAFETY_PARAM = SubaruSafetyFlags.GEN2
+
   TX_MSGS = lkas_tx_msgs(SUBARU_ALT_BUS)
-
-
 if __name__ == "__main__":
   unittest.main()

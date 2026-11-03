@@ -75,10 +75,8 @@ class CruiseLayout(Widget):
 
     self.acceleration_control_toggle = toggle_item_sp(
       title=tr("Acceleration Control"),
-      description=tr("Helps the car reach the set speed when the driving model holds back for no reason. Adds a fixed "
-                     "amount of acceleration to the model's request, set by the driving personality (Relaxed 0.1, "
-                     "Standard 0.2, Aggressive 0.3 m/s2), above 10 mph and only while the model is not slowing down. "
-                     "It never passes the set speed or closes on a lead car."),
+      # Keep a literal so the AST translation extractor sees the complete message.
+      description=tr('Adds a personality-linked increase to the model acceleration candidate: Relaxed 0.1, Standard 0.2, Aggressive 0.3 m/s^2 at full activation. No increase at raw model requests <= 0; ramps to full at 0.1 m/s^2. Speed activation ramps from zero at 10 mph to full at 20 mph. No increase when the model predicts a stop. The separate gas override is unchanged. Cruise and lead candidates and acceleration limits still constrain the planner. Can only be changed while parked.'),  # noqa: E501
       param="AccelerationControl")
 
     self.custom_acc_toggle = toggle_item_sp(

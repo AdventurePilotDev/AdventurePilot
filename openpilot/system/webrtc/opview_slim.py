@@ -55,6 +55,7 @@ OPVIEW_FIELDS: dict[str, dict] = {
   "roadCameraState": {"sensor": True},
   "extrinsicsCalibration": {"rpyCalib": True, "wideFromDeviceEuler": True, "calStatus": True, "calPerc": True, "height": True},
   "liveCalibration": {"rpyCalib": True, "wideFromDeviceEuler": True, "calStatus": True, "calPerc": True, "height": True},
+  "longitudinalPlan": {},  # Explicit omission; absent services use the whole-message fallback.
   "longitudinalPlanSP": {
     "speedLimit": {
       "resolver": {

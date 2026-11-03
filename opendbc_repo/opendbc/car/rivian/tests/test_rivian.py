@@ -177,18 +177,18 @@ class TestR1TWheelbase(unittest.TestCase):
     return wmi + line + "0" * 13
 
   def test_r1t_gets_its_wheelbase_and_derived_values(self):
-    from opendbc.car import scale_rot_inertia, scale_tire_stiffness
+    from opendbc.car import scale_rot_inertia_per_mass, scale_tire_stiffness_per_mass
     from opendbc.car.rivian.values import R1T_WHEELBASE
     cp = self._cp(self._vin(WMI.RIVIAN_TRUCK, ModelLine.R1T))
     r1s = self._cp(self._vin(WMI.RIVIAN_MPV, ModelLine.R1S))
     assert abs(cp.wheelbase - R1T_WHEELBASE) < 1e-6
     # the same centre-of-mass fraction as the platform, and the derived values computed as get_params does
     assert abs(cp.centerToFront / cp.wheelbase - r1s.centerToFront / r1s.wheelbase) < 1e-9
-    assert abs(cp.rotationalInertia / scale_rot_inertia(cp.mass, cp.wheelbase) - 1) < 1e-6
-    front, rear = scale_tire_stiffness(cp.mass, cp.wheelbase, cp.centerToFront, cp.tireStiffnessFactor)
-    assert abs(cp.tireStiffnessFront / front - 1) < 1e-6 and abs(cp.tireStiffnessRear / rear - 1) < 1e-6
+    assert abs(cp.rotationalInertiaPerMass / scale_rot_inertia_per_mass(cp.wheelbase) - 1) < 1e-6
+    front, rear = scale_tire_stiffness_per_mass(cp.wheelbase, cp.centerToFront, cp.tireStiffnessFactor)
+    assert abs(cp.tireStiffnessFrontPerMass / front - 1) < 1e-6 and abs(cp.tireStiffnessRearPerMass / rear - 1) < 1e-6
     # nothing else about the car changes
-    assert (cp.mass, cp.steerRatio) == (r1s.mass, r1s.steerRatio)
+    assert cp.steerRatio == r1s.steerRatio
 
   def test_everything_else_keeps_the_platform_wheelbase(self):
     base = self._cp("")
@@ -197,10 +197,78 @@ class TestR1TWheelbase(unittest.TestCase):
                 self._vin(WMI.RIVIAN_TRUCK, ModelLine.R1S), self._vin(WMI.RIVIAN_TRUCK, "Z")):
       with self.subTest(vin=vin[:4]):
         cp = self._cp(vin)
-        assert (cp.wheelbase, cp.centerToFront, cp.rotationalInertia, cp.tireStiffnessFront) == \
-               (base.wheelbase, base.centerToFront, base.rotationalInertia, base.tireStiffnessFront)
+        assert (cp.wheelbase, cp.centerToFront, cp.rotationalInertiaPerMass, cp.tireStiffnessFrontPerMass) == \
+               (base.wheelbase, base.centerToFront, base.rotationalInertiaPerMass, base.tireStiffnessFrontPerMass)
 
   def test_non_essential_params_stay_on_the_platform_wheelbase(self):
     # what the panda-matched angle limits are built from: it never sees a VIN
     from opendbc.car.rivian.interface import CarInterface
     assert abs(CarInterface.get_non_essential_params(CAR.RIVIAN_R1).wheelbase - 3.08) < 1e-6
+
+
+class TestRivianHarnessEligibility(unittest.TestCase):
+  def test_harness_only_bsm_and_longitudinal(self):
+    from opendbc.car.rivian.interface import CarInterface
+    from opendbc.sunnypilot.car.interfaces import has_bsm
+    from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
+
+    for gen1 in (False, True):
+      for harness in (False, True):
+        for alpha_long in (False, True):
+          with self.subTest(gen1=gen1, harness=harness, alpha_long=alpha_long):
+            fingerprint = gen_empty_fingerprint()
+            if gen1:
+              fingerprint[0][0x321] = 7
+            if harness:
+              fingerprint[1][0x131a] = 8
+            cp = CarInterface.get_params(CAR.RIVIAN_R1, fingerprint, [], alpha_long, False, False)
+            # No GEN1-only broadening before the harness-specific SP pass.
+            self.assertFalse(cp.alphaLongitudinalAvailable)
+            self.assertFalse(cp.openpilotLongitudinalControl)
+            sp = CarInterface.get_params_sp(cp, CAR.RIVIAN_R1, fingerprint, [], alpha_long, False, False)
+            self.assertEqual(cp.alphaLongitudinalAvailable, harness)
+            self.assertEqual(cp.openpilotLongitudinalControl, harness and alpha_long)
+            self.assertEqual(bool(cp.safetyConfigs[0].safetyParam & RivianSafetyFlags.LONG_CONTROL), harness and alpha_long)
+            self.assertEqual(bool(sp.flags & RivianFlagsSP.LONGITUDINAL_HARNESS_UPGRADE), harness)
+            self.assertEqual(has_bsm(cp, sp), harness)
+            self.assertFalse(has_bsm(cp, None))
+
+  def test_blindspot_decode_with_and_without_longitudinal(self):
+    from opendbc.car import Bus
+    from opendbc.can import CANPacker
+    from opendbc.car.rivian.interface import CarInterface
+    from opendbc.car.rivian.carstate import CarState
+    from opendbc.car.rivian.values import DBC
+    from opendbc.sunnypilot.car.rivian.carstate_ext import CarStateExt
+
+    class DisabledParams:
+      def get_bool(self, key):
+        return False
+
+    # Environment seam: only the unrelated persisted resume preference is off.
+    # The BSM parser, CAN packer and state extension execute their actual code.
+    params_module = types.ModuleType('openpilot.common.params')
+    params_module.Params = DisabledParams
+    for harness in (False, True):
+      for alpha_long in (False, True):
+        with self.subTest(harness=harness, alpha_long=alpha_long):
+          fingerprint = gen_empty_fingerprint()
+          if harness:
+            fingerprint[1][0x131a] = 8
+          cp = CarInterface.get_params(CAR.RIVIAN_R1, fingerprint, [], alpha_long, False, False)
+          sp = CarInterface.get_params_sp(cp, CAR.RIVIAN_R1, fingerprint, [], alpha_long, False, False)
+          with mock.patch.dict(sys.modules, {'openpilot.common.params': params_module}):
+            cs = CarStateExt(cp, sp)
+          parsers = CarState.get_can_parsers(cp, sp)
+          self.assertEqual(Bus.alt in parsers, harness)
+          if harness:
+            packer = CANPacker(DBC[CAR.RIVIAN_R1][Bus.alt])
+          for frame, (left, right) in enumerate(((False, False), (True, False), (False, True), (True, True))):
+            if harness:
+              message = packer.make_can_msg('BSM_BlindSpotIndicator_Fwd', 1, {
+                'BSM_BlindSpotIndicator_Left': int(left), 'BSM_BlindSpotIndicator_Right': int(right),
+              })
+              parsers[Bus.alt].update([(1_000_000_000 + frame * 10_000_000, [message])])
+            ret = structs.CarState()
+            cs.update(ret, parsers)
+            self.assertEqual((ret.leftBlindspot, ret.rightBlindspot), (left, right) if harness else (False, False))

@@ -144,10 +144,9 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
 
     longitudinalPlan.aTarget = float(self.output_a_target)
     longitudinalPlan.accelBoost = float(self.accel_boost.total_boost)
-    longitudinalPlan.accelerationControlBoost = float(self.acceleration_control.boost)
     longitudinalPlan.shouldStop = bool(self.output_should_stop)
     longitudinalPlan.allowBrake = True
 
     pm.send('longitudinalPlan', plan_send)
 
-    self.publish_longitudinal_plan_sp(sm, pm)
+    self.publish_longitudinal_plan_sp(sm, pm, self.acceleration_control.boost)
