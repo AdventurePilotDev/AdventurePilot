@@ -177,6 +177,14 @@ class PythonProcess(ManagerProcess):
     self.shutting_down = False
 
 
+class RestartingPythonProcess(PythonProcess):
+  """Starts its process again after it dies; upstream's start() leaves a dead one dead."""
+  def start(self) -> None:
+    if self.proc is not None and self.proc.exitcode is not None:
+      self.stop()   # reaps it, so the start below runs it again
+    super().start()
+
+
 class DaemonProcess(ManagerProcess):
   """Python process that has to stay running across manager restart.
   This is used for athena so you don't lose SSH access when restarting manager."""

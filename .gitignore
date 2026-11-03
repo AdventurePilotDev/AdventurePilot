@@ -21,6 +21,7 @@ bin/
 /rednose
 /teleoprtc
 /tinygrad
+/jetlink
 
 *.mp4
 *.dylib
