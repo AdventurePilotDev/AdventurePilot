@@ -39,7 +39,7 @@ from openpilot.common.file_chunker import open_file_chunked
 from openpilot.selfdrive.modeld.constants import ModelConstants, Plan
 from openpilot.selfdrive.modeld.helpers import MODELS_DIR, chestnut_present, chestnut_compiled, modeld_pkl_path, load_oob
 from openpilot.sunnypilot.livedelay.helpers import get_lat_delay
-from openpilot.sunnypilot.modeld_v2.modeld_base import ModelStateBase
+from openpilot.sunnypilot.modeld_v2.modeld_base import ModelStateBase, get_lat_smooth_seconds
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
 
 SEND_RAW_PRED = os.getenv('SEND_RAW_PRED')
@@ -48,14 +48,6 @@ LAT_SMOOTH_SECONDS = 0.0
 LONG_SMOOTH_SECONDS = 0.3
 MIN_LAT_CONTROL_SPEED = 0.3
 BIG_MODEL_TIMEOUT = 60
-
-# Speed-scheduled lateral curvature smoothing time: `max_seconds` at crawl, fading to 0 by LAT_SMOOTH_BP[1].
-# Driven per-car by CarParams.lateralSmoothSeconds (0 => off, so other cars are unchanged). The caller
-# delay-compensates (lat_delay += the returned value), so the smoothing adds no net steering lag.
-LAT_SMOOTH_BP = [2.0, 8.0]  # m/s
-
-def get_lat_smooth_seconds(v_ego: float, max_seconds: float) -> float:
-  return float(np.interp(v_ego, LAT_SMOOTH_BP, [max_seconds, 0.0]))
 
 
 def get_action_from_model(model_output: dict[str, np.ndarray], prev_action: log.ModelDataV2.Action,

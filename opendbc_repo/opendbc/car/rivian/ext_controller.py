@@ -2,6 +2,8 @@ import math
 from collections import deque
 import numpy as np
 
+from opendbc.car import DT_CTRL
+from opendbc.car.common.filter_simple import FirstOrderFilter
 from opendbc.car.lateral import (
   apply_driver_steer_torque_limits, common_fault_avoidance,
   apply_steer_angle_limits_vm, get_max_angle_delta_vm, get_max_angle_vm,
@@ -27,6 +29,20 @@ PANDA_STEP_MARGIN = 0.9
 MIN_TORQUE_FRAMES = 50
 HANDOFF_EXIT_DEG = 15.0      # hand back to angle when the wheel is within this of the commanded angle
 UNWIND_HANDOFF_RATE = 40.0  # max wheel speed in deg/s to hand back to angle
+
+# torque -> angle handback hysteresis. Handing back the instant the capacitive sensor drops is too
+# eager: the sensor blinks out while hands slide on the wheel, and the angle servo then snaps the
+# wheel onto the model's line under the driver's hands. Two gates:
+#  - a light-touch torsion presence latch, well below the 4.0 Nm hands-on threshold, that bridges
+#    sensor dropouts, plus a full second clear of both it and hands-on before handing back
+#  - an absolute wheel-angle cap, because the EPAS envelope alone is 500 deg at crawl speed and so
+#    places no real constraint on a mid-corner handback
+PRESENCE_LPF_RC = 0.032          # s, ~5 Hz low-pass on torsion-bar torque
+PRESENCE_TORQUE_THRESHOLD = 1.5  # Nm
+PRESENCE_MIN_FRAMES = 30         # 0.3 s sign-consistent to latch presence
+PRESENCE_HOLD_FRAMES = 100       # 1.0 s latch hold once the torque goes away
+HANDS_OFF_EXIT_FRAMES = 100      # 1.0 s clear of hands-on and presence before handing back
+HANDOFF_MAX_ANGLE_DEG = 25.0     # never hand back to angle beyond this wheel angle
 EAC_RECOVER_FRAMES = 15     # angle frames with the EPAS EAC not active before falling back to torque (~0.15s, normal activation is under 0.05s)
 
 # blip the TOI request bit at high angle so the EPAS does not latch ToiFlt
@@ -117,11 +133,19 @@ class ExternalController:
     self.CP = CP
     self.steer_ratio = CP.steerRatio
     self.wheelbase = CP.wheelbase
-    # Two vehicle models. Every limit is worked out on the safety model, which matches the panda and never sees a
-    # VIN, so it stays on 3.08 m. The angle actually asked for comes from the car's own model, so an R1T (3.45 m from
-    # its VIN) gets the angle its longer wheelbase needs; the limits then cap it as before. Identical on an R1S.
-    self.VM = VehicleModel(get_safety_CP())
-    self.VM_cmd = VehicleModel(CP)
+    # Two vehicle models, deliberately.
+    # VM tracks the learned plant (steer ratio, tire stiffness) from the live parameters and is used
+    # ONLY to turn the model's desired curvature into a wheel angle - the same values, and the same
+    # clamp, controlsd feeds its own VehicleModel, so the angle we command agrees with the curvature
+    # the rest of the stack thinks it is asking for.
+    # VM_safety is pinned to the nominal specs the panda safety model is built from, and EVERY limiter
+    # below must stay on it. If our clamps drift off panda's fixed model, panda rejects the 0x110
+    # frame, the EPAS sees a counter gap and faults AngleControlCntr (route c17ea97dc5472650/00000006
+    # seg 3).
+    # VM is built from the car's own CarParams, so an R1T gets its 3.45 m from the VIN. VM_safety never sees a VIN
+    # and stays on the 3.08 m the panda uses.
+    self.VM = VehicleModel(CP)
+    self.VM_safety = VehicleModel(get_safety_CP())
     # without angle hardware this collapses to a plain torque controller: torque_active
     # is pinned while lateral is active and the angle channel never engages
     self.angle_supported = bool(CP.flags & RivianFlags.ANGLE_HARNESS)
@@ -132,6 +156,12 @@ class ExternalController:
     self.torsion_cnt = 0
     self.torsion_sign = 0
     self.hands_on = False
+    # light-touch torsion presence, and how long we have been clear of both it and hands_on
+    self.torsion_lpf = FirstOrderFilter(0.0, PRESENCE_LPF_RC, DT_CTRL)
+    self.presence_cnt = 0
+    self.presence_sign = 0
+    self.presence_hold = 0
+    self.hands_off_frames = 0
 
     # cooperative torque mode
     self.torque_active = False
@@ -187,7 +217,7 @@ class ExternalController:
 
   def update(self, CS, lat_active: bool, actuators):
     self._update_hands_on(CS)
-    desired_angle = math.degrees(self.VM_cmd.get_steer_from_curvature(-float(actuators.curvature), CS.out.vEgo, self.roll)) + self.angle_offset_deg
+    desired_angle = math.degrees(self.VM.get_steer_from_curvature(-float(actuators.curvature), CS.out.vEgo, self.roll)) + self.angle_offset_deg
     self._update_torque_active(CS, lat_active, desired_angle, actuators)
     desired_lat_accel = float(actuators.curvature) * CS.out.vEgo ** 2
     self._update_angle(CS, lat_active, desired_angle, desired_lat_accel)
@@ -212,6 +242,20 @@ class ExternalController:
       self.torsion_sign = sign
     return self.torsion_cnt > torsion_min_count
 
+  def _update_torsion_presence(self, torque):
+    # "hands probably still there": a sustained, sign-consistent light torsion, latched for a second
+    # after it goes away. Deliberately much more sensitive than _update_torsion - this only gates the
+    # handback, it never enters torque mode or counts as a driver override.
+    filtered = self.torsion_lpf.update(torque)
+    sign = 1 if filtered > PRESENCE_TORQUE_THRESHOLD else -1 if filtered < -PRESENCE_TORQUE_THRESHOLD else 0
+    self.presence_cnt = self.presence_cnt + 1 if sign != 0 and sign == self.presence_sign else int(sign != 0)
+    self.presence_sign = sign
+    if self.presence_cnt >= PRESENCE_MIN_FRAMES:
+      self.presence_hold = PRESENCE_HOLD_FRAMES
+    elif self.presence_hold > 0:
+      self.presence_hold -= 1
+    return self.presence_hold > 0
+
   def _update_hands_on(self, CS):
     # hands-on if any of: capacitive sensor, EPAS-side level, or torsion bar
     # GEN2 (2025+) has no SCCM_WheelTouch on the bus (carstate leaves it None)
@@ -222,6 +266,8 @@ class ExternalController:
       wheel_touch = False
     torsion = self._update_torsion(CS.out.steeringTorque, 4.0, 9)
     self.hands_on = wheel_touch or torsion or CS.hands_on_level > 1
+    presence = self._update_torsion_presence(CS.out.steeringTorque)
+    self.hands_off_frames = 0 if (self.hands_on or presence) else self.hands_off_frames + 1
 
   def _reset_prearm(self):
     self.torque_prearm = False
@@ -328,9 +374,12 @@ class ExternalController:
     elif not self.lat_active_last and not epas_ready:
       self.torque_active = True
     # hand back to angle once hands off and the wheel is settled near the commanded angle
-    elif self.torque_active and self.torque_active_frames >= MIN_TORQUE_FRAMES and not self.hands_on and epas_ready:
+    elif (self.torque_active and self.torque_active_frames >= MIN_TORQUE_FRAMES and
+          self.hands_off_frames >= HANDS_OFF_EXIT_FRAMES and epas_ready):
       fw_max = float(np.interp(CS.out.vEgoRaw, EPAS_FW_MAX_ANGLE_BP, EPAS_FW_MAX_ANGLE_V)) * EPAS_FW_ANGLE_MARGIN
-      in_envelope = abs(CS.out.steeringAngleDeg) < fw_max
+      # fw_max alone is 500 deg below 2.78 m/s, i.e. no constraint at all; cap it so a handback can
+      # never happen mid-corner
+      in_envelope = abs(CS.out.steeringAngleDeg) < min(fw_max, HANDOFF_MAX_ANGLE_DEG)
       # only once the wheel motion fits the EPAS rate budget
       thr_dps = float(np.interp(CS.out.vEgoRaw, EPAS_FW_RATE_BP, EPAS_FW_RATE_V)) * 100.0
       lo, hi = self.rate_budget.bounds(thr_dps, EPAS_FW_RATE_MARGIN)
@@ -355,7 +404,7 @@ class ExternalController:
     # use future v_ego so the jerk limit ramps the angle down before the lat-accel envelope shrinks
     v_lookahead = max(CS.out.vEgoRaw + max(CS.out.aEgo, 0.0), 1.0)
     apply_angle = apply_steer_angle_limits_vm(apply_angle, self.apply_angle_last, v_lookahead,
-                                              CS.out.steeringAngleDeg, self.angle_active, CCP, self.VM)
+                                              CS.out.steeringAngleDeg, self.angle_active, CCP, self.VM_safety)
 
     if self.angle_active:
       # EPAS absolute envelope
@@ -363,7 +412,7 @@ class ExternalController:
       # deliverable steady-state angle is the tighter of the EPAS absolute limit and the VM lateral-
       # accel limit (the latter binds above ~8 m/s and is what the panda enforces). Commanding past it
       # while genuinely turning means the wheel can't reach the model's line -> saturation.
-      angle_max = min(fw_max, get_max_angle_vm(max(CS.out.vEgoRaw, 1.0), self.VM, CCP))
+      angle_max = min(fw_max, get_max_angle_vm(max(CS.out.vEgoRaw, 1.0), self.VM_safety, CCP))
       turning = abs(desired_lat_accel) > ANGLE_SAT_MIN_LAT_ACCEL
       saturated = turning and abs(desired_angle) > angle_max
       apply_angle = float(np.clip(apply_angle, -fw_max, fw_max))
@@ -374,7 +423,7 @@ class ExternalController:
       apply_angle = float(np.clip(apply_angle, lo, hi))
 
       # panda's per-frame jerk limit
-      step = get_max_angle_delta_vm(max(CS.out.vEgoRaw, 1.0), self.VM, CCP) * PANDA_STEP_MARGIN
+      step = get_max_angle_delta_vm(max(CS.out.vEgoRaw, 1.0), self.VM_safety, CCP) * PANDA_STEP_MARGIN
       apply_angle = float(np.clip(apply_angle, self.apply_angle_last - step, self.apply_angle_last + step))
 
     # debounce so a transient clamp/slew doesn't warn; counter resets whenever not saturated

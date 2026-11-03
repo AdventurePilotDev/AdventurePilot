@@ -76,9 +76,12 @@ class CarController(CarControllerBase, MadsCarController):
       self._angle_master_on = self._params.get_bool("RivianEnableAngleSteering")
       self._angle_min_speed_ms = int(self._params.get("RivianAngleSteerMinSpeed", return_default=True)) * CV.MPH_TO_MS
 
-  def update_live_params(self, roll, angle_offset_deg):
+  def update_live_params(self, roll, angle_offset_deg, stiffness_factor, steer_ratio):
     self.erc.roll = roll
     self.erc.angle_offset_deg = angle_offset_deg
+    # only the curvature -> angle conversion tracks the learned plant; the limiters stay on VM_safety.
+    # Same clamp controlsd applies before feeding its own VehicleModel.
+    self.erc.VM.update_params(max(stiffness_factor, 0.1), max(steer_ratio, 0.1))
 
   def update(self, CC, CC_SP, CS, now_nanos):
     MadsCarController.update(self, CC, CC_SP, CS)
@@ -259,6 +262,17 @@ class CarController(CarControllerBase, MadsCarController):
     # request instead (to restore the angle-mode saturation warning) makes that flag false and lets
     # the integrator wind up against an output that is being discarded; it then dumps near full
     # scale torque on the first handoff to torque mode and fights the driver.
+    #
+    # THIS LINE IS LOAD-BEARING. It is the whole of our integrator freeze in angle mode, and it is
+    # deliberately the only one: xnor solves the same problem with a brand-gated `angle_steering`
+    # flag in controlsd.py plus an extra freeze_integrator term in latcontrol_torque.py, which we do
+    # not take, because it puts Rivian behaviour in shared brand-agnostic control code and because
+    # layering a second freeze on this one invites the same accident that caused the original bug
+    # (1b0e402f6 broke the freeze as a side effect of changing the saturation warning, since one flag
+    # fed both). The cost is that steer_limited_by_safety reads as "torque channel idle" throughout
+    # angle mode rather than "safety limited us"; the angle-mode saturation warning is therefore
+    # raised Rivian-side instead, from ext_controller.angle_saturated. Do not change this line to the
+    # requested torque without moving the integrator freeze somewhere else first.
     new_actuators.torque = apply_torque / steer_max
     new_actuators.torqueOutputCan = apply_torque
     new_actuators.steeringAngleDeg = self.erc.apply_angle_last

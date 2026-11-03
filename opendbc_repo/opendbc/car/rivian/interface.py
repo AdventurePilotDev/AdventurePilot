@@ -28,7 +28,9 @@ class CarInterface(CarInterfaceBase):
     else:
       ret.dashcamOnly = True
 
-    ret.steerActuatorDelay = 0.15
+    # angle plant responds faster than the torque plant it was measured on. Tuning only, revert this
+    # commit alone if the steering starts to feel like it is leading the corner.
+    ret.steerActuatorDelay = 0.1
     # angle control can hold the wheel at standstill; lateral is gated to drive gear in mads.py
     ret.steerAtStandstill = True
     # speed-scheduled lateral curvature low-pass (delay-compensated in modeld); damps the
