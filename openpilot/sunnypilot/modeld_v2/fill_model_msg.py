@@ -85,7 +85,6 @@ def fill_model_msg(base_msg: capnp._DynamicStructBuilder, extended_msg: capnp._D
   driving_model_data.action = action
 
   modelV2 = extended_msg.modelV2
-  driving_model_data.big = modelV2.big
   modelV2.frameId = vipc_frame_id
   modelV2.frameIdExtra = vipc_frame_id_extra
   modelV2.frameAge = frame_age
