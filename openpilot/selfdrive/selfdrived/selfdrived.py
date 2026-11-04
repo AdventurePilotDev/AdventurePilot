@@ -47,6 +47,7 @@ PandaType = log.PandaState.PandaType
 LaneChangeState = log.LaneChangeState
 LaneChangeDirection = log.LaneChangeDirection
 EventName = log.OnroadEvent.EventName
+EventNameSP = custom.OnroadEventSP.EventName
 ButtonType = car.CarState.ButtonEvent.Type
 SafetyModel = car.CarParams.SafetyModel
 AlertLevel = log.DriverMonitoringState.AlertLevel
@@ -217,6 +218,12 @@ class SelfdriveD(CruiseHelper):
                                         self.enabled or self.mads.enabled)
       if flags.no_entry:
         self.events.add(EventName.bigModelLoading)
+      if flags.offer:
+        self.events_sp.add(EventNameSP.jetlinkReady)
+      if flags.link_lost:
+        self.events_sp.add(EventNameSP.jetlinkLinkLost)
+      if flags.chime:
+        self.events_sp.add(EventNameSP.jetlinkChime)
 
     big_active = self.chestnut_active
     chestnut_present = self.sm['deviceState'].chestnutPresent

@@ -587,9 +587,12 @@ def hardware_thread(end_event, hw_queue) -> None:
     if should_shutdown and shutdown_since is None:
       shutdown_since = time.monotonic()
     capped = shutdown_since is not None and time.monotonic() - shutdown_since > JETLINK_SHUTDOWN_CAP_S
-    if HOOKS.shutdown_step(should_shutdown, f"offroad since {off_ts}") or capped:
+    wanted = HOOKS.shutdown_step(should_shutdown, f"offroad since {off_ts}")
+    if wanted or capped:
       cloudlog.warning(f"shutting device down, offroad since {off_ts}")
       params.put_bool("DoShutdown", True, block=True)
+    elif not should_shutdown:
+      shutdown_since = None  # the car came back before anything was asked: stop counting, and unblock a drive start
 
     msg.deviceState.started = started_ts is not None and not offroad_mode
     msg.deviceState.startedMonoTime = int(1e9*(started_ts or 0))

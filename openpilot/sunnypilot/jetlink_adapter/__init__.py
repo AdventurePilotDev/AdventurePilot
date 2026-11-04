@@ -78,13 +78,6 @@ def link_on() -> bool:
     return False
 
 
-def chestnut_cable() -> bool:
-  """A cable on the port, for modeld's chestnut check. A Jetson or an iPhone
-  on the port is a cable too, so it counts only while Jetlink is off."""
-  from openpilot.common.hardware.usb import TYPEC_CC_ORIENTATION_PATH, read_int
-  return read_int(TYPEC_CC_ORIENTATION_PATH) != 0 and not link_on()
-
-
 @functools.cache
 def _adapter_class():
   from jetlink.openpilot.interface import Keys
@@ -115,6 +108,11 @@ def _adapter_class():
       # modeld_tinygrad reads modeld_v2's off the model
       from openpilot.sunnypilot.modeld_v2.constants import ModelConstants
       return ModelConstants
+
+    # The large model is comma's, so the stock parser, constants and action path
+    # are deliberate. modeld_v2's extra inputs (lateral_control_params,
+    # prev_desired_curv, planplus) are local-bundle only; jetlink's wire and the
+    # server graph carry the three scalars comma's large model takes.
 
     def engaged(self, sm) -> bool:
       # selfdrived's enabled or mads.enabled, as controlsd republishes them.

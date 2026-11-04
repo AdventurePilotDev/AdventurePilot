@@ -201,11 +201,6 @@ class ModelFetcher:
       response.raise_for_status()
 
       json_data = response.json()
-      if source == 'chestnut':
-        # a Jetson runs the commit's ONNX, so models only newer catalogs list drive too
-        from openpilot.sunnypilot import jetlink_adapter
-        if jetlink_adapter.should_extend_catalog():
-          json_data = jetlink_adapter.extend_catalog(json_data)
       parsed = self.model_parser.parse_models(json_data)
       if parsed:
         self.model_caches[source].set(json_data)

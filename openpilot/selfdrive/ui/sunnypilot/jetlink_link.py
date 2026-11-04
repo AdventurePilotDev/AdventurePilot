@@ -12,7 +12,6 @@ never changes which modeld runs. Everything else here reads ui_state.jetlink,
 the snapshot the params pass takes.
 """
 from openpilot.selfdrive.ui.ui_state import ui_state
-from openpilot.sunnypilot import jetlink_adapter
 from openpilot.sunnypilot.jetlink_adapter import KEYS, MODES
 from openpilot.system.ui.lib.multilang import tr
 
@@ -77,11 +76,3 @@ def cycle_link_mode() -> None:
     return
   index = (MODES.index(link_mode()) + 1) % len(MODES)
   ui_state.params.put(KEYS.link, index, block=True)
-
-
-def big_model_note(ref: str) -> str | None:
-  """What jetlink says of one big model for the picker's list: built on the
-  Jetson, or downloaded to the comma. None with a chestnut fitted."""
-  if ui_state.chestnut_present or ui_state.jetlink is None:
-    return None
-  return {'ready': tr("ready on Jetson"), 'downloaded': tr("downloaded")}.get(jetlink_adapter.model_state(ref))
