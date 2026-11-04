@@ -591,8 +591,8 @@ def hardware_thread(end_event, hw_queue) -> None:
     if wanted or capped:
       cloudlog.warning(f"shutting device down, offroad since {off_ts}")
       params.put_bool("DoShutdown", True, block=True)
-    elif not should_shutdown:
-      shutdown_since = None  # the car came back before anything was asked: stop counting, and unblock a drive start
+    elif not should_shutdown and not HOOKS.shutdown_pending():
+      shutdown_since = None  # the car came back with nothing asked: stop counting, and unblock a drive start
 
     msg.deviceState.started = started_ts is not None and not offroad_mode
     msg.deviceState.startedMonoTime = int(1e9*(started_ts or 0))
