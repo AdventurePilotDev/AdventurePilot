@@ -53,6 +53,14 @@ KEYS = _Keys(link='JetlinkLink', offroad='IsOffroad', progress='JetlinkProgress'
              catalog='ModelManager_ModelsCache_Chestnut', charge_phone='JetlinkChargePhone',
              select='ModelManager_DownloadRef')
 
+# This fork does not call the model manager's should_extend_catalog() or
+# extend_catalog() hooks. jetlink's big_catalog() (the only caller of its
+# fetch_catalogs()) folds in EXTRA_CATALOG_URL, a live, unpinned list on
+# zoompilot/jetlink's moving main, so nothing here may reach it until that URL
+# is pinned or the fetch is made opt-in upstream. The hooks stay in the
+# surface for that day; the test in tests/test_seam.py keeps the model
+# manager off them.
+
 _AGNOS = os.path.isfile('/AGNOS')
 
 
