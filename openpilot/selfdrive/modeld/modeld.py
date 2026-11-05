@@ -41,6 +41,7 @@ from openpilot.selfdrive.modeld.helpers import MODELS_DIR, chestnut_present, che
 from openpilot.sunnypilot.livedelay.helpers import get_lat_delay
 from openpilot.sunnypilot.modeld_v2.modeld_base import ModelStateBase
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
+from openpilot.sunnypilot import jetlink_adapter
 
 SEND_RAW_PRED = os.getenv('SEND_RAW_PRED')
 
@@ -236,7 +237,7 @@ def main(demo=False):
   params.put_bool("ChestnutLoading", CHESTNUT)
   params.remove("ChestnutActive")
 
-  config_realtime_process(7, 54)
+  HOOKS = jetlink_adapter.hooks()
 
   # visionipc clients
   while True:
@@ -283,6 +284,14 @@ def main(demo=False):
   small_model = ModelState(vipc_client_main.width, vipc_client_main.height, False) if model is None or CHESTNUT else None
   if model is None:
     model = small_model
+
+  # before going realtime: the GPU thread it starts would inherit SCHED_FIFO 54 on core 7
+  if HOOKS.prepare(CHESTNUT):
+    # the joining model drives as small_model until the big model is ready
+    assert small_model is not None
+    model = HOOKS.attach(model, small_model, vipc_client_main.width, vipc_client_main.height)
+  config_realtime_process(7, 54)
+
   assert model is not None
   params.put_bool("ChestnutLoading", False)
   cloudlog.warning(f"models loaded in {time.monotonic() - st:.1f}s, modeld starting")
@@ -389,6 +398,7 @@ def main(demo=False):
     run_count = run_count + 1
 
     frame_drop_ratio = frames_dropped / (1 + frames_dropped)
+    model.frame_drop_ratio = frame_drop_ratio   # before model.run()
 
     bufs = {name: buf_extra if 'big' in name else buf_main for name in model.vision_input_names}
     transforms = {name: model_transform_extra if 'big' in name else model_transform_main for name in model.vision_input_names}
@@ -421,6 +431,8 @@ def main(demo=False):
       model_output = None
     mt2 = time.perf_counter()
     model_execution_time = mt2 - mt1
+    if HOOKS.handed_over(model):                # after model.run()
+      run_count = 0
 
     if model_output is not None:
       modelv2_send = messaging.new_message('modelV2')
