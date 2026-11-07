@@ -46,7 +46,7 @@ def _make_car_test(car_name):
     car_params = car_interface.CP.as_reader()
     car_params_sp = car_interface.CP_SP
 
-    assert car_params.mass > 1
+    assert car_params.rotationalInertiaPerMass > 0
     assert car_params.wheelbase > 0
     # centerToFront is center of gravity to front wheels, assert a reasonable range
     assert car_params.wheelbase * 0.3 < car_params.centerToFront < car_params.wheelbase * 0.7

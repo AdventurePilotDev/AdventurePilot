@@ -786,7 +786,7 @@
               "enablement": [
                 {
                   "type": "capability",
-                  "field": "enable_bsm",
+                  "field": "has_bsm",
                   "equals": true
                 },
                 {
@@ -815,38 +815,6 @@
           "description": "",
           "items": [
             {
-              "key": "ExperimentalMode",
-              "widget": "toggle",
-              "title": "Experimental Mode",
-              "enablement": [
-                {
-                  "type": "capability",
-                  "field": "has_longitudinal_control",
-                  "equals": true
-                }
-              ]
-            },
-            {
-              "key": "DynamicExperimentalControl",
-              "widget": "toggle",
-              "title": "Dynamic Experimental Control",
-              "description": "Let the model decide when to use sunnypilot ACC or sunnypilot End to End Longitudinal.",
-              "visibility": [
-                {
-                  "type": "capability",
-                  "field": "has_longitudinal_control",
-                  "equals": true
-                }
-              ],
-              "enablement": [
-                {
-                  "type": "capability",
-                  "field": "has_longitudinal_control",
-                  "equals": true
-                }
-              ]
-            },
-            {
               "key": "DisengageOnAccelerator",
               "widget": "toggle",
               "title": "Disengage Cruise on Accelerator Pedal",
@@ -872,6 +840,22 @@
                 }
               ],
               "enablement": [
+                {
+                  "type": "capability",
+                  "field": "has_longitudinal_control",
+                  "equals": true
+                }
+              ]
+            },
+            {
+              "key": "AccelerationControl",
+              "widget": "toggle",
+              "title": "Acceleration Control",
+              "description": "Adds a personality-linked increase to the model acceleration candidate: Relaxed 0.1, Standard 0.2, Aggressive 0.3 m/s^2 at full activation. No increase at raw model requests <= 0; ramps to full at 0.1 m/s^2. Speed activation ramps from zero at 10 mph to full at 20 mph. No increase when the model predicts a stop. The separate gas override is unchanged. Cruise and lead candidates and acceleration limits still constrain the planner. Can only be changed while parked.",
+              "enablement": [
+                {
+                  "type": "offroad_only"
+                },
                 {
                   "type": "capability",
                   "field": "has_longitudinal_control",
@@ -2239,6 +2223,27 @@
               ]
             },
             {
+              "key": "NavigationEnabled",
+              "widget": "toggle",
+              "title": "Navigation (Alpha)",
+              "description": "Turn-by-turn navigation with a route map. Set a destination from comma connect.",
+              "visibility": [
+                {
+                  "type": "capability",
+                  "field": "device_type",
+                  "equals": "mici"
+                },
+                {
+                  "type": "not",
+                  "condition": {
+                    "type": "capability",
+                    "field": "is_sp_release",
+                    "equals": true
+                  }
+                }
+              ]
+            },
+            {
               "key": "ShowDebugInfo",
               "widget": "toggle",
               "title": "UI Debug Mode"
@@ -2418,8 +2423,21 @@
         {
           "id": "model_behavior",
           "title": "Model Behavior",
-          "description": "Lane desire and lead-vehicle awareness tuning",
+          "description": "Lane desire, Blendful lane centering, and lead-vehicle awareness tuning",
           "items": [
+            {
+              "key": "Blendful",
+              "widget": "toggle",
+              "title": "Blendful (Alpha)",
+              "description": "Adds a gentle nudge toward lane center on top of the model's own steering, stronger when lane lines are clear. Yields around obstacles. Not available with the Default model.",
+              "enablement": [
+                {
+                  "type": "capability",
+                  "field": "custom_model_active",
+                  "equals": true
+                }
+              ]
+            },
             {
               "key": "LaneTurnDesire",
               "widget": "toggle",
@@ -2773,6 +2791,33 @@
               "type": "param",
               "key": "ToyotaEnforceStockLongitudinal",
               "equals": false
+            }
+          ]
+        },
+        {
+          "key": "ToyotaTSS2Smooth",
+          "widget": "toggle",
+          "needs_onroad_cycle": true,
+          "title": "TSS2 Smooth Longitudinal (Alpha)",
+          "description": "Enable smoother longitudinal control for TSS2 vehicles. Uses a custom speed-dependent integral gain curve for smoother traffic driving.",
+          "enablement": [
+            {
+              "type": "not_engaged"
+            },
+            {
+              "type": "capability",
+              "field": "has_longitudinal_control",
+              "equals": true
+            },
+            {
+              "type": "param",
+              "key": "ToyotaEnforceStockLongitudinal",
+              "equals": false
+            },
+            {
+              "type": "capability",
+              "field": "toyota_tss2",
+              "equals": true
             }
           ]
         }

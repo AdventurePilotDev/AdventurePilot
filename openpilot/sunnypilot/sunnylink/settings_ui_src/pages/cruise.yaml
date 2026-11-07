@@ -11,19 +11,6 @@ sections:
   title: ''
   description: ''
   items:
-  - key: ExperimentalMode
-    widget: toggle
-    title: Experimental Mode
-    enablement:
-    - $ref: '#/macros/longitudinal'
-  - key: DynamicExperimentalControl
-    widget: toggle
-    title: Dynamic Experimental Control
-    description: Let the model decide when to use sunnypilot ACC or sunnypilot End to End Longitudinal.
-    visibility:
-    - $ref: '#/macros/longitudinal'
-    enablement:
-    - $ref: '#/macros/longitudinal'
   - key: DisengageOnAccelerator
     widget: toggle
     title: Disengage Cruise on Accelerator Pedal
@@ -42,6 +29,19 @@ sections:
     - value: 2
       label: Relaxed
     enablement:
+    - $ref: '#/macros/longitudinal'
+  - key: AccelerationControl
+    widget: toggle
+    title: Acceleration Control
+    description: >-
+      Adds a personality-linked increase to the model acceleration candidate: Relaxed 0.1, Standard
+      0.2, Aggressive 0.3 m/s^2 at full activation. No increase at raw model requests <= 0; ramps to
+      full at 0.1 m/s^2. Speed activation ramps from zero at 10 mph to full at 20 mph. No increase
+      when the model predicts a stop. The separate gas override is unchanged. Cruise and lead
+      candidates and acceleration limits still constrain the planner. Can only be changed while
+      parked.
+    enablement:
+    - $ref: '#/macros/offroad'
     - $ref: '#/macros/longitudinal'
   - key: SPStopDistance
     widget: option

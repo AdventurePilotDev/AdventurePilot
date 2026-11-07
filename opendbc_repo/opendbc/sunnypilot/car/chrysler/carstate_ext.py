@@ -11,7 +11,7 @@ from enum import StrEnum
 from opendbc.car import Bus, structs
 from opendbc.can.parser import CANParser
 from opendbc.car.chrysler.values import RAM_HD
-from opendbc.sunnypilot.car.chrysler.values_ext import BUTTONS
+from opendbc.sunnypilot.car.chrysler.values_ext import ChryslerFlagsSP, get_buttons
 
 
 class CarStateExt:
@@ -19,14 +19,18 @@ class CarStateExt:
     self.CP = CP
     self.CP_SP = CP_SP
 
+    cruise_btns_msg = "CRUISE_BUTTONS_ALT" if CP_SP.flags & ChryslerFlagsSP.RAM_HD_ALT_BUTTONS else "CRUISE_BUTTONS"
+    self.cruise_btns = cruise_btns_msg
+    self.buttons = get_buttons(cruise_btns_msg)
+
     self.button_events = []
-    self.button_states = {button.event_type: False for button in BUTTONS}
+    self.button_states = {button.event_type: False for button in self.buttons}
 
   def update(self, ret: structs.CarState, ret_sp: structs.CarStateSP, can_parsers: dict[StrEnum, CANParser]):
     cp = can_parsers[Bus.pt]
 
     button_events = []
-    for button in BUTTONS:
+    for button in self.buttons:
       state = (cp.vl[button.can_addr][button.can_msg] in button.values)
       if self.button_states[button.event_type] != state:
         event = structs.CarState.ButtonEvent.new_message()

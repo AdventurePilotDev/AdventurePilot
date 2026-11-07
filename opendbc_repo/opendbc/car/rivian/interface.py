@@ -1,4 +1,4 @@
-from opendbc.car import get_safety_config, scale_rot_inertia, scale_tire_stiffness, structs
+from opendbc.car import get_safety_config, scale_rot_inertia_per_mass, scale_tire_stiffness_per_mass, structs
 from opendbc.car.interfaces import CarInterfaceBase
 from opendbc.car.rivian.carcontroller import CarController
 from opendbc.car.rivian.carstate import CarState
@@ -61,15 +61,14 @@ class CarInterface(CarInterfaceBase):
     if is_r1t(stock_cp.carVin):
       stock_cp.wheelbase = R1T_WHEELBASE
       stock_cp.centerToFront = stock_cp.wheelbase * CAR.RIVIAN_R1.config.specs.centerToFrontRatio
-      stock_cp.rotationalInertia = scale_rot_inertia(stock_cp.mass, stock_cp.wheelbase)
-      stock_cp.tireStiffnessFront, stock_cp.tireStiffnessRear = scale_tire_stiffness(stock_cp.mass, stock_cp.wheelbase,
+      stock_cp.rotationalInertiaPerMass = scale_rot_inertia_per_mass(stock_cp.wheelbase)
+      stock_cp.tireStiffnessFrontPerMass, stock_cp.tireStiffnessRearPerMass = scale_tire_stiffness_per_mass(stock_cp.wheelbase,
                                                                                      stock_cp.centerToFront,
                                                                                      stock_cp.tireStiffnessFactor)
 
     if 0x131a in fingerprint[1]:
       ret.flags |= RivianFlagsSP.LONGITUDINAL_HARNESS_UPGRADE.value
       stock_cp.radarUnavailable = False
-      stock_cp.enableBsm = True
       stock_cp.alphaLongitudinalAvailable = True
 
     if alpha_long and stock_cp.alphaLongitudinalAvailable:

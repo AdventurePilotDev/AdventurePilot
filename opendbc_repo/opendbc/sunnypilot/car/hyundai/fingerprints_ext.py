@@ -123,4 +123,12 @@ FW_VERSIONS_EXT = {
       b'\xf1\x00BC3 LKA  AT EUR LHD 1.00 1.01 99211-Q0100 261'
     ],
   },
+  CAR.HYUNDAI_VENUE_2021_NON_SCC: {
+    (Ecu.eps, 0x7D4, None): [
+      b'\xf1\x00QX  MDPS C 1.00 1.04 56340-K2000 9812',
+    ],
+    (Ecu.fwdCamera, 0x7C4, None): [
+      b'\xf1\x00QX  MFC  AT USA LHD 1.00 1.01 99211-K2000 191014',
+    ],
+  },
 }

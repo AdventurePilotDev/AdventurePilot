@@ -37,4 +37,6 @@ class CarInterface(CarInterfaceBase):
     if candidate in (CAR.NISSAN_LEAF, CAR.NISSAN_LEAF_IC):
       ret.safetyParam |= NissanSafetyFlagsSP.LEAF
 
+    ret.intelligentCruiseButtonManagementAvailable = candidate != CAR.NISSAN_ALTIMA
+
     return ret

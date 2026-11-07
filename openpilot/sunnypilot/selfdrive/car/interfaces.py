@@ -81,7 +81,6 @@ def _cleanup_unsupported_params(CP: structs.CarParams, CP_SP: structs.CarParamsS
 
   if not CP.openpilotLongitudinalControl and CP_SP.pcmCruiseSpeed:
     cloudlog.warning("openpilot Longitudinal Control and ICBM not available, cleaning up params")
-    params.remove("DynamicExperimentalControl")
     params.remove("CustomAccIncrementsEnabled")
     params.remove("SmartCruiseControlVision")
     params.remove("SmartCruiseControlMap")
@@ -133,6 +132,7 @@ def initialize_params(params) -> list[dict[str, Any]]:
   keys.extend([
     "ToyotaEnforceStockLongitudinal",
     "ToyotaStopAndGoHack",
+    "ToyotaTSS2Smooth",
   ])
 
   return [{k: params.get(k, return_default=True)} for k in keys]
