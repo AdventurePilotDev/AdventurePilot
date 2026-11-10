@@ -24,11 +24,12 @@ from openpilot.common.test import OpenpilotTestCase
 from openpilot.common.file_chunker import get_chunk_name, get_manifest_path
 from openpilot.selfdrive.test.helpers import http_server_context
 from openpilot.sunnypilot.models import manager as manager_module
-from openpilot.sunnypilot.models.fetcher import ModelFetcher, get_cached_bundles
+from openpilot.sunnypilot.models.fetcher import ModelFetcher, ModelParser, get_cached_bundles
 from openpilot.sunnypilot.models import helpers
 from openpilot.sunnypilot.models.helpers import (get_active_bundle, get_active_source, get_selected_bundle,
                                                   resolve_bundle_by_ref, validate_active_bundles)
 from openpilot.sunnypilot.models.manager import ModelManagerSP
+from openpilot.sunnypilot import jetlink_adapter
 
 CHUNK_BODIES = [b'A' * 5000, b'B' * 5000, b'C' * 3000]
 WHOLE_BODY = b'Z' * 9000
@@ -481,11 +482,59 @@ def manifest_bundle(short_name: str, ref: str, index: int = 0, is_big: bool = Fa
   }
 
 
+def jetlink_catalog_bundle(short_name: str, ref: str, index: int = 0) -> dict:
+  """A bundle as jetlink's big_catalog() writes it: the index's fields, no
+  artifacts (the Jetson runs the ONNX), and the folder as an override."""
+  return {
+    "ref": ref,
+    "display_name": f"{short_name.upper()} (September 17, 2026)",
+    "short_name": short_name,
+    "index": index,
+    "is_big": True,
+    "is_20hz": False,
+    "generation": "12",
+    "environment": "development",
+    "runner": "tinygrad",
+    "minimum_selector_version": str(helpers.REQUIRED_JSON_VERSION),
+    "build_time": "2026-09-17T00:00:00Z",
+    "overrides": {"folder": "Other Models"},
+    "models": [],
+  }
+
+
+class _DictParams:
+  """A params store in a dict: the writes a test makes are read back, as
+  Params does (the MagicMock the other tests use does not)."""
+
+  def __init__(self, values: dict | None = None):
+    self.values = dict(values or {})
+
+  def get(self, key: str, *args, **kwargs):
+    return self.values.get(key)
+
+  def put(self, key: str, value, block: bool = False) -> None:
+    self.values[key] = value
+
+  def remove(self, key: str) -> None:
+    self.values.pop(key, None)
+
+
 def fresh_sync_time() -> int:
   return int(time.monotonic() * 1e9)
 
 
-class TestModelFetcherSources(OpenpilotTestCase):
+class JetlinkModelListTestBase(OpenpilotTestCase):
+  """Whatever jetlink is checked out here, these tests keep the model manager
+  on sunnypilot's manifests unless a test says jetlink lists the big models."""
+
+  def setUp(self):
+    super().setUp()
+    patcher = mock.patch.object(jetlink_adapter, "lists_big_models", return_value=False)
+    patcher.start()
+    self.addCleanup(patcher.stop)
+
+
+class TestModelFetcherSources(JetlinkModelListTestBase):
   """Both manifests are always maintained: get_bundles_for_source exposes either
   source by name, and active_source picks which one matches the attached hardware."""
 
@@ -548,7 +597,7 @@ class TestModelFetcherSources(OpenpilotTestCase):
 
 
 
-class TestSourceCacheIntegrity(OpenpilotTestCase):
+class TestSourceCacheIntegrity(JetlinkModelListTestBase):
   """Each source's cached manifest must contain only that source's models; the
   `is_big` flag in the JSON marks the big (chestnut) models. A mismatched cache is
   legacy data from before the per-source split (the active manifest was cached
@@ -643,7 +692,75 @@ class TestSourceCacheIntegrity(OpenpilotTestCase):
     assert [bundle.ref for bundle in bundles] == ["aaa"]
 
 
-class TestActiveBundleValidation(OpenpilotTestCase):
+class TestJetlinkBigModelList(JetlinkModelListTestBase):
+  """API 4: with no chestnut fitted the big-model list is jetlink's model
+  index (lists_big_models() / big_catalog()), in place of sunnypilot's own
+  chestnut manifest, so what the comma lists is what the Jetson runs."""
+
+  def test_the_big_model_list_is_the_jetlink_index(self):
+    ref = "a" * 40
+    params = _DictParams()
+    fetcher = ModelFetcher(params)
+    catalog = {"bundles": [jetlink_catalog_bundle("cinque", ref)]}
+    with mock.patch.object(jetlink_adapter, "lists_big_models", return_value=True), \
+         mock.patch.object(jetlink_adapter, "big_catalog", return_value=catalog) as big_catalog, \
+         mock.patch.object(fetcher, "_fetch_and_cache_models",
+                           side_effect=AssertionError("sunnypilot's manifest must not be fetched")):
+      bundles = fetcher.get_bundles_for_source("chestnut")
+
+    assert [bundle.ref for bundle in bundles] == [ref]
+    big_catalog.assert_called_once_with(helpers.REQUIRED_JSON_VERSION)
+    cached = params.values["ModelManager_ModelsCache_Chestnut"]
+    assert cached["jetlink"] is True
+    assert [bundle["ref"] for bundle in cached["bundles"]] == [ref]
+
+  def test_a_cached_jetlink_list_is_used_without_fetching_again(self):
+    ref = "a" * 40
+    params = _DictParams({
+      "ModelManager_ModelsCache_Chestnut": {"bundles": [jetlink_catalog_bundle("cinque", ref)], "jetlink": True},
+      "ModelManager_LastSyncTime_Chestnut": fresh_sync_time(),
+    })
+    fetcher = ModelFetcher(params)
+    with mock.patch.object(jetlink_adapter, "lists_big_models", return_value=True), \
+         mock.patch.object(jetlink_adapter, "big_catalog",
+                           side_effect=AssertionError("cache should be used")) as big_catalog:
+      bundles = fetcher.get_bundles_for_source("chestnut")
+
+    big_catalog.assert_not_called()
+    assert [bundle.ref for bundle in bundles] == [ref]
+
+  def test_a_failed_index_fetch_keeps_the_list_it_has(self):
+    ref = "a" * 40
+    params = _DictParams({
+      "ModelManager_ModelsCache_Chestnut": {"bundles": [jetlink_catalog_bundle("cinque", ref)], "jetlink": True},
+      "ModelManager_LastSyncTime_Chestnut": 1,  # expired
+    })
+    fetcher = ModelFetcher(params)
+    with mock.patch.object(jetlink_adapter, "lists_big_models", return_value=True), \
+         mock.patch.object(jetlink_adapter, "big_catalog", return_value=None):
+      bundles = fetcher.get_bundles_for_source("chestnut")
+
+    assert [bundle.ref for bundle in bundles] == [ref]
+
+  def test_a_fitted_chestnut_keeps_sunnypilots_own_manifest(self):
+    ref = "b" * 40
+    params = _DictParams({
+      "ModelManager_ModelsCache_Chestnut": {"bundles": [jetlink_catalog_bundle("cinque", "a" * 40)], "jetlink": True},
+      "ModelManager_LastSyncTime_Chestnut": fresh_sync_time(),
+    })
+    fetcher = ModelFetcher(params)
+    fetched = fetcher.model_parser.parse_models({"bundles": [manifest_bundle("big", ref, is_big=True)]})
+    with mock.patch.object(jetlink_adapter, "lists_big_models", return_value=False), \
+         mock.patch.object(jetlink_adapter, "big_catalog",
+                           side_effect=AssertionError("a chestnut has a list of its own")), \
+         mock.patch.object(fetcher, "_fetch_and_cache_models", return_value=fetched) as fetch:
+      bundles = fetcher.get_bundles_for_source("chestnut")
+
+    fetch.assert_called_once_with("chestnut")
+    assert [bundle.ref for bundle in bundles] == [ref]
+
+
+class TestActiveBundleValidation(JetlinkModelListTestBase):
   """Validation is per-slot: a failed fetch (empty bundle list) must not reset a slot,
   and resetting one slot must not stomp the runner cache derived from the other."""
 
@@ -686,6 +803,59 @@ class TestActiveBundleValidation(OpenpilotTestCase):
     params.remove.assert_called_once_with("ModelManager_ActiveBundle")
     runner_puts = [call for call in params.put.call_args_list if call.args[0] == "ModelRunnerTypeCache"]
     assert [call.args[1] for call in runner_puts] == [tinygrad]
+
+  def test_a_pick_the_new_list_does_not_name_carries_over(self):
+    """API 4: a recompile of a listed model is listed once, under its newest
+    ref. A pick made under the old ref moves to the new one instead of being
+    reset to the default (jetlink's listed_ref())."""
+    tinygrad = int(custom.ModelManagerSP.Runner.tinygrad)
+    old_ref, new_ref = "a" * 40, "b" * 40
+    params = _DictParams({"ModelManager_ActiveBundleChestnut": self._raw_bundle(old_ref, runner=tinygrad)})
+    bundles = [custom.ModelManagerSP.ModelBundle(**self._raw_bundle(new_ref, runner=tinygrad))]
+    with mock.patch.object(jetlink_adapter, "lists_big_models", return_value=True), \
+         mock.patch.object(jetlink_adapter, "listed_ref", return_value=new_ref) as listed_ref, \
+         mock.patch("openpilot.sunnypilot.models.helpers.chestnut_present", return_value=False):
+      validate_active_bundles(params, {"chestnut": bundles})
+
+    listed_ref.assert_called_once_with(old_ref)
+    assert params.values["ModelManager_ActiveBundleChestnut"]["ref"] == new_ref
+
+  def test_a_sunnypilot_list_does_not_ask_jetlink(self):
+    """listed_ref() is only jetlink's list's: beside a chestnut, or when the
+    index could not be fetched, the slot is validated as the list it has."""
+    params = _DictParams({"ModelManager_ActiveBundleChestnut": self._raw_bundle("a" * 40)})
+    bundles = [custom.ModelManagerSP.ModelBundle(**self._raw_bundle("b" * 40))]
+    with mock.patch.object(jetlink_adapter, "listed_ref",
+                           side_effect=AssertionError("sunnypilot's list is not jetlink's")) as listed_ref, \
+         mock.patch("openpilot.sunnypilot.models.helpers.chestnut_present", return_value=False):
+      validate_active_bundles(params, {"chestnut": bundles})
+
+    listed_ref.assert_not_called()
+    assert "ModelManager_ActiveBundleChestnut" not in params.values
+
+  def test_a_manifest_pick_adopts_the_jetlink_shape(self):
+    """API 4: the pick came from sunnypilot's manifest and carries its
+    artifacts; jetlink's index lists the same ref with none. Keep the pick:
+    rewrite the slot as the list's bundle instead of resetting it."""
+    tinygrad = int(custom.ModelManagerSP.Runner.tinygrad)
+    ref = "a" * 40
+    manifest = custom.ModelManagerSP.ModelBundle.new_message()
+    manifest.ref = ref
+    manifest.minimumSelectorVersion = helpers.REQUIRED_JSON_VERSION
+    manifest.runner = tinygrad
+    model = manifest.init("models", 1)[0]
+    model.type = "chunked"
+    model.artifact.fileName = "cinque.pkl"
+    model.artifact.downloadUri.sha256 = "s"
+    params = _DictParams({"ModelManager_ActiveBundleChestnut": manifest.to_dict()})
+    bundles = ModelParser.parse_models({"bundles": [jetlink_catalog_bundle("cinque", ref)]})
+    with mock.patch.object(jetlink_adapter, "lists_big_models", return_value=True), \
+         mock.patch("openpilot.sunnypilot.models.helpers.chestnut_present", return_value=False):
+      validate_active_bundles(params, {"chestnut": bundles})
+
+    slot = params.values["ModelManager_ActiveBundleChestnut"]
+    assert slot["ref"] == ref
+    assert slot["models"] == []
 
 
 class TestActiveBundleSelection(OpenpilotTestCase):

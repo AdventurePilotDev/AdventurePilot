@@ -264,4 +264,28 @@ EVENTS_SP: dict[int, dict[str, Alert | AlertCallbackType]] = {
       AlertStatus.normal, AlertSize.small,
       Priority.LOW, VisualAlert.none, AudibleAlert.prompt, 2.),
   },
+
+  EventNameSP.jetlinkReady: {
+    ET.PERMANENT: Alert(
+      "Jetlink Ready",
+      "Disengage fully to switch",
+      AlertStatus.normal, AlertSize.mid,
+      Priority.LOW, VisualAlert.none, AudibleAlert.prompt, 3.),
+  },
+
+  EventNameSP.jetlinkLinkLost: {
+    ET.PERMANENT: Alert(
+      "Jetlink Lost",
+      "Small model driving",
+      AlertStatus.normal, AlertSize.mid,
+      Priority.MID, VisualAlert.none, AudibleAlert.prompt, 5.),
+  },
+
+  EventNameSP.jetlinkChime: {
+    ET.PERMANENT: Alert(
+      "Jetlink Active",
+      "",
+      AlertStatus.normal, AlertSize.small,
+      Priority.LOW, VisualAlert.none, AudibleAlert.prompt, 1.),
+  },
 }
