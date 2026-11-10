@@ -24,7 +24,7 @@ from openpilot.common.test import OpenpilotTestCase
 from openpilot.common.file_chunker import get_chunk_name, get_manifest_path
 from openpilot.selfdrive.test.helpers import http_server_context
 from openpilot.sunnypilot.models import manager as manager_module
-from openpilot.sunnypilot.models.fetcher import ModelFetcher, get_cached_bundles
+from openpilot.sunnypilot.models.fetcher import ModelFetcher, ModelParser, get_cached_bundles
 from openpilot.sunnypilot.models import helpers
 from openpilot.sunnypilot.models.helpers import (get_active_bundle, get_active_source, get_selected_bundle,
                                                   resolve_bundle_by_ref, validate_active_bundles)
@@ -832,6 +832,30 @@ class TestActiveBundleValidation(JetlinkModelListTestBase):
 
     listed_ref.assert_not_called()
     assert "ModelManager_ActiveBundleChestnut" not in params.values
+
+  def test_a_manifest_pick_adopts_the_jetlink_shape(self):
+    """API 4: the pick came from sunnypilot's manifest and carries its
+    artifacts; jetlink's index lists the same ref with none. Keep the pick:
+    rewrite the slot as the list's bundle instead of resetting it."""
+    tinygrad = int(custom.ModelManagerSP.Runner.tinygrad)
+    ref = "a" * 40
+    manifest = custom.ModelManagerSP.ModelBundle.new_message()
+    manifest.ref = ref
+    manifest.minimumSelectorVersion = helpers.REQUIRED_JSON_VERSION
+    manifest.runner = tinygrad
+    model = manifest.init("models", 1)[0]
+    model.type = "chunked"
+    model.artifact.fileName = "cinque.pkl"
+    model.artifact.downloadUri.sha256 = "s"
+    params = _DictParams({"ModelManager_ActiveBundleChestnut": manifest.to_dict()})
+    bundles = ModelParser.parse_models({"bundles": [jetlink_catalog_bundle("cinque", ref)]})
+    with mock.patch.object(jetlink_adapter, "lists_big_models", return_value=True), \
+         mock.patch("openpilot.sunnypilot.models.helpers.chestnut_present", return_value=False):
+      validate_active_bundles(params, {"chestnut": bundles})
+
+    slot = params.values["ModelManager_ActiveBundleChestnut"]
+    assert slot["ref"] == ref
+    assert slot["models"] == []
 
 
 class TestActiveBundleSelection(OpenpilotTestCase):
