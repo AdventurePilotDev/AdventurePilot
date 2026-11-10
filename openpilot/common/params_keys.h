@@ -144,7 +144,6 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"JetlinkLink", {PERSISTENT | BACKUP, INT, "0"}},
     {"JetlinkProgress", {CLEAR_ON_MANAGER_START, JSON}},
     {"JetlinkSpec", {PERSISTENT, JSON}},
-    {"JetlinkModelPointers", {PERSISTENT, JSON}},
     {"JetlinkChargePhone", {PERSISTENT, BOOL, "0"}},
     {"Offroad_JetlinkUnavailable", {CLEAR_ON_MANAGER_START, JSON}},
 

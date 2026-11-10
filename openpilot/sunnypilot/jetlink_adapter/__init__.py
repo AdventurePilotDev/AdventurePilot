@@ -32,7 +32,7 @@ from pathlib import Path
 
 # the version of jetlink.openpilot's API this adapter is written to; any other
 # is treated as jetlink being absent, with the reason as the offroad alert
-API = 3
+API = 4
 
 # the gadget owner, as manager names the process and selfdrived lists it
 OWNER = 'jetlinkd'
@@ -47,19 +47,16 @@ MODES = ('off', 'usb', 'ios')
 # select is where a pick is asked for by its ref, which jetlink writes for a
 # newer pick made on the server: the owner cannot import the model manager, so
 # they are written out here
-_Keys = namedtuple('_Keys', 'link offroad progress spec pointers big_model catalog charge_phone select')
+_Keys = namedtuple('_Keys', 'link offroad progress spec big_model catalog charge_phone select')
 KEYS = _Keys(link='JetlinkLink', offroad='IsOffroad', progress='JetlinkProgress', spec='JetlinkSpec',
-             pointers='JetlinkModelPointers', big_model='ModelManager_ActiveBundleChestnut',
-             catalog='ModelManager_ModelsCache_Chestnut', charge_phone='JetlinkChargePhone',
-             select='ModelManager_DownloadRef')
+             big_model='ModelManager_ActiveBundleChestnut', catalog='ModelManager_ModelsCache_Chestnut',
+             charge_phone='JetlinkChargePhone', select='ModelManager_DownloadRef')
 
-# This fork does not call the model manager's should_extend_catalog() or
-# extend_catalog() hooks. jetlink's big_catalog() (the only caller of its
-# fetch_catalogs()) folds in EXTRA_CATALOG_URL, a live, unpinned list on
-# zoompilot/jetlink's moving main, so nothing here may reach it until that URL
-# is pinned or the fetch is made opt-in upstream. The hooks stay in the
-# surface for that day; the test in tests/test_seam.py keeps the model
-# manager off them.
+# API 4: with no chestnut fitted the model manager's big-model list is jetlink's
+# model index (lists_big_models() / big_catalog()), so what the comma lists is
+# what the Jetson runs. The model manager asks those hooks where it fetches the
+# big-model library, and listed_ref() carries a pick over when a recompile
+# replaces the ref it was made under.
 
 _AGNOS = os.path.isfile('/AGNOS')
 
@@ -99,11 +96,6 @@ def _adapter_class():
     IN_CONTROL_SERVICES = ('carState', 'carControl', 'carControlSP')
     # modeld_v2's warp pickles, not stock modeld's models directory
     WARP_DIR = 'openpilot/sunnypilot/modeld_v2/models'
-
-    @property
-    def catalog_selector(self) -> int:
-      from openpilot.sunnypilot.models.helpers import REQUIRED_JSON_VERSION
-      return REQUIRED_JSON_VERSION
 
     def chestnut_present(self) -> bool:
       # modeld's own test, the one it runs the big model on: a chestnut whose
@@ -209,7 +201,7 @@ class _Off:
   ANSWERS = {'should_run': False, 'status': None, 'prepare': False, 'attach': lambda model, *_: model,
              'handed_over': False, 'state': 'none', 'shutdown_step': lambda wanted, reason='': wanted,
              'request_shutdown': False, 'shutdown_pending': False, 'model_state': None,
-             'should_extend_catalog': False, 'extend_catalog': lambda catalog: catalog,
+             'lists_big_models': False, 'big_catalog': None, 'listed_ref': None,
              'swap_events': None, 'runtime': None}
 
   def __init__(self, why: str = ''):
@@ -236,4 +228,4 @@ def _hook(name: str):
 # the call: jetlink.openpilot.hooks says what each does and answers
 HOOK_NAMES = (*_Off.ANSWERS, 'reason')
 (should_run, status, prepare, attach, handed_over, state, shutdown_step, request_shutdown, shutdown_pending,
- model_state, should_extend_catalog, extend_catalog, swap_events, runtime, reason) = map(_hook, HOOK_NAMES)
+ model_state, lists_big_models, big_catalog, listed_ref, swap_events, runtime, reason) = map(_hook, HOOK_NAMES)

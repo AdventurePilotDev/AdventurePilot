@@ -14,6 +14,7 @@ from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 from openpilot.common.hardware.hw import Paths
 from openpilot.selfdrive.modeld.helpers import chestnut_present
+from openpilot.sunnypilot import jetlink_adapter
 
 # SET ME TO THE EXACT JSON VERSION WE SET IN SUNNYPILOT_MODELS REPO
 REQUIRED_JSON_VERSION = 20
@@ -168,9 +169,29 @@ def _validate_active_bundle(params: Params, source: str, available_bundles: list
     _LAST_VALIDATED_RAW[key] = raw_bundle
 
 
+def _carry_over_jetlink_pick(params: Params, bundles: list[custom.ModelManagerSP.ModelBundle]) -> None:
+  """API 4: a pick the jetlink list no longer names is the same ONNX under a
+  ref the list names now (a recompile is listed once). Move the slot to that
+  ref so the pick is not reset to the default (jetlink's listed_ref())."""
+  key = ACTIVE_BUNDLE_KEYS["chestnut"]
+  active_bundle = _parse_active_bundle(params.get(key))
+  if active_bundle is None or not active_bundle.ref:
+    return
+  if any(bundle.ref == active_bundle.ref for bundle in bundles):
+    return
+  carried_ref = jetlink_adapter.listed_ref(active_bundle.ref)
+  carried = next((bundle for bundle in bundles if bundle.ref == carried_ref), None) if carried_ref else None
+  if carried is None:
+    return
+  params.put(key, carried.to_dict(), block=True)
+  _LAST_VALIDATED_RAW.pop(key, None)
+
+
 def validate_active_bundles(params: Params, source_bundles: dict[str, list[custom.ModelManagerSP.ModelBundle]]) -> None:
   # an empty list means the fetch failed, not that the catalog dropped the bundle
   for source, bundles in source_bundles.items():
+    if source == "chestnut" and bundles and jetlink_adapter.lists_big_models():
+      _carry_over_jetlink_pick(params, bundles)
     _validate_active_bundle(params, source, bundles or None)
   get_active_model_runner(params, force_check=True)
 
