@@ -377,6 +377,14 @@ struct OnroadEventSP @0xda96579883444c35 {
     laneChangeRoadEdge @24;
     bigModelReady @25;
     belowMadsMinEngageSpeed @26;
+    reserved27 @27;
+    reserved28 @28;
+    reserved29 @29;
+    reserved30 @30;
+    reserved31 @31;
+    reserved32 @32;
+    reserved33 @33;
+    reserved34 @34;
     jetlinkReady @35;
     jetlinkLinkLost @36;
     jetlinkChime @37;
