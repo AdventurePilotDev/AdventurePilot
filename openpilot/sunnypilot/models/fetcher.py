@@ -12,7 +12,8 @@ from requests.exceptions import (SSLError, RequestException, HTTPError)
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 from openpilot.common.hardware.hw import Paths
-from openpilot.sunnypilot.models.helpers import is_bundle_version_compatible
+from openpilot.sunnypilot import jetlink_adapter
+from openpilot.sunnypilot.models.helpers import REQUIRED_JSON_VERSION, is_bundle_version_compatible
 from openpilot.cereal import custom
 
 
@@ -167,6 +168,12 @@ class ModelFetcher:
     "chestnut": (MODEL_URL_CHESTNUT, "_Chestnut"),
   }
 
+  # API 4: with no chestnut fitted, jetlink's model index is the big-model
+  # list. It is cached under the chestnut source's key - where jetlink reads
+  # the refs it may take a pick from - and marked so it is never mistaken for
+  # sunnypilot's own chestnut manifest
+  JETLINK_MARK = "jetlink"
+
   def __init__(self, params: Params):
     self.params = params
     self.model_parser = ModelParser()
@@ -187,6 +194,10 @@ class ModelFetcher:
   def _fetch_and_cache_models(self, source: str) -> list[custom.ModelManagerSP.ModelBundle] | None:
     """Fetches fresh model data from remote and updates cache.
     Returns None on transport errors. Raises on 404 and other fatal HTTP errors.
+
+    Only sunnypilot's manifests are fetched here. With no chestnut fitted the
+    big-model list is jetlink's model index instead, through
+    _get_jetlink_bundles() in get_bundles_for_source().
     """
     model_url, _ = self.MODEL_SOURCES[source]
     try:
@@ -220,15 +231,58 @@ class ModelFetcher:
 
   @staticmethod
   def _cache_matches_source(source: str, cached_data: dict) -> bool:
+    if cached_data.get(ModelFetcher.JETLINK_MARK) is True:
+      # jetlink's index is the big-model list only while no chestnut is
+      # fitted; beside one, sunnypilot's own chestnut manifest is the list
+      return False
     bundles = cached_data.get("bundles", [])
     if source == "chestnut":
       return any(bundle.get("is_big") is True for bundle in bundles)
     return not any(bundle.get("is_big") is True for bundle in bundles)
 
+  def _parse_or_none(self, data: dict | None) -> list[custom.ModelManagerSP.ModelBundle] | None:
+    if not data:
+      return None
+    try:
+      return self.model_parser.parse_models(data) or None
+    except Exception:
+      cloudlog.warning("Failed to parse cached models for chestnut; refetching", exc_info=True)
+      return None
+
+  def _get_jetlink_bundles(self) -> list[custom.ModelManagerSP.ModelBundle]:
+    """The big-model list while it is jetlink's model index (API 4): what
+    big_catalog() names, in place of sunnypilot's chestnut manifest, so what
+    the comma lists is what the Jetson runs.
+
+    big_catalog() answers None when the index cannot be fetched, which is a
+    failed fetch: keep the list it has, as a failed sunnypilot fetch does. The
+    catalog is cached under the chestnut source's key for the UI and for
+    jetlink's own reads."""
+    cache = self.model_caches["chestnut"]
+    cached_data, is_expired = cache.get()
+    cached = cached_data if isinstance(cached_data, dict) and cached_data.get(self.JETLINK_MARK) is True else {}
+
+    if cached and not is_expired:
+      if parsed := self._parse_or_none(cached):
+        return parsed
+
+    catalog = jetlink_adapter.big_catalog(REQUIRED_JSON_VERSION)
+    if catalog is not None:
+      if parsed := self._parse_or_none(catalog):
+        cache.set({**catalog, self.JETLINK_MARK: True})
+        return parsed
+
+    return self._parse_or_none(cached) or []
+
   def get_bundles_for_source(self, source: str) -> list[custom.ModelManagerSP.ModelBundle]:
     if source not in self.MODEL_SOURCES:
       cloudlog.warning(f"Unknown model source: {source}")
       return []
+
+    # API 4: the big-model library asks lists_big_models() first; with no
+    # chestnut fitted it is jetlink's model index, not sunnypilot's manifest
+    if source == "chestnut" and jetlink_adapter.lists_big_models():
+      return self._get_jetlink_bundles()
 
     cached_data, is_expired = self.model_caches[source].get()
 

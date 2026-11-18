@@ -16,6 +16,7 @@ from openpilot.common.hardware.usb import TYPEC_CC_ORIENTATION_PATH, get_usb_sta
 from openpilot.selfdrive.modeld.helpers import chestnut_compiled
 
 from openpilot.selfdrive.ui.sunnypilot.ui_state import UIStateSP, DeviceSP
+from openpilot.sunnypilot import jetlink_adapter
 
 BACKLIGHT_OFFROAD = 65 if HARDWARE.get_device_type() == "mici" else 50
 PARAM_UPDATE_TIME = 1 / 5.0
@@ -96,6 +97,9 @@ class UIState(UIStateSP):
     self.chestnut_compiled: bool = chestnut_compiled()
     self.chestnut_active: bool | None = None
     self.chestnut_loading: bool = False
+    # jetlink's snapshot from the params pass; None beside a chestnut or without a checkout
+    self.jetlink = None
+    self.adb_blocked: bool = False
     self.usb_connected: bool = False
     self.usb_connected_ts: float | None = None
     self.usb_disconnected_ts: float | None = None
@@ -259,6 +263,10 @@ class UIState(UIStateSP):
       self.chestnut_compiled = chestnut_compiled()
     self.chestnut_active = self.params.get("ChestnutActive")
     self.chestnut_loading = self.params.get_bool("ChestnutLoading")
+    self.jetlink = None if self.chestnut_present else jetlink_adapter.status()
+    self.adb_blocked = self.jetlink is not None and self.jetlink.holds_port
+    if self.adb_blocked and self.params.get_bool("AdbEnabled"):
+      self.params.put_bool("AdbEnabled", False, block=True)
     now = time.monotonic()
     if read_int(TYPEC_CC_ORIENTATION_PATH) != 0:
       self.usb_disconnected_ts = None

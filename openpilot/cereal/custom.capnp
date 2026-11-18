@@ -385,6 +385,9 @@ struct OnroadEventSP @0xda96579883444c35 {
     rivianActivateTimeout @32;
     rivianDeactivateCanceled @33;
     rivianActivateCanceled @34;
+    jetlinkReady @35;
+    jetlinkLinkLost @36;
+    jetlinkChime @37;
   }
 }
 
