@@ -2174,6 +2174,31 @@
                   "label": "30h (Default)"
                 }
               ]
+            },
+            {
+              "key": "JetlinkLink",
+              "widget": "multiple_button",
+              "title": "Jetlink (Experimental)",
+              "description": "Runs the big driving model on a Jetson, Mac or Linux PC (USB), or an iPhone/iPad (iOS), plugged into the comma's USB-C port with a USB 3 cable. Power the comma from the car, not that port. If the link drops, the comma keeps driving on the small model. Not used when a chestnut is fitted. Also on the device under Models.",
+              "options": [
+                {
+                  "value": 0,
+                  "label": "Off"
+                },
+                {
+                  "value": 1,
+                  "label": "USB"
+                },
+                {
+                  "value": 2,
+                  "label": "iOS"
+                }
+              ],
+              "enablement": [
+                {
+                  "type": "offroad_only"
+                }
+              ]
             }
           ]
         },
