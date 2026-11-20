@@ -1,8 +1,10 @@
 """
 The fork's side of jetlink: the modeld seams and the no-checkout fallback.
 """
+import inspect
 import re
 from pathlib import Path
+from unittest import mock
 
 from jetlink.openpilot.testing import check_adapter, check_fallback, check_seam
 
@@ -22,6 +24,20 @@ class TestJetlinkSeam(GuardedTest, OpenpilotTestCase):
   def test_every_modeld_has_the_seam(self):
     for modeld in ("openpilot/selfdrive/modeld/modeld.py", "openpilot/sunnypilot/modeld_v2/modeld.py"):
       assert check_seam(str(REPO / modeld)) == [], modeld
+
+  def test_the_large_model_takes_modeld_v2s_action_call(self):
+    """modeld_v2 calls the model's get_action_from_model with its own arguments,
+    blendful sixth. The large model runs stock's function, whose sixth is
+    lat_smooth_seconds: the partial reached smooth_value() and modeld died
+    once the truck moved. Stock's must get modeld_v2's first five, no more.
+    """
+    from openpilot.sunnypilot.modeld_v2.modeld import ModelState
+    names = [name for name in inspect.signature(ModelState.get_action_from_model).parameters if name != 'self']
+    with mock.patch('openpilot.selfdrive.modeld.modeld.get_action_from_model') as stock:
+      action = jetlink_adapter.adapter().action_function()
+      action(*[object() for _ in names])
+    args, kwargs = stock.call_args
+    assert len(args) == 5 and kwargs == {}
 
   def test_every_hook_answers_as_the_link_off(self):
     assert check_fallback(jetlink_adapter._Off("why"), jetlink_adapter.HOOK_NAMES,

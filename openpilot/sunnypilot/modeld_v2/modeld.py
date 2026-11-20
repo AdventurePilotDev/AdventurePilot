@@ -265,7 +265,13 @@ def main(demo=False):
   cloudlog.bind(daemon=PROCESS_NAME)
   setproctitle(PROCESS_NAME)
 
-  CHESTNUT = _find_driving_pkl(get_active_bundle(chestnut=True)) is not None and (chestnut_present() or cable_connected())
+  # The cable reads before a chestnut enumerates, but with Jetlink on the cable
+  # is usually the phone: jetlink mirrors the phone's pick into the chestnut
+  # bundle, so a bare cable would send modeld after a chestnut that isn't
+  # there, and HOOKS.prepare() stands down for it. A chestnut that enumerates
+  # still counts
+  CHESTNUT = (_find_driving_pkl(get_active_bundle(chestnut=True)) is not None and
+              (chestnut_present() or (cable_connected() and not jetlink_adapter.link_on())))
   if CHESTNUT:
     from tinygrad.runtime.ops_amd import AMDDevice
     AMDDevice.wait_timeout_ms = 3000

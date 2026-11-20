@@ -97,8 +97,11 @@ def _adapter_class():
     KEYS = Keys(**KEYS._asdict())
     # MADS's state rides on carControlSP
     IN_CONTROL_SERVICES = ('carState', 'carControl', 'carControlSP')
-    # modeld_v2's warp pickles, not stock modeld's models directory
-    WARP_DIR = 'openpilot/sunnypilot/modeld_v2/models'
+    # stock modeld's warp pickles. modeld_v2's warps are plain tinygrad
+    # artifacts since sunnypilot #2050 (SPTGPLN1), which jetlink's warp loader
+    # can't unpickle. The stock 1344x760 warp takes the same M_inv/input_frame
+    # pair and makes the (2, 6, 128, 256) new_img the large model takes
+    WARP_DIR = 'openpilot/selfdrive/modeld/models'
 
     def chestnut_present(self) -> bool:
       # modeld's own test, the one it runs the big model on: a chestnut whose
@@ -111,6 +114,20 @@ def _adapter_class():
       # modeld_tinygrad reads modeld_v2's off the model
       from openpilot.sunnypilot.modeld_v2.constants import ModelConstants
       return ModelConstants
+
+    def action_function(self):
+      # modeld_v2 calls model.get_action_from_model(output, prev_action,
+      # lat_action_t, long_action_t, v_ego, blendful), and stock's sixth
+      # parameter is lat_smooth_seconds: handed straight through, blendful's
+      # partial reached smooth_value() as the time constant and modeld died on
+      # the first frame above MIN_LAT_CONTROL_SPEED. The large model keeps
+      # stock's action path, smoothing included; blendful is the local
+      # bundle's
+      from openpilot.selfdrive.modeld.modeld import get_action_from_model
+
+      def action(model_output, prev_action, lat_action_t, long_action_t, v_ego, blendful=None):
+        return get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
+      return action
 
     # The large model is comma's, so the stock parser, constants and action path
     # are deliberate. modeld_v2's extra inputs (lateral_control_params,
