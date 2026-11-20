@@ -177,6 +177,41 @@ class PythonProcess(ManagerProcess):
     self.shutting_down = False
 
 
+class RestartingPythonProcess(PythonProcess):
+  """Starts its process again after it dies; upstream's start() leaves a dead one dead.
+
+  One that dies within QUICK_DEATH of its start never got that far (an import
+  error, a raise before the owner's loop), so the next start waits BACKOFF,
+  doubling to BACKOFF_MAX, rather than forking manager twice a second for a
+  whole drive. One that ran longer is started again on the next loop."""
+  QUICK_DEATH = 10.0
+  BACKOFF = 10.0
+  BACKOFF_MAX = 300.0
+
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.started_at = 0.0
+    self.backoff = 0.0
+    self.next_start = 0.0
+
+  def start(self) -> None:
+    now = time.monotonic()
+    if self.proc is not None and self.proc.exitcode is not None:
+      if now - self.started_at < self.QUICK_DEATH:
+        self.backoff = min(self.BACKOFF_MAX, 2 * self.backoff or self.BACKOFF)
+        self.next_start = now + self.backoff
+        cloudlog.warning(f"{self.name} died {now - self.started_at:.1f} s after it started, "
+                         f"starting it again in {self.backoff:.0f} s")
+      else:
+        self.backoff = 0.0
+      self.stop()   # reaps it, so the start below runs it again
+    if self.proc is None:
+      if now < self.next_start:
+        return
+      self.started_at = now
+    super().start()
+
+
 class DaemonProcess(ManagerProcess):
   """Python process that has to stay running across manager restart.
   This is used for athena so you don't lose SSH access when restarting manager."""

@@ -31,6 +31,7 @@ from openpilot.system.hardware.fan_controller import FanController
 from openpilot.system.hardware.chestnut.monitoring import chestnut_state_thread
 from openpilot.system.hardware.chestnut.status import ChestnutStatus
 from openpilot.common.version import terms_version, training_version, get_build_metadata, terms_version_sp
+from openpilot.sunnypilot import jetlink_adapter
 
 ThermalStatus = log.DeviceState.ThermalStatus
 NetworkType = log.DeviceState.NetworkType
@@ -40,6 +41,10 @@ TEMP_TAU = 5.   # 5s time constant
 DISCONNECT_TIMEOUT = 5.  # wait 5 seconds before going offroad after disconnect so you get an alert
 PANDA_STATES_TIMEOUT = round(1000 / SERVICE_LIST['pandaStates'].frequency * 1.5)  # 1.5x the expected pandaState frequency
 ONROAD_CYCLE_TIME = 1  # seconds to wait offroad after requesting an onroad cycle
+# Jetlink's SHUTDOWN_TIMEOUT of 25 s plus 5 s, written out so it holds without Jetlink
+JETLINK_SHUTDOWN_CAP_S = 30.
+
+HOOKS = jetlink_adapter.hooks()
 
 # Diagnostic timing for the deviceState publish loop. hardware_thread runs at 2 Hz, and a stall of a
 # few seconds stops deviceState altogether, which selfdrived reports as a communication issue and
@@ -320,6 +325,7 @@ def hardware_thread(end_event, hw_queue) -> None:
   startup_conditions_prev: dict[str, bool] = {}
 
   off_ts: float | None = None
+  shutdown_since: float | None = None
   started_ts: float | None = None
   started_seen = False
   startup_blocked_ts: float | None = None
@@ -482,6 +488,9 @@ def hardware_thread(end_event, hw_queue) -> None:
     # ensure device is fully booted
     startup_conditions["device_booted"] = startup_conditions.get("device_booted", False) or HARDWARE.booted()
 
+    # a power-off waiting on the Jetlink host blocks a drive start until it is taken or withdrawn
+    startup_conditions["not_powering_off"] = shutdown_since is None
+
     # user-forced status
     offroad_mode = params.get_bool("OffroadMode")
     startup_conditions["not_always_offroad"] = not offroad_mode
@@ -498,6 +507,10 @@ def hardware_thread(end_event, hw_queue) -> None:
     onroad_conditions["not_tici"] = not is_unsupported_combo
     with loop_timer.phase("offroad_alert_tici"):
       set_offroad_alert("Offroad_TiciSupport", is_unsupported_combo, extra_text=build_metadata.channel)
+
+    with loop_timer.phase("offroad_alert_jetlink"):
+      reason = HOOKS.reason()
+      set_offroad_alert_if_changed("Offroad_JetlinkUnavailable", reason is not None, extra_text=reason)
 
     # if the temperature enters the danger zone, go offroad to cool down
     onroad_conditions["device_temp_good"] = thermal_status < ThermalStatus.critical
@@ -577,9 +590,16 @@ def hardware_thread(end_event, hw_queue) -> None:
       msg.deviceState.somPowerDrawW = som_power_draw
 
     # Check if we need to shut down
-    if power_monitor.should_shutdown(onroad_conditions["ignition"], in_car, off_ts, started_seen):
+    should_shutdown = power_monitor.should_shutdown(onroad_conditions["ignition"], in_car, off_ts, started_seen)
+    if should_shutdown and shutdown_since is None:
+      shutdown_since = time.monotonic()
+    capped = shutdown_since is not None and time.monotonic() - shutdown_since > JETLINK_SHUTDOWN_CAP_S
+    wanted = HOOKS.shutdown_step(should_shutdown, f"offroad since {off_ts}")
+    if wanted or capped:
       cloudlog.warning(f"shutting device down, offroad since {off_ts}")
       params.put_bool("DoShutdown", True, block=True)
+    elif not should_shutdown and not HOOKS.shutdown_pending():
+      shutdown_since = None  # the car came back with nothing asked: stop counting, and unblock a drive start
 
     msg.deviceState.started = started_ts is not None and not offroad_mode
     msg.deviceState.startedMonoTime = int(1e9*(started_ts or 0))

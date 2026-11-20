@@ -32,6 +32,7 @@ from openpilot.sunnypilot.selfdrive.car.car_specific import CarSpecificEventsSP
 from openpilot.sunnypilot.selfdrive.car.intelligent_cruise_button_management.controller import IntelligentCruiseButtonManagement
 from openpilot.sunnypilot.selfdrive.selfdrived.button_state_tracker import ButtonStateTracker
 from openpilot.sunnypilot.selfdrive.selfdrived.events import EventsSP
+from openpilot.sunnypilot import jetlink_adapter
 
 REPLAY = "REPLAY" in os.environ
 SIMULATION = "SIMULATION" in os.environ
@@ -45,6 +46,7 @@ PandaType = log.PandaState.PandaType
 LaneChangeState = log.LaneChangeState
 LaneChangeDirection = log.LaneChangeDirection
 EventName = log.OnroadEvent.EventName
+EventNameSP = custom.OnroadEventSP.EventName
 ButtonType = car.CarState.ButtonEvent.Type
 SafetyModel = car.CarParams.SafetyModel
 AlertLevel = log.DriverMonitoringState.AlertLevel
@@ -155,7 +157,7 @@ class SelfdriveD:
 
     # webrtcd and stream_encoderd only feed a viewer (opview, livestream): one of them dying must not
     # take control away from the driver (route 000000e6: a webrtcd crash raised processNotRunning)
-    self.ignored_processes = {'mapd', 'webrtcd', 'stream_encoderd'}
+    self.ignored_processes = {'mapd', 'webrtcd', 'stream_encoderd', jetlink_adapter.OWNER}
 
     # Determine startup event
     is_remote = build_metadata.openpilot.comma_remote or build_metadata.openpilot.sunnypilot_remote
@@ -180,6 +182,8 @@ class SelfdriveD:
 
     self.mads = ModularAssistiveDrivingSystem(self)
     self.icbm = IntelligentCruiseButtonManagement(self.CP, self.CP_SP)
+    # the link's swaps mid-drive: built once, link on or off, and binds nothing
+    self.jetlink_swaps = jetlink_adapter.swap_events(DT_CTRL)
 
     self.car_events_sp = CarSpecificEventsSP(self.CP, self.CP_SP)
 
@@ -202,6 +206,19 @@ class SelfdriveD:
     self.big_model_loading = loading
     if self.big_model_loading:
       self.events.add(EventName.bigModelLoading)
+
+    if self.jetlink_swaps is not None:
+      model_ok = self.sm.alive['modelV2'] and self.sm.valid['modelV2']
+      flags = self.jetlink_swaps.update(model_ok, model_ok and self.sm['modelV2'].big,
+                                        self.enabled or self.mads.enabled)
+      if flags.no_entry:
+        self.events.add(EventName.bigModelLoading)
+      if flags.offer:
+        self.events_sp.add(EventNameSP.jetlinkReady)
+      if flags.link_lost:
+        self.events_sp.add(EventNameSP.jetlinkLinkLost)
+      if flags.chime:
+        self.events_sp.add(EventNameSP.jetlinkChime)
 
     big_active = self.chestnut_active
     chestnut_present = self.sm['deviceState'].chestnutPresent
@@ -435,7 +452,8 @@ class SelfdriveD:
     has_disable_events = self.events.contains(ET.NO_ENTRY) and (self.events.contains(ET.SOFT_DISABLE) or self.events.contains(ET.IMMEDIATE_DISABLE))
     no_system_errors = (not has_disable_events) or (len(self.events) == num_events)
     warmup_sec = 5.
-    big_model_settling = self.big_model_loading or time.monotonic() < self.big_model_ready_t + warmup_sec
+    big_model_settling = self.big_model_loading or time.monotonic() < self.big_model_ready_t + warmup_sec or \
+      (self.jetlink_swaps is not None and self.jetlink_swaps.settling)
     if not self.sm.all_checks() and no_system_errors and not big_model_settling:  # the load holds modelV2 and friends back on purpose
       if not self.sm.all_alive():
         self.events.add(EventName.commIssue)

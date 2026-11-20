@@ -14,6 +14,8 @@ from openpilot.common.constants import CV
 from openpilot.selfdrive.ui.ui_state import device, ui_state
 from openpilot.selfdrive.ui.sunnypilot.model_info import (big_model_state, bundles_for_source, carrying_model, default_model_name,
                                                            model_cache_size_mb, queued_name, refresh_in_progress, refresh_model_list)
+from openpilot.selfdrive.ui.sunnypilot.jetlink_link import (LINK_MODE_TITLES, cycle_link_mode, jetlink_note, link_mode,
+                                                            link_toggle_meaningful)
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.widgets import DialogResult, Widget
@@ -67,6 +69,13 @@ class ModelsLayout(Widget):
       callback=lambda: self._open_source_dialog("chestnut")
     )
 
+    self.jetlink_item = ListItemSP(
+      title=tr("Jetlink"),
+      description="",
+      action_item=ScrollingButtonAction(tr("OFF")),
+      callback=self._cycle_jetlink
+    )
+
     self.download_item = download_status_item(lambda: tr("Download") if self._downloading else tr("Model Status"))
 
     self.refresh_item = button_item(tr("Refresh Model List"),
@@ -111,9 +120,13 @@ class ModelsLayout(Widget):
                                         1, None, True, "", style.BUTTON_ACTION_WIDTH, None, True,
                                         lambda v: f"{v / 100:.2f} m")
 
-    self.items = [self.small_model_item, self.big_model_item, self.cancel_download_item, self.download_item, self.refresh_item, self.clear_cache_item,
-                  self.blendful_toggle, self.lane_turn_desire_toggle, self.lane_turn_value_control, self.lagd_toggle, self.delay_control,
-                  self.camera_offset]
+    self.items = [self.small_model_item, self.big_model_item, self.jetlink_item, self.cancel_download_item, self.download_item,
+                  self.refresh_item, self.clear_cache_item, self.blendful_toggle, self.lane_turn_desire_toggle, self.lane_turn_value_control,
+                  self.lagd_toggle, self.delay_control, self.camera_offset]
+
+  def _cycle_jetlink(self):
+    if ui_state.is_offroad():
+      cycle_link_mode()
 
   def _update_lagd_description(self, lagd_toggle: bool):
     desc = tr("Enable this for the car to learn and adapt its steering response time. Disable to use a fixed steering response time. " +
@@ -368,6 +381,12 @@ class ModelsLayout(Widget):
     self.small_model_item.action_item.set_enabled(offroad)
     self.big_model_item.action_item.set_enabled(offroad)
     self.small_model_item.set_description("" if offroad else tr("Only available when vehicle is off, or always offroad mode is on"))
+
+    self.jetlink_item.set_visible(link_toggle_meaningful())
+    if link_toggle_meaningful():
+      self.jetlink_item.action_item.set_value(LINK_MODE_TITLES[link_mode()].upper())
+      self.jetlink_item.action_item.set_enabled(offroad)
+      self._set_item_note(self.jetlink_item, jetlink_note())
 
     # manager is offroad-only, so an onroad clear would never be serviced
     self.clear_cache_item.action_item.set_enabled(offroad and not self._downloading and not self._clearing)

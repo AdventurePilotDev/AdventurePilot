@@ -16,6 +16,8 @@ from openpilot.selfdrive.ui.ui_state import ui_state, device
 from openpilot.selfdrive.ui.sunnypilot.model_info import (active_source, big_model_state, bundles_for_source, carrying_model,
                                                            default_model_name, model_cache_size_mb, model_info, queued_name,
                                                            refresh_in_progress, refresh_model_list)
+from openpilot.selfdrive.ui.sunnypilot.jetlink_link import (LINK_MODE_TITLES, cycle_link_mode, jetlink_note, link_mode,
+                                                            link_toggle_meaningful)
 from openpilot.system.ui.lib.application import FontWeight, gui_app
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.widgets import Widget
@@ -81,6 +83,9 @@ class ModelsLayoutMici(NavScroller):
     self._was_downloading = False
     self._selection_source: str | None = None
 
+    self.jetlink_btn = BigButton(tr("jetlink"), value=LINK_MODE_TITLES[link_mode()].lower())
+    self.jetlink_btn.set_click_callback(lambda: ui_state.is_offroad() and cycle_link_mode())
+
     self.select_model_btn = BigButton(tr("select model"))
     self.select_model_btn.set_click_callback(self._show_folders)
 
@@ -99,7 +104,7 @@ class ModelsLayoutMici(NavScroller):
                                            description=tr("Adds a gentle nudge toward lane center on top of the model's own steering, stronger when " +
                                                           "lane lines are clear. Yields around obstacles. Not available with the Default model."))
 
-    self.main_items = [self.current_model_info, self.select_model_btn, self.cancel_download_btn, self.refresh_btn, self.clear_cache_btn,
+    self.main_items = [self.current_model_info, self.jetlink_btn, self.select_model_btn, self.cancel_download_btn, self.refresh_btn, self.clear_cache_btn,
                        self.blendful_toggle]
     self._scroller.add_widgets(self.main_items)
 
@@ -218,6 +223,12 @@ class ModelsLayoutMici(NavScroller):
     super()._update_state()
 
     self.select_model_btn.set_enabled(ui_state.is_offroad())
+    self.jetlink_btn.set_visible(link_toggle_meaningful())
+    if link_toggle_meaningful():
+      self.jetlink_btn.set_enabled(ui_state.is_offroad())
+      self.jetlink_btn.set_value(LINK_MODE_TITLES[link_mode()].lower())
+      note = jetlink_note()
+      self.jetlink_btn.set_text(f"{tr('jetlink')}  ·  {note}" if note else tr("jetlink"))
     self.cancel_download_btn.set_visible(False)
     self.current_model_info.current_model_header._shimmer = False
     self.current_model_info.info_header._shimmer = False

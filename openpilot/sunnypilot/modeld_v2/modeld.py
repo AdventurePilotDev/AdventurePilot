@@ -51,6 +51,7 @@ from openpilot.sunnypilot.modeld_v2.frame_fusion import fused_with_warp
 from openpilot.sunnypilot.modeld_v2.model_adapters import get_model_adapter
 from openpilot.sunnypilot.models.helpers import get_active_bundle
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
+from openpilot.sunnypilot import jetlink_adapter
 
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld_tinygrad"
 BIG_MODEL_TIMEOUT = 60
@@ -264,7 +265,13 @@ def main(demo=False):
   cloudlog.bind(daemon=PROCESS_NAME)
   setproctitle(PROCESS_NAME)
 
-  CHESTNUT = _find_driving_pkl(get_active_bundle(chestnut=True)) is not None and (chestnut_present() or cable_connected())
+  # The cable reads before a chestnut enumerates, but with Jetlink on the cable
+  # is usually the phone: jetlink mirrors the phone's pick into the chestnut
+  # bundle, so a bare cable would send modeld after a chestnut that isn't
+  # there, and HOOKS.prepare() stands down for it. A chestnut that enumerates
+  # still counts
+  CHESTNUT = (_find_driving_pkl(get_active_bundle(chestnut=True)) is not None and
+              (chestnut_present() or (cable_connected() and not jetlink_adapter.link_on())))
   if CHESTNUT:
     from tinygrad.runtime.ops_amd import AMDDevice
     AMDDevice.wait_timeout_ms = 3000
@@ -272,6 +279,7 @@ def main(demo=False):
   params = Params()
   params.put_bool("ChestnutLoading", CHESTNUT)
   params.remove("ChestnutActive")
+  HOOKS = jetlink_adapter.hooks()
 
   gc.disable()
 
@@ -328,6 +336,14 @@ def main(demo=False):
   small_model = ModelState(cam_w=vipc_client_main.width, cam_h=vipc_client_main.height, chestnut=False) if model is None or CHESTNUT else None
   if model is None:
     model = small_model
+
+  # before going realtime: the GPU thread it starts would inherit SCHED_FIFO 54 on core 7
+  if HOOKS.prepare(CHESTNUT):
+    # the joining model drives as small_model until the big model is ready
+    assert small_model is not None
+    model = HOOKS.attach(model, small_model, vipc_client_main.width, vipc_client_main.height)
+  config_realtime_process(7, 54)
+
   params.put_bool("ChestnutLoading", False)
   assert model is not None
   cloudlog.warning(f"models loaded in {time.monotonic() - st:.1f}s, modeld starting")
@@ -443,6 +459,7 @@ def main(demo=False):
     run_count = run_count + 1
 
     frame_drop_ratio = frames_dropped / (1 + frames_dropped)
+    model.frame_drop_ratio = frame_drop_ratio   # before model.run()
 
     bufs = {name: buf_extra if 'big' in name else buf_main for name in model.vision_input_names}
     transforms = {name: model_transform_extra if 'big' in name else model_transform_main for name in model.vision_input_names}
@@ -460,8 +477,8 @@ def main(demo=False):
     if 'lateral_control_params' in model.numpy_inputs:
       inputs['lateral_control_params'] = np.array([v_ego, lat_delay], dtype=np.float32)
 
-    if 'action_t' in model.numpy_inputs:
-      inputs['action_t'] = np.array([lat_action_t, long_action_t], dtype=np.float32)
+    # a joining large model always needs action_t, even when the small model does not read it
+    inputs['action_t'] = np.array([lat_action_t, long_action_t], dtype=np.float32)
 
     mt1 = time.perf_counter()
     try:
@@ -481,6 +498,8 @@ def main(demo=False):
       model_output = None
     mt2 = time.perf_counter()
     model_execution_time = mt2 - mt1
+    if HOOKS.handed_over(model):                # after model.run()
+      run_count = 0
 
     if model_output is not None:
       modelv2_send = messaging.new_message('modelV2')

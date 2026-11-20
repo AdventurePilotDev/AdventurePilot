@@ -146,6 +146,14 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"Offroad_UploadsIgnored", {CLEAR_ON_MANAGER_START, JSON}},
     {"PairingEmail", {PERSISTENT, STRING}},
     {"PairingProvider", {PERSISTENT, STRING}},
+
+    // Jetlink: run the large driving model on a computer connected over USB
+    {"JetlinkLink", {PERSISTENT | BACKUP, INT, "0"}},
+    {"JetlinkProgress", {CLEAR_ON_MANAGER_START, JSON}},
+    {"JetlinkSpec", {PERSISTENT, JSON}},
+    {"JetlinkChargePhone", {PERSISTENT, BOOL, "0"}},
+    {"Offroad_JetlinkUnavailable", {CLEAR_ON_MANAGER_START, JSON}},
+
     {"Version", {PERSISTENT, STRING}},
 
     // --- sunnypilot params --- //
