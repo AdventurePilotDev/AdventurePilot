@@ -46,7 +46,8 @@ class CarInterface(CarInterfaceBase):
         # this needs to be figured out for cars without an ADAS ECU
         ret.alphaLongitudinalAvailable = False
 
-      ret.enableBsm = 0x1ba in fingerprint[CAN.ECAN]
+      if 0x1ba in fingerprint[CAN.ECAN]:
+        ret.flags |= HyundaiFlags.HAS_BSM.value
 
       # Check if the car is hybrid. Only HEV/PHEV cars have 0xFA on E-CAN.
       if 0xFA in fingerprint[CAN.ECAN]:
@@ -89,7 +90,8 @@ class CarInterface(CarInterfaceBase):
     else:
       # Shared configuration for non CAN-FD cars
       ret.alphaLongitudinalAvailable = not (ret.flags & (HyundaiFlags.LEGACY | HyundaiFlags.UNSUPPORTED_LONGITUDINAL))
-      ret.enableBsm = 0x58b in fingerprint[0]
+      if 0x58b in fingerprint[0]:
+        ret.flags |= HyundaiFlags.HAS_BSM.value
 
       # Send LFA message on cars with HDA
       if 0x485 in fingerprint[2]:
@@ -186,20 +188,12 @@ class CarInterface(CarInterfaceBase):
     if stock_cp.flags & HyundaiFlags.ALT_LIMITS_2:
       stock_cp.dashcamOnly = False
 
-    if ret.flags & HyundaiFlagsSP.NON_SCC:
-      stock_cp.alphaLongitudinalAvailable = False
-      stock_cp.openpilotLongitudinalControl = False
-      stock_cp.pcmCruise = True
-      ret.safetyParam |= HyundaiSafetyFlagsSP.NON_SCC
-
-    # untested non-SCC platforms, need user validations
-    if stock_cp.carFingerprint in (CAR.HYUNDAI_BAYON_1ST_GEN_NON_SCC, CAR.KIA_FORTE_2021_NON_SCC,
-                                   CAR.KIA_SELTOS_2023_NON_SCC, CAR.GENESIS_G70_2021_NON_SCC):
-      stock_cp.dashcamOnly = True
-
     if stock_cp.flags & HyundaiFlags.CANFD:
       if 0x1fa in fingerprint[CAN.ECAN]:
         ret.flags |= HyundaiFlagsSP.SPEED_LIMIT_AVAILABLE.value
+
+      if any(0x161 in fingerprint[b] and 0x162 in fingerprint[b] for b in (CAN.ECAN, CAN.CAM)):
+        ret.flags |= HyundaiFlagsSP.CCNC.value
     else:
       # Detect smartMDPS, which bypasses EPS low-speed lockout, allowing sunnypilot to send steering commands down to 0
       if 0x2AA in fingerprint[0]:
@@ -211,6 +205,20 @@ class CarInterface(CarInterfaceBase):
 
       if 0x53E in fingerprint[2]:
         ret.flags |= HyundaiFlagsSP.HAS_LKAS12.value
+
+    if ret.flags & HyundaiFlagsSP.CCNC and not lka_steering:
+      ret.safetyParam |= HyundaiSafetyFlagsSP.CCNC
+
+    if ret.flags & HyundaiFlagsSP.NON_SCC:
+      stock_cp.alphaLongitudinalAvailable = False
+      stock_cp.openpilotLongitudinalControl = False
+      stock_cp.pcmCruise = True
+      ret.safetyParam |= HyundaiSafetyFlagsSP.NON_SCC
+
+    # untested non-SCC platforms, need user validations
+    if stock_cp.carFingerprint in (CAR.HYUNDAI_BAYON_1ST_GEN_NON_SCC, CAR.KIA_FORTE_2021_NON_SCC,
+                                   CAR.KIA_SELTOS_2023_NON_SCC, CAR.GENESIS_G70_2021_NON_SCC):
+      stock_cp.dashcamOnly = True
 
     ret.intelligentCruiseButtonManagementAvailable = not (stock_cp.flags & HyundaiFlags.CANFD_ALT_BUTTONS)
 

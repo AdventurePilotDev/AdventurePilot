@@ -22,6 +22,7 @@ enum {
   HYUNDAI_PARAM_SP_LONGITUDINAL_MAIN_CRUISE_TOGGLEABLE = 2,
   HYUNDAI_PARAM_SP_HAS_LDA_BUTTON = 4,
   HYUNDAI_PARAM_SP_NON_SCC = 8,
+  HYUNDAI_PARAM_SP_CCNC = 16,
 };
 
 // common state
@@ -62,6 +63,9 @@ bool hyundai_has_lda_button = false;
 extern bool hyundai_non_scc;
 bool hyundai_non_scc = false;
 
+extern bool hyundai_ccnc;
+bool hyundai_ccnc = false;
+
 static uint8_t hyundai_last_button_interaction;  // button messages since the user pressed an enable button
 
 static bool main_button_prev;
@@ -74,7 +78,7 @@ void hyundai_common_init(uint16_t param) {
   const uint16_t HYUNDAI_PARAM_HYBRID_GAS = 2;
   const uint16_t HYUNDAI_PARAM_CAMERA_SCC = 8;
   const uint16_t HYUNDAI_PARAM_CANFD_LKA_STEER_MSG = 16;
-  const uint16_t HYUNDAI_PARAM_ALT_LIMITS = 64; // TODO: shift this down with the rest of the common flags
+  const uint16_t HYUNDAI_PARAM_ALT_LIMITS = 64;  // TODO: shift this down with the rest of the common flags
   const uint16_t HYUNDAI_PARAM_FCEV_GAS = 256;
   const uint16_t HYUNDAI_PARAM_ALT_LIMITS_2 = 512;
 
@@ -90,6 +94,7 @@ void hyundai_common_init(uint16_t param) {
   hyundai_longitudinal_main_cruise_toggleable = GET_FLAG(current_safety_param_sp, HYUNDAI_PARAM_SP_LONGITUDINAL_MAIN_CRUISE_TOGGLEABLE);
   hyundai_has_lda_button = GET_FLAG(current_safety_param_sp, HYUNDAI_PARAM_SP_HAS_LDA_BUTTON);
   hyundai_non_scc = GET_FLAG(current_safety_param_sp, HYUNDAI_PARAM_SP_NON_SCC);
+  hyundai_ccnc = GET_FLAG(current_safety_param_sp, HYUNDAI_PARAM_SP_CCNC);
 
   hyundai_last_button_interaction = HYUNDAI_PREV_BUTTON_SAMPLES;
 
@@ -169,10 +174,9 @@ uint32_t hyundai_common_canfd_compute_checksum(const CANPacket_t *msg) {
 
   if (len == 24) {
     crc ^= 0x819dU;
-  } else if (len == 32) {
+  }
+  if (len == 32) {
     crc ^= 0x9f5bU;
-  } else {
-
   }
 
   return crc;

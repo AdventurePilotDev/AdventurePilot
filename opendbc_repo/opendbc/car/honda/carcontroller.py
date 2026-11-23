@@ -9,6 +9,7 @@ from opendbc.car.interfaces import CarControllerBase
 from opendbc.sunnypilot.car.honda.mads import MadsCarController
 from opendbc.sunnypilot.car.honda.gas_interceptor import GasInterceptorCarController
 from opendbc.sunnypilot.car.honda.icbm import IntelligentCruiseButtonManagementInterface
+from opendbc.sunnypilot.car.honda.eps_mod import EpsModCarController
 
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
 LongCtrlState = structs.CarControl.Actuators.LongControlState
@@ -91,12 +92,14 @@ def process_hud_alert(hud_alert):
   return alert_fcw, alert_steer_required
 
 
-class CarController(CarControllerBase, MadsCarController, GasInterceptorCarController, IntelligentCruiseButtonManagementInterface):
+class CarController(CarControllerBase, MadsCarController, GasInterceptorCarController, IntelligentCruiseButtonManagementInterface,
+                    EpsModCarController):
   def __init__(self, dbc_names, CP, CP_SP):
     CarControllerBase.__init__(self, dbc_names, CP, CP_SP)
     MadsCarController.__init__(self)
     GasInterceptorCarController.__init__(self, CP, CP_SP)
     IntelligentCruiseButtonManagementInterface.__init__(self, CP, CP_SP)
+    EpsModCarController.__init__(self, CP, CP_SP)
     self.packer = CANPacker(dbc_names[Bus.pt])
     self.params = CarControllerParams(CP)
     self.CAN = hondacan.CanBus(CP)
@@ -146,8 +149,9 @@ class CarController(CarControllerBase, MadsCarController, GasInterceptorCarContr
     # **** process the car messages ****
 
     # steer torque is converted back to CAN reference (positive when steering right)
-    apply_torque = int(np.interp(-limited_torque * self.params.STEER_MAX,
-                                 self.params.STEER_LOOKUP_BP, self.params.STEER_LOOKUP_V))
+    apply_torque = int(np.clip(-limited_torque, -1.0, 1.0) * self.params.STEER_MAX)
+    if self.eps_mod_lookup is not None:
+      apply_torque = EpsModCarController.get_apply_torque(self, limited_torque)
 
     # Send CAN commands
     can_sends = []

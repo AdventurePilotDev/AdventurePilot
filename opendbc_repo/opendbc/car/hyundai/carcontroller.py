@@ -8,6 +8,7 @@ from opendbc.car.hyundai.hyundaicanfd import CanBus
 from opendbc.car.hyundai.values import HyundaiFlags, Buttons, CarControllerParams, CAR
 from opendbc.car.interfaces import CarControllerBase
 
+from opendbc.sunnypilot.car.hyundai.ccnc import CcncCarController
 from opendbc.sunnypilot.car.hyundai.escc import EsccCarController
 from opendbc.sunnypilot.car.hyundai.icbm import IntelligentCruiseButtonManagementInterface
 from opendbc.sunnypilot.car.hyundai.longitudinal.controller import LongitudinalController
@@ -54,10 +55,11 @@ def process_hud_alert(enabled, fingerprint, hud_control):
   return sys_warning, sys_state, left_lane_warning, right_lane_warning
 
 
-class CarController(CarControllerBase, EsccCarController, LeadDataCarController, LongitudinalController, MadsCarController,
+class CarController(CarControllerBase, CcncCarController, EsccCarController, LeadDataCarController, LongitudinalController, MadsCarController,
                     IntelligentCruiseButtonManagementInterface):
   def __init__(self, dbc_names, CP, CP_SP):
     CarControllerBase.__init__(self, dbc_names, CP, CP_SP)
+    CcncCarController.__init__(self, CP, CP_SP)
     EsccCarController.__init__(self, CP, CP_SP)
     MadsCarController.__init__(self)
     LeadDataCarController.__init__(self, CP)
@@ -128,6 +130,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     if self.CP.flags & HyundaiFlags.CANFD:
       can_sends.extend(self.create_canfd_msgs(apply_steer_req, apply_torque, set_speed_in_units, accel,
                                               stopping, hud_control, CS, CC))
+      can_sends.extend(CcncCarController.update(self, CS, CC))
     else:
       # Hold torque with induced temporary fault when cutting the actuation bit
       # FIXME: we don't use this with CAN FD?
@@ -210,7 +213,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
                                                         self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT))
 
     # LFA and HDA icons
-    if self.frame % 5 == 0 and (not lka_steering or lka_steering_long):
+    if self.frame % 5 == 0 and (not lka_steering or lka_steering_long) and not self.ccnc_lfa_steering:
       can_sends.append(hyundaicanfd.create_lfahda_cluster(self.packer, self.CAN, CC.enabled, self.lfa_icon))
 
     # blinkers
@@ -220,7 +223,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     if self.CP.openpilotLongitudinalControl:
       if lka_steering:
         can_sends.extend(hyundaicanfd.create_adrv_messages(self.packer, self.CAN, self.frame))
-      else:
+      elif not self.ccnc_lfa_steering:
         can_sends.extend(hyundaicanfd.create_fca_warning_light(self.packer, self.CAN, self.frame))
       if self.frame % 2 == 0:
         can_sends.append(hyundaicanfd.create_acc_control(self.packer, self.CAN, CC.enabled, self.accel_last, accel, stopping, CC.cruiseControl.override,

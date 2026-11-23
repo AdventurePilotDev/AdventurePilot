@@ -5,11 +5,12 @@ This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
 
+import copy
 from enum import StrEnum
 
 from opendbc.car import Bus, structs
 from opendbc.can.parser import CANParser
-from opendbc.car.hyundai.values import HyundaiFlags
+from opendbc.car.hyundai.values import HyundaiFlags, CAR
 from opendbc.sunnypilot.car.hyundai.values import HyundaiFlagsSP
 
 
@@ -19,6 +20,10 @@ class CarStateExt:
     self.CP_SP = CP_SP
 
     self.aBasis = 0.0
+    self.msg_161 = {}
+    self.msg_162 = {}
+    self.mdps = {}
+    self.cruise_buttons_msg = {}
 
   def update_speed_limit(self, cp, cp_cam) -> float:
     speed_limit = 0
@@ -55,9 +60,11 @@ class CarStateExt:
       cruise_enabled_sig = "CC_ACT" if self.CP.flags & HyundaiFlags.EV else "CRUISE_LAMP_S"
       cruise_speed_msg = "E_EMS11" if self.CP.flags & HyundaiFlags.EV else \
                          "ELECT_GEAR" if self.CP.flags & HyundaiFlags.HYBRID else \
+                         "EMS_H12" if self.CP.carFingerprint == CAR.HYUNDAI_VENUE_2021_NON_SCC else \
                          "LVR12"
       cruise_speed_sig = "Cruise_Limit_Target" if self.CP.flags & HyundaiFlags.EV else \
                          "SLC_SET_SPEED" if self.CP.flags & HyundaiFlags.HYBRID else \
+                         "SLD_VS" if self.CP.carFingerprint == CAR.HYUNDAI_VENUE_2021_NON_SCC else \
                          "CF_Lvr_CruiseSet"
       ret.cruiseState.available = cp.vl[cruise_msg][cruise_available_sig] != 0
       ret.cruiseState.enabled = cp.vl[cruise_msg][cruise_enabled_sig] != 0
@@ -82,5 +89,12 @@ class CarStateExt:
     cp_cam = can_parsers[Bus.cam]
 
     self.aBasis = cp.vl["TCS"]["aBasis"]
+
+    if self.CP_SP.flags & HyundaiFlagsSP.CCNC and not self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG:
+      self.msg_161 = copy.copy(cp_cam.vl["CCNC_0x161"])
+      self.msg_162 = copy.copy(cp_cam.vl["CCNC_0x162"])
+      self.mdps = copy.copy(cp.vl["MDPS"])
+      self.cruise_info = copy.copy(cp_cam.vl["SCC_CONTROL"])
+      self.cruise_buttons_msg = copy.copy(cp.vl["CRUISE_BUTTONS"])
 
     ret_sp.speedLimit = self.update_speed_limit(cp, cp_cam) * speed_factor

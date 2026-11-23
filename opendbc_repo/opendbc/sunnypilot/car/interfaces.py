@@ -12,8 +12,14 @@ from collections.abc import Callable
 
 from opendbc.car import structs
 from opendbc.car.can_definitions import CanRecvCallable, CanSendCallable
+from opendbc.car.chrysler.values import ChryslerFlags
+from opendbc.car.ford.values import FordFlags
+from opendbc.car.gm.values import GMFlags
+from opendbc.car.honda.values import HondaFlags
 from opendbc.car.hyundai.values import HyundaiFlags
 from opendbc.car.subaru.values import SubaruFlags
+from opendbc.car.toyota.values import ToyotaFlags
+from opendbc.car.volkswagen.values import VolkswagenFlags
 from opendbc.car.toyota.values import ToyotaSafetyFlags
 from opendbc.sunnypilot.car.hyundai.enable_radar_tracks import enable_radar_tracks as hyundai_enable_radar_tracks
 from opendbc.sunnypilot.car.hyundai.longitudinal.helpers import LongitudinalTuningType
@@ -75,6 +81,27 @@ class NanoFFModel:
       pred = x[0]
     pred = pred * (self.weights['output_norm_mat'][1] - self.weights['output_norm_mat'][0]) + self.weights['output_norm_mat'][0]
     return pred
+
+
+# upstream detects BSM per brand into each brand's HAS_BSM flag
+BSM_FLAGS = {
+  "chrysler": ChryslerFlags.HAS_BSM,
+  "ford": FordFlags.HAS_BSM,
+  "gm": GMFlags.HAS_BSM,
+  "honda": HondaFlags.HAS_BSM,
+  "hyundai": HyundaiFlags.HAS_BSM,
+  "subaru": SubaruFlags.HAS_BSM,
+  "toyota": ToyotaFlags.HAS_BSM,
+  "volkswagen": VolkswagenFlags.HAS_BSM,
+}
+
+
+def has_bsm(CP: structs.CarParams, CP_SP: structs.CarParamsSP | None) -> bool:
+  if CP.brand == "tesla":
+    return True
+  if CP.brand == "rivian":
+    return CP_SP is not None and bool(CP_SP.flags & RivianFlagsSP.LONGITUDINAL_HARNESS_UPGRADE)
+  return CP.brand in BSM_FLAGS and bool(CP.flags & BSM_FLAGS[CP.brand])
 
 
 def setup_interfaces(CI, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
@@ -169,6 +196,7 @@ def _initialize_toyota(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params
   if CP.brand == 'toyota':
     toyota_stock_long = int(params_dict.get("ToyotaEnforceStockLongitudinal", 0)) == 1
     toyota_stop_and_go_hack = int(params_dict.get("ToyotaStopAndGoHack", 0)) == 1
+    toyota_tss2_smooth = int(params_dict.get("ToyotaTSS2Smooth", 0)) == 1
 
     if toyota_stock_long:
       CP_SP.flags |= ToyotaFlagsSP.STOCK_LONGITUDINAL.value
@@ -178,3 +206,6 @@ def _initialize_toyota(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params
 
     if toyota_stop_and_go_hack and CP.openpilotLongitudinalControl:
       CP_SP.flags |= ToyotaFlagsSP.STOP_AND_GO_HACK.value
+
+    if toyota_tss2_smooth and CP.flags & ToyotaFlags.TSS2 and CP.openpilotLongitudinalControl:
+      CP_SP.flags |= ToyotaFlagsSP.TSS2_SMOOTH.value

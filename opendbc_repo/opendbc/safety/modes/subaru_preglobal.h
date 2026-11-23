@@ -29,34 +29,32 @@
 static bool subaru_pg_reversed_driver_torque = false;
 
 static void subaru_preglobal_rx_hook(const CANPacket_t *msg) {
-  if (msg->bus == SUBARU_PG_MAIN_BUS) {
-    if (msg->addr == MSG_SUBARU_PG_Steering_Torque) {
-      int torque_driver_new;
-      torque_driver_new = (msg->data[3] >> 5) + (msg->data[4] << 3);
-      torque_driver_new = to_signed(torque_driver_new, 11);
-      torque_driver_new = subaru_pg_reversed_driver_torque ? -torque_driver_new : torque_driver_new;
-      update_sample(&torque_driver, torque_driver_new);
-    }
+  if (msg_matches(msg, MSG_SUBARU_PG_Steering_Torque, SUBARU_PG_MAIN_BUS)) {
+    int torque_driver_new;
+    torque_driver_new = (msg->data[3] >> 5) + (msg->data[4] << 3);
+    torque_driver_new = to_signed(torque_driver_new, 11);
+    torque_driver_new = subaru_pg_reversed_driver_torque ? -torque_driver_new : torque_driver_new;
+    update_sample(&torque_driver, torque_driver_new);
+  }
 
-    // enter controls on rising edge of ACC, exit controls on ACC off
-    if (msg->addr == MSG_SUBARU_PG_CruiseControl) {
-      bool cruise_engaged = (msg->data[6] >> 1) & 1U;
-      pcm_cruise_check(cruise_engaged);
-      acc_main_on = GET_BIT(msg, 48U);
-    }
+  // enter controls on rising edge of ACC, exit controls on ACC off
+  if (msg_matches(msg, MSG_SUBARU_PG_CruiseControl, SUBARU_PG_MAIN_BUS)) {
+    bool cruise_engaged = (msg->data[6] >> 1) & 1U;
+    pcm_cruise_check(cruise_engaged);
+    acc_main_on = GET_BIT(msg, 48U);
+  }
 
-    // update vehicle moving with any non-zero wheel speed
-    if (msg->addr == MSG_SUBARU_PG_Wheel_Speeds) {
-      vehicle_moving = ((GET_BYTES(msg, 0, 4) >> 12) != 0U) || (GET_BYTES(msg, 4, 4) != 0U);
-    }
+  // update vehicle moving with any non-zero wheel speed
+  if (msg_matches(msg, MSG_SUBARU_PG_Wheel_Speeds, SUBARU_PG_MAIN_BUS)) {
+    vehicle_moving = ((GET_BYTES_LE(msg, 0, 4) >> 12) | GET_BYTES_LE(msg, 4, 4)) != 0U;
+  }
 
-    if (msg->addr == MSG_SUBARU_PG_Brake_Pedal) {
-      brake_pressed = ((GET_BYTES(msg, 0, 4) >> 16) & 0xFFU) > 0U;
-    }
+  if (msg_matches(msg, MSG_SUBARU_PG_Brake_Pedal, SUBARU_PG_MAIN_BUS)) {
+    brake_pressed = ((GET_BYTES_LE(msg, 0, 4) >> 16) & 0xFFU) > 0U;
+  }
 
-    if (msg->addr == MSG_SUBARU_PG_Throttle) {
-      gas_pressed = msg->data[0] != 0U;
-    }
+  if (msg_matches(msg, MSG_SUBARU_PG_Throttle, SUBARU_PG_MAIN_BUS)) {
+    gas_pressed = msg->data[0] != 0U;
   }
 }
 
@@ -75,7 +73,7 @@ static bool subaru_preglobal_tx_hook(const CANPacket_t *msg) {
 
   // steer cmd checks
   if (msg->addr == MSG_SUBARU_PG_ES_LKAS) {
-    int desired_torque = ((GET_BYTES(msg, 0, 4) >> 8) & 0x1FFFU);
+    int desired_torque = ((GET_BYTES_LE(msg, 0, 4) >> 8) & 0x1FFFU);
     desired_torque = -1 * to_signed(desired_torque, 13);
 
     bool steer_req = (msg->data[3] >> 0) & 1U;
@@ -84,6 +82,7 @@ static bool subaru_preglobal_tx_hook(const CANPacket_t *msg) {
       tx = false;
     }
   }
+
   return tx;
 }
 
@@ -99,7 +98,7 @@ static safety_config subaru_preglobal_init(uint16_t param) {
 
   // TODO: do checksum and counter checks after adding the signals to the outback dbc file
   static RxCheck subaru_preglobal_rx_checks[] = {
-    {.msg = {{MSG_SUBARU_PG_Throttle,        SUBARU_PG_MAIN_BUS, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
+    {.msg = {{MSG_SUBARU_PG_Throttle,       SUBARU_PG_MAIN_BUS, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
     {.msg = {{MSG_SUBARU_PG_Steering_Torque, SUBARU_PG_MAIN_BUS, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
     {.msg = {{MSG_SUBARU_PG_CruiseControl,   SUBARU_PG_MAIN_BUS, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
     {.msg = {{MSG_SUBARU_PG_Wheel_Speeds,    SUBARU_PG_MAIN_BUS, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},

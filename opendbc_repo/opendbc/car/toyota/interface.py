@@ -83,7 +83,8 @@ class CarInterface(CarInterfaceBase):
 
     # TODO: Some TSS-P platforms have BSM, but are flipped based on region or driving direction.
     # Detect flipped signals and enable for C-HR and others
-    ret.enableBsm = 0x3F6 in fingerprint[0] and bool(ret.flags & ToyotaFlags.TSS2)
+    if 0x3F6 in fingerprint[0] and ret.flags & ToyotaFlags.TSS2:
+      ret.flags |= ToyotaFlags.HAS_BSM.value
 
     # No radar dbc for cars without DSU which are not TSS 2.0
     # TODO: make an adas dbc file for dsu-less models
@@ -146,7 +147,6 @@ class CarInterface(CarInterfaceBase):
     if candidate == CAR.TOYOTA_PRIUS:
       if ret.flags & ToyotaFlagsSP.ZSS:
         stock_cp.steerRatio = 15.0
-        stock_cp.mass = 3370.
 
         # reuse logic from _get_params
         # Only give steer angle deadzone to for bad angle sensor prius

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-from opendbc.car import get_safety_config, structs
+from opendbc.car import get_safety_config, scale_tire_stiffness_per_mass, structs
 from opendbc.car.chrysler.carcontroller import CarController
 from opendbc.car.chrysler.carstate import CarState
 from opendbc.car.chrysler.radar_interface import RadarInterface
 from opendbc.car.chrysler.values import CAR, CUSW_CARS, RAM_HD, RAM_DT, RAM_CARS, ChryslerFlags, ChryslerSafetyFlags
 from opendbc.car.interfaces import CarInterfaceBase
-from opendbc.sunnypilot.car.chrysler.values_ext import ChryslerFlagsSP
+from opendbc.sunnypilot.car.chrysler.values_ext import ChryslerFlagsSP, ChryslerSafetyFlagsSP
 
 
 class CarInterface(CarInterfaceBase):
@@ -83,7 +83,8 @@ class CarInterface(CarInterfaceBase):
       ret.minSteerSpeed = 17.5  # m/s 17 on the way up, 13 on the way down once engaged.
 
     ret.centerToFront = ret.wheelbase * 0.44
-    ret.enableBsm = (0x62cc033 if candidate in CUSW_CARS else 0x2d0) in fingerprint[0]
+    if (0x62cc033 if candidate in CUSW_CARS else 0x2d0) in fingerprint[0]:
+      ret.flags |= ChryslerFlags.HAS_BSM.value
 
     return ret
 
@@ -99,10 +100,14 @@ class CarInterface(CarInterfaceBase):
 
     if candidate == CAR.RAM_HD_5TH_GEN:
       stock_cp.dashcamOnly = False
+
+      if 0x23A not in fingerprint[0]:
+        ret.flags |= ChryslerFlagsSP.RAM_HD_ALT_BUTTONS.value
+        ret.safetyParam |= ChryslerSafetyFlagsSP.RAM_HD_ALT_BUTTONS
       # https://github.com/commaai/openpilot/issues/25389
-      stock_cp.tireStiffnessFactor = 1.0
-      stock_cp.tireStiffnessFront = 65155.
-      stock_cp.tireStiffnessRear = 80926.
+      stock_cp.tireStiffnessFactor = 0.15
+      stock_cp.tireStiffnessFrontPerMass, stock_cp.tireStiffnessRearPerMass = \
+        scale_tire_stiffness_per_mass(stock_cp.wheelbase, stock_cp.centerToFront, stock_cp.tireStiffnessFactor)
       stock_cp.wheelbase = 3.79
       stock_cp.steerRatio = 19.
 

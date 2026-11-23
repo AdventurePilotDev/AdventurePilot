@@ -1,6 +1,6 @@
 from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, create_button_events, structs
-from opendbc.car.chrysler.values import CUSW_CARS, DBC, STEER_THRESHOLD, RAM_CARS
+from opendbc.car.chrysler.values import CUSW_CARS, DBC, STEER_THRESHOLD, RAM_CARS, ChryslerFlags
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarStateBase
 
@@ -40,7 +40,7 @@ class CarState(CarStateBase, MadsCarState, CarStateExt):
     ret_sp = structs.CarStateSP()
 
     prev_distance_button = self.distance_button
-    self.distance_button = cp.vl["CRUISE_BUTTONS"]["ACC_Distance_Dec"]
+    self.distance_button = cp.vl[self.cruise_btns]["ACC_Distance_Dec"]
 
     # lock info
     ret.doorOpen = any([cp.vl["BCM_1"]["DOOR_OPEN_FL"],
@@ -96,12 +96,12 @@ class CarState(CarStateBase, MadsCarState, CarStateExt):
       ret.steerFaultPermanent = cp.vl["EPS_2"]["LKAS_STATE"] == 4
 
     # blindspot sensors
-    if self.CP.enableBsm:
+    if self.CP.flags & ChryslerFlags.HAS_BSM:
       ret.leftBlindspot = cp.vl["BSM_1"]["LEFT_STATUS"] == 1
       ret.rightBlindspot = cp.vl["BSM_1"]["RIGHT_STATUS"] == 1
 
     self.lkas_car_model = cp_cam.vl["DAS_6"]["CAR_MODEL"]
-    self.button_counter = cp.vl["CRUISE_BUTTONS"]["COUNTER"]
+    self.button_counter = cp.vl[self.cruise_btns]["COUNTER"]
 
     MadsCarState.update_mads(self, ret, can_parsers)
     CarStateExt.update(self, ret, ret_sp, can_parsers)
@@ -154,7 +154,7 @@ class CarState(CarStateBase, MadsCarState, CarStateExt):
     ret.steeringPressed = abs(ret.steeringTorque) > STEER_THRESHOLD
     ret.steerFaultPermanent = bool(cp.vl["EPS_STATUS"]["LKAS_FAULT"])
 
-    if self.CP.enableBsm:
+    if self.CP.flags & ChryslerFlags.HAS_BSM:
       ret.leftBlindspot = bool(cp.vl["BSM_LEFT"]["LEFT_DETECTED"])
       ret.rightBlindspot = bool(cp.vl["BSM_RIGHT"]["RIGHT_DETECTED"])
 

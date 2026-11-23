@@ -627,7 +627,7 @@ class MadsSafetyTestBase(unittest.TestCase):
 
     # Simulate message lag — safety_tick clears both controls_allowed and controls_allowed_lateral
     self.safety.set_timer(int(2e6))
-    self.safety.safety_tick_current_safety_config()
+    self.safety.safety_tick()
     self.assertFalse(self.safety.get_controls_allowed_lateral())
     self.assertFalse(self.safety.get_controls_allowed_lateral())
     self.assertFalse(self.safety.get_controls_allowed())

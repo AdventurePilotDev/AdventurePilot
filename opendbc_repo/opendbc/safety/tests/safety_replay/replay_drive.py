@@ -40,6 +40,9 @@ def replay_drive(msgs, safety_mode, param, alternative_experience, param_sp):
   print(f"  disengage lateral on brake: {_disengage_lateral_on_brake}")
   print(f"  pause lateral on brake: {_pause_lateral_on_brake}")
 
+  if not any(m.which() == "sentinel" and m.sentinel.type == "startOfRoute" for m in msgs):
+    print("WARNING: Replay starts mid-route; missing prior safety state may cause safety violations that did not appear in the route.")
+
   init_segment(safety, msgs, safety_mode, param)
 
   rx_tot, rx_invalid, tx_tot, tx_blocked, tx_controls, tx_controls_lateral, tx_controls_blocked, tx_controls_lateral_blocked = 0, 0, 0, 0, 0, 0, 0, 0
@@ -62,7 +65,7 @@ def replay_drive(msgs, safety_mode, param, alternative_experience, param_sp):
 
     # skip start and end of route, warm up/down period
     if msg.logMonoTime - start_t > 1e9 and end_t - msg.logMonoTime > 1e9:
-      safety.safety_tick_current_safety_config()
+      safety.safety_tick()
       safety_tick_rx_invalid |= not safety.safety_config_valid() or safety_tick_rx_invalid
 
     if msg.which() == 'sendcan':

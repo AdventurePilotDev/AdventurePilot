@@ -3,18 +3,15 @@ import unittest
 
 from opendbc.car.volkswagen.values import VolkswagenSafetyFlags
 from opendbc.car.structs import CarParams
-from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
-from opendbc.safety.tests.common import CANPackerSafety
 
 MSG_HCA_1 = 0x0D2             # TX by OP, Heading Control Assist steering torque
 MSG_ACC_SYSTEM = 0x368        # TX by OP, longitudinal acceleration controls
 MSG_GRA_NEU = 0x38A           # TX by OP, ACC control buttons for cancel/resume
 MSG_ACC_GRA_ANZEIGE = 0x56A   # TX by OP, ACC HUD
 MSG_LDW_1 = 0x5BE             # TX by OP, Lane line recognition and text alerts
-
-
 class TestVolkswagenPqSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest):
+  DBC = "vw_pq"
   cruise_engaged = False
 
   RELAY_MALFUNCTION_ADDRS = {0: (MSG_HCA_1, MSG_LDW_1)}
@@ -82,38 +79,12 @@ class TestVolkswagenPqSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeri
   def _button_msg(self, _set=False, resume=False, cancel=False, bus=2):
     values = {"GRA_Neu_Setzen": _set, "GRA_Recall": resume, "GRA_Abbrechen": cancel}
     return self.packer.make_can_msg_safety("GRA_Neu", bus, values)
-
-  def test_torque_measurements(self):
-    # TODO: make this test work with all cars
-    self._rx(self._torque_driver_msg(50))
-    self._rx(self._torque_driver_msg(-50))
-    self._rx(self._torque_driver_msg(0))
-    self._rx(self._torque_driver_msg(0))
-    self._rx(self._torque_driver_msg(0))
-    self._rx(self._torque_driver_msg(0))
-
-    self.assertEqual(-50, self.safety.get_torque_driver_min())
-    self.assertEqual(50, self.safety.get_torque_driver_max())
-
-    self._rx(self._torque_driver_msg(0))
-    self.assertEqual(0, self.safety.get_torque_driver_max())
-    self.assertEqual(-50, self.safety.get_torque_driver_min())
-
-    self._rx(self._torque_driver_msg(0))
-    self.assertEqual(0, self.safety.get_torque_driver_max())
-    self.assertEqual(0, self.safety.get_torque_driver_min())
-
-
 class TestVolkswagenPqStockSafety(TestVolkswagenPqSafetyBase):
   # Transmit of GRA_Neu is allowed on bus 0 and 2 to keep compatibility with gateway and camera integration
+  SAFETY_MODEL = CarParams.SafetyModel.volkswagenPq
+
   TX_MSGS = [[MSG_HCA_1, 0], [MSG_GRA_NEU, 0], [MSG_GRA_NEU, 2], [MSG_LDW_1, 0]]
   FWD_BLACKLISTED_ADDRS = {2: [MSG_HCA_1, MSG_LDW_1]}
-
-  def setUp(self):
-    self.packer = CANPackerSafety("vw_pq")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.volkswagenPq, 0)
-    self.safety.init_tests()
 
   def test_spam_cancel_safety_check(self):
     self.safety.set_controls_allowed(0)
@@ -123,19 +94,14 @@ class TestVolkswagenPqStockSafety(TestVolkswagenPqSafetyBase):
     # do not block resume if we are engaged already
     self.safety.set_controls_allowed(1)
     self.assertTrue(self._tx(self._button_msg(resume=True)))
-
-
 class TestVolkswagenPqLongSafety(TestVolkswagenPqSafetyBase, common.LongitudinalAccelSafetyTest):
+  SAFETY_MODEL = CarParams.SafetyModel.volkswagenPq
+  SAFETY_PARAM = VolkswagenSafetyFlags.LONG_CONTROL
+
   TX_MSGS = [[MSG_HCA_1, 0], [MSG_LDW_1, 0], [MSG_ACC_SYSTEM, 0], [MSG_ACC_GRA_ANZEIGE, 0]]
   FWD_BLACKLISTED_ADDRS = {2: [MSG_HCA_1, MSG_LDW_1, MSG_ACC_SYSTEM, MSG_ACC_GRA_ANZEIGE]}
   RELAY_MALFUNCTION_ADDRS = {0: (MSG_HCA_1, MSG_LDW_1, MSG_ACC_SYSTEM, MSG_ACC_GRA_ANZEIGE)}
   INACTIVE_ACCEL = 3.01
-
-  def setUp(self):
-    self.packer = CANPackerSafety("vw_pq")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.volkswagenPq, VolkswagenSafetyFlags.LONG_CONTROL)
-    self.safety.init_tests()
 
   # stock cruise controls are entirely bypassed under openpilot longitudinal control
   def test_disable_control_allowed_from_cruise(self):
@@ -181,7 +147,5 @@ class TestVolkswagenPqLongSafety(TestVolkswagenPqSafetyBase, common.Longitudinal
     for enabled_status in (5, 7):
       self.assertTrue(self._tx(self._torque_cmd_msg(self.MAX_RATE_UP, steer_req=1, hca_status=enabled_status)),
                       f"torque cmd rejected with {enabled_status=}")
-
-
 if __name__ == "__main__":
   unittest.main()

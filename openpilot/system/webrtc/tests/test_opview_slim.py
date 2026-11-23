@@ -89,3 +89,18 @@ class TestOpviewSlim:
 def test_opview_takes_nothing_in():
   assert incoming_services(["testJoystick"], opview=True) == []
   assert incoming_services(["testJoystick"], opview=False) == ["testJoystick"]
+
+
+def test_longitudinal_plan_explicitly_empty():
+  for source in ('e2e', 'cruise'):
+    def build(plan, source=source):
+      plan.allowThrottle = False
+      plan.longitudinalPlanSource = source
+      plan.speeds = [25.] * 33
+      plan.accels = [0.1] * 33
+      plan.jerks = [0.] * 33
+    message = _reader('longitudinalPlan', build)
+    assert len(message.speeds) == 33
+    assert message.allowThrottle is False
+    assert opview_slim.slim('longitudinalPlan', message) == {}
+    assert json.dumps(opview_slim.slim('longitudinalPlan', message)) == '{}'

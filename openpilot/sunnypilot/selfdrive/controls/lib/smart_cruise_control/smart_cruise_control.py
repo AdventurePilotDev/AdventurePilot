@@ -19,7 +19,7 @@ class SmartCruiseControl:
     self.governor = LateralLoadGovernor()     # reactive lateral-load backstop + throttle-fade interlock
 
   def update(self, sm: messaging.SubMaster, long_enabled: bool, long_override: bool, v_ego: float, a_ego: float, v_cruise: float) -> None:
-    self.map.update(long_enabled, long_override, v_ego, a_ego, v_cruise)
+    self.map.update(sm, long_enabled, long_override, v_ego, a_ego, v_cruise)
     self.vision.update(sm, long_enabled, long_override, v_ego, a_ego, v_cruise)
     self.curve.update(sm, long_enabled, long_override, v_ego, a_ego, v_cruise)
     self.governor.update(sm, long_enabled, long_override, v_ego)
