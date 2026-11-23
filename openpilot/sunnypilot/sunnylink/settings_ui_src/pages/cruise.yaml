@@ -30,27 +30,12 @@ sections:
       label: Relaxed
     enablement:
     - $ref: '#/macros/longitudinal'
-  - key: AccelerationControl
-    widget: toggle
-    title: Acceleration Control
-    description: >-
-      Adds a personality-linked increase to the model acceleration candidate: Relaxed 0.1, Standard
-      0.2, Aggressive 0.3 m/s^2 at full activation. No increase at raw model requests <= 0; ramps to
-      full at 0.1 m/s^2. Speed activation ramps from zero at 10 mph to full at 20 mph. No increase
-      when the model predicts a stop. The separate gas override is unchanged. Acceleration Boost
-      stays off while this is on. Cruise and lead
-      candidates and acceleration limits still constrain the planner. Can only be changed while
-      parked.
-    enablement:
-    - $ref: '#/macros/offroad'
-    - $ref: '#/macros/longitudinal'
   - key: AccelBoostSP
     widget: toggle
     title: Acceleration Boost
     description: "Adds a small push on top of sunnypilot's own acceleration, stronger in Aggressive and gentler in Relaxed. Eases off in curves and when sunnypilot slows or stops. Never goes past your set speed, and lead-car following still comes first."
     enablement:
     - $ref: '#/macros/longitudinal'
-    - {type: param, key: AccelerationControl, equals: false}
   - key: SPStopDistance
     widget: option
     title: Minimum Stop Distance

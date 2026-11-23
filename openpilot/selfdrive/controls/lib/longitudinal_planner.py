@@ -16,7 +16,6 @@ from openpilot.selfdrive.car.cruise import V_CRUISE_MAX, V_CRUISE_UNSET
 from openpilot.common.swaglog import cloudlog
 
 from openpilot.sunnypilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlannerSP
-from openpilot.sunnypilot.selfdrive.controls.lib.acceleration_control import AccelerationControl
 
 J_CRUISE_VALS = [1.6, 1.2, 0.8, 0.6]
 J_CRUISE_BP = [0., 10.0, 25., 40.]
@@ -40,7 +39,6 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     self.fcw = False
     self.dt = dt
     self.accel_boost = AccelBoost()
-    self.acceleration_control = AccelerationControl(CP)
 
     self.v_desired_filter = FirstOrderFilter(init_v, 2.0, self.dt)
     self.a_cruise = init_a
@@ -111,9 +109,6 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     self.a_cruise = get_cruise_accel(v_cruise, v_ego, self.a_cruise, self.dt)
     cruise_should_stop = should_stop(v_ego, self.a_cruise)
 
-    # Acceleration Control first: Gas Override Boost latches "the model is limiting" from the candidate it is
-    # given, so it has to see the lifted one or it learns a boost from overrides where the lead was the limit.
-    output_a_target_e2e = self.acceleration_control.update(sm, output_a_target_e2e, self.scc.governor.throttle_scale())
     output_a_target_e2e = self.accel_boost.update(sm, output_a_target_e2e, output_a_target_mpc, self.a_cruise)
 
     candidates = [(output_a_target_mpc, self.mpc.source, output_should_stop_mpc),
@@ -151,4 +146,4 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
 
     pm.send('longitudinalPlan', plan_send)
 
-    self.publish_longitudinal_plan_sp(sm, pm, self.acceleration_control.boost)
+    self.publish_longitudinal_plan_sp(sm, pm)

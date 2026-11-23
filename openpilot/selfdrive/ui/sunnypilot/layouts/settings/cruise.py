@@ -69,15 +69,10 @@ class CruiseLayout(Widget):
 
     self.curve_speed_toggle = toggle_item_sp(
       title=tr("Curve Speed Control"),
-      description=tr("Slow down ahead of curves and power smoothly through them, keeping cornering within the "
+      description=tr("Slow down ahead of curves and power smoothly through them, keeping cornering within the " +
                      "steering's limits. Uses the vision path; no map data required."),
       param="CurveSpeedControl")
 
-    self.acceleration_control_toggle = toggle_item_sp(
-      title=tr("Acceleration Control"),
-      # Keep a literal so the AST translation extractor sees the complete message.
-      description=tr('Adds a personality-linked increase to the model acceleration candidate: Relaxed 0.1, Standard 0.2, Aggressive 0.3 m/s^2 at full activation. No increase at raw model requests <= 0; ramps to full at 0.1 m/s^2. Speed activation ramps from zero at 10 mph to full at 20 mph. No increase when the model predicts a stop. The separate gas override is unchanged. Acceleration Boost stays off while this is on. Cruise and lead candidates and acceleration limits still constrain the planner. Can only be changed while parked.'),  # noqa: E501
-      param="AccelerationControl")
     self.accel_boost_toggle = toggle_item_sp(
       title=tr("Acceleration Boost"),
       description=tr("Adds a small push on top of sunnypilot's own acceleration, stronger in Aggressive and gentler in Relaxed. " +
@@ -144,7 +139,7 @@ class CruiseLayout(Widget):
 
     self.rivian_resume_toggle = toggle_item_sp(
       title=tr("Rivian: Enable Resume"),
-      description=tr('When enabled a full stalk down action held for at least 0.5s, provided activation of ACC is available on stock Rivian, will set the cruise speed to be equal to that from the last time cruise was deactivated. If cruise has never been activated it will set the cruise speed to the current vehicle speed. It is recommended to disable the stock Rivian feature: "Set to speed limit on divided highways", which uses the same activation mechanism.'),
+      description=tr('When enabled a full stalk down action held for at least 0.5s, provided activation of ACC is available on stock Rivian, will set the cruise speed to be equal to that from the last time cruise was deactivated. If cruise has never been activated it will set the cruise speed to the current vehicle speed. It is recommended to disable the stock Rivian feature: "Set to speed limit on divided highways", which uses the same activation mechanism.'),  # noqa: E501
       param="RivianResumeEnabled")
 
 
@@ -153,7 +148,6 @@ class CruiseLayout(Widget):
       self.scc_v_toggle,
       self.scc_m_toggle,
       self.curve_speed_toggle,
-      self.acceleration_control_toggle,
       self.accel_boost_toggle,
       self.custom_acc_toggle,
       self.custom_acc_short_increment,
@@ -209,7 +203,7 @@ class CruiseLayout(Widget):
           self.icbm_toggle.set_description(new_desc)
           self.icbm_toggle.show_description(True)
 
-      self.accel_boost_toggle.action_item.set_enabled(has_long and not ui_state.params.get_bool("AccelerationControl"))
+      self.accel_boost_toggle.action_item.set_enabled(has_long)
 
       if has_long or has_icbm:
         self.custom_acc_toggle.action_item.set_enabled(((has_long and not ui_state.CP.pcmCruise) or has_icbm) and ui_state.is_offroad())
@@ -220,7 +214,6 @@ class CruiseLayout(Widget):
         # instead of leaving it always-on here.
         self.curve_speed_toggle.action_item.set_enabled(has_long)
         self.following_time_offset.action_item.set_enabled(has_long and ui_state.is_offroad())
-        self.acceleration_control_toggle.action_item.set_enabled(has_long and ui_state.is_offroad())
         self.stop_distance_option.action_item.set_enabled(has_long and ui_state.is_offroad())
         self.stop_distance_personality.action_item.set_enabled(has_long and ui_state.is_offroad())
       else:
@@ -233,7 +226,6 @@ class CruiseLayout(Widget):
         self.scc_m_toggle.action_item.set_enabled(False)
         self.curve_speed_toggle.action_item.set_enabled(False)
         self.following_time_offset.action_item.set_enabled(False)
-        self.acceleration_control_toggle.action_item.set_enabled(False)
         self.stop_distance_option.action_item.set_enabled(False)
         self.stop_distance_personality.action_item.set_enabled(False)
 
@@ -254,7 +246,6 @@ class CruiseLayout(Widget):
       self.icbm_toggle.set_description(tr(ONROAD_ONLY_DESCRIPTION))
       self.rivian_resume_toggle.action_item.set_enabled(False)
       self.following_time_offset.action_item.set_enabled(False)
-      self.acceleration_control_toggle.action_item.set_enabled(False)
       self.stop_distance_option.action_item.set_enabled(False)
       self.stop_distance_personality.action_item.set_enabled(False)
 
