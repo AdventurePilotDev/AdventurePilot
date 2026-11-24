@@ -229,14 +229,17 @@ class CruiseLayout(Widget):
         self.stop_distance_option.action_item.set_enabled(False)
         self.stop_distance_personality.action_item.set_enabled(False)
 
-      if not has_long:
+      # An unrecognized (mock) car never has openpilot longitudinal. Keep the driver's longitudinal
+      # settings through one, so the real car still has them on the next drive.
+      car_recognized = ui_state.CP.brand != "mock"
+      if not has_long and car_recognized:
         ui_state.params.remove("SPFollowingTimeOffset")
         ui_state.params.remove("SPStopDistance")
         ui_state.params.remove("SPStopDistancePersonality")
 
       is_rivian_long = ui_state.CP.brand == "rivian" and has_long
       self.rivian_resume_toggle.action_item.set_enabled(is_rivian_long and ui_state.is_offroad())
-      if not is_rivian_long:
+      if not is_rivian_long and car_recognized:
         ui_state.params.remove("RivianResumeEnabled")
 
     else:

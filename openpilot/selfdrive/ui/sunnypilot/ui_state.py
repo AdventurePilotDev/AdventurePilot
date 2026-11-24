@@ -212,8 +212,9 @@ class UIStateSP:
         self.params.remove("NeuralNetworkLateralControl")
         self.params.remove("LateralJerkTorqueController")
 
-      # Alpha longitudinal: clear if not available
-      if not CP.alphaLongitudinalAvailable:
+      # Alpha longitudinal: clear if not available. Not for an unrecognized (mock) car: one failed
+      # fingerprint at startup must not switch it off for the real car on the next drive
+      if CP.brand != "mock" and not CP.alphaLongitudinalAvailable:
         self.params.remove("AlphaLongitudinalEnabled")
 
       # BSM not available: clear BSM-dependent settings
