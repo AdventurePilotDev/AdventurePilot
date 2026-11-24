@@ -169,7 +169,9 @@ class DeveloperLayoutMici(NavScroller):
       alpha_avail = ui_state.CP.alphaLongitudinalAvailable
       if not alpha_avail or ui_state.is_release:
         self._alpha_long_toggle.set_visible(False)
-        ui_state.params.remove("AlphaLongitudinalEnabled")
+        # keep the setting through an unrecognized (mock) car, so the real car still has it next drive
+        if ui_state.is_release or ui_state.CP.brand != "mock":
+          ui_state.params.remove("AlphaLongitudinalEnabled")
       else:
         self._alpha_long_toggle.set_visible(True)
 
