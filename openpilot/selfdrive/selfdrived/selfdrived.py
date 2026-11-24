@@ -123,8 +123,9 @@ class SelfdriveD(CruiseHelper):
 
     car_recognized = self.CP.brand != 'mock'
 
-    # cleanup old params
-    if not self.CP.alphaLongitudinalAvailable:
+    # cleanup old params. Not for an unrecognized (mock) car: one failed fingerprint at startup
+    # must not silently switch off alpha longitudinal for the real car on the next drive
+    if car_recognized and not self.CP.alphaLongitudinalAvailable:
       self.params.remove("AlphaLongitudinalEnabled")
     if not self.CP.openpilotLongitudinalControl:
       self.params.remove("ExperimentalMode")
